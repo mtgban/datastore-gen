@@ -38,10 +38,8 @@ jobs:
 
       - name: Publish to B2
         env:
-          B2KEY: "${{ secrets.B2_APPLICATION_KEY_ID_DATASTORE }}"
-          B2SECRET: "${{ secrets.B2_APPLICATION_KEY_DATASTORE }}"
+          B2_APPLICATION_KEY_ID: ${{ secrets.B2_APPLICATION_KEY_ID_DATASTORE }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY_DATASTORE }}
         run: |
           pipx install b2
-          b2 account authorize "$B2KEY" "$B2SECRET"
-          b2 file upload --no-progress "${{ vars.B2_BUCKET }}" riftbound.json.xz riftbound/riftbound.json.xz
-          b2 account clear
+          b2 file upload --no-progress mtgban-datastore riftbound.json.xz riftbound/riftbound.json.xz

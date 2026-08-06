@@ -28,17 +28,16 @@ go run . -o riftbound.json
 
 ## Publishing
 
-The `publish` workflow runs daily (and on demand) and uploads the file to B2.
-It needs:
+The `publish` workflow runs daily (and on demand) and uploads the file to
+`b2://mtgban-datastore/riftbound/riftbound.json.xz`, so each game keeps its
+own folder in the shared datastore bucket. Consumers decompress by suffix, so
+the extension matters. It needs the secrets
+`B2_APPLICATION_KEY_ID_DATASTORE` and `B2_APPLICATION_KEY_DATASTORE`, an
+application key allowed to write that bucket.
 
-- secrets `B2_APPLICATION_KEY_ID_DATASTORE` /
-  `B2_APPLICATION_KEY_DATASTORE`: an application key allowed to write the
-  target bucket, inherited from the organization;
-- variable `B2_BUCKET`: the bucket name alone, e.g. `mtgban-datastore` (no
-  `b2://` scheme, no path); the object is always
-  `riftbound/riftbound.json.xz`, so each game keeps its own folder in a
-  shared datastore bucket. Consumers decompress by suffix, so the extension
-  matters.
+go-mtgban's `bantool-*_riftbound` workflows read the object straight from B2
+(`-datastore b2://mtgban-datastore/riftbound/riftbound.json.xz`), so the
+bucket can stay private and no `DATASTORE_RIFTBOUND` URL is needed.
 
 Consumers (the go-mtgban `bantool-*_riftbound` workflows) should point their
 `DATASTORE_RIFTBOUND` repository variable at the bucket's public URL for the
