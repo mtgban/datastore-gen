@@ -35,7 +35,8 @@ It needs:
   `B2_APPLICATION_KEY_DATASTORE`: an application key allowed to write the
   target bucket, inherited from the organization;
 - variable `B2_BUCKET`: the bucket name alone, e.g. `mtgban-datastore` (no
-  `b2://` scheme, no path); the object is always `riftbound.json`.
+  `b2://` scheme, no path); the object is always `riftbound/riftbound.json`,
+  so each game keeps its own folder in a shared datastore bucket.
 
 Consumers (the go-mtgban `bantool-*_riftbound` workflows) should point their
 `DATASTORE_RIFTBOUND` repository variable at the bucket's public URL for the
