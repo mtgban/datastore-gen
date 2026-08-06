@@ -22,13 +22,18 @@ jobs:
           go-version-file: go.mod
 
       - name: Build the datastore
-        run: go run . -o riftbound.json
+        run: |
+          go run . -o riftbound.json
+          # Consumers decompress by suffix (simplecloud.InitReader), so the
+          # published object keeps the .xz extension.
+          xz -9 riftbound.json
+          ls -l riftbound.json.xz
 
       - name: Keep a copy on the run
         uses: actions/upload-artifact@v4
         with:
-          name: riftbound.json
-          path: riftbound.json
+          name: riftbound.json.xz
+          path: riftbound.json.xz
           retention-days: 7
 
       - name: Publish to B2
@@ -38,5 +43,5 @@ jobs:
         run: |
           pipx install b2
           b2 account authorize "$B2KEY" "$B2SECRET"
-          b2 file upload --no-progress "${{ vars.B2_BUCKET }}" riftbound.json riftbound/riftbound.json
+          b2 file upload --no-progress "${{ vars.B2_BUCKET }}" riftbound.json.xz riftbound/riftbound.json.xz
           b2 account clear
