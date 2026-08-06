@@ -31,8 +31,9 @@ go run . -o riftbound.json
 The `publish` workflow runs daily (and on demand) and uploads the file to B2.
 It needs:
 
-- secrets `B2_KEY_ID` / `B2_APP_KEY`: an application key allowed to write the
-  target bucket;
+- secrets `B2_APPLICATION_KEY_ID_DATASTORE` /
+  `B2_APPLICATION_KEY_DATASTORE`: an application key allowed to write the
+  target bucket, inherited from the organization;
 - variable `B2_BUCKET`: the bucket name; the object is always
   `riftbound.json`.
 
