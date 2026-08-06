@@ -33,15 +33,10 @@ jobs:
 
       - name: Publish to B2
         env:
-          B2_APPLICATION_KEY_ID: "${{ secrets.B2_APPLICATION_KEY_ID_DATASTORE }}"
-          B2_APPLICATION_KEY: "${{ secrets.B2_APPLICATION_KEY_DATASTORE }}"
+          B2KEY: "${{ secrets.B2_APPLICATION_KEY_ID_DATASTORE }}"
+          B2SECRET: "${{ secrets.B2_APPLICATION_KEY_DATASTORE }}"
         run: |
-          set -euo pipefail
-
-          # The standalone binary avoids depending on the runner's Python
-          # packaging (pip installs into an externally managed environment).
-          curl -sSfL -o b2 \
-              https://github.com/Backblaze/B2_Command_Line_Tool/releases/latest/download/b2-linux
-          chmod +x b2
-
-          ./b2 file upload --no-progress "${{ vars.B2_BUCKET }}" riftbound.json riftbound/riftbound.json
+          pipx install b2
+          b2 account authorize "$B2KEY" "$B2SECRET"
+          b2 file upload --no-progress "${{ vars.B2_BUCKET }}" riftbound.json riftbound/riftbound.json
+          b2 account clear
