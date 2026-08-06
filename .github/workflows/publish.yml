@@ -35,25 +35,8 @@ jobs:
         env:
           B2_APPLICATION_KEY_ID: "${{ secrets.B2_APPLICATION_KEY_ID_DATASTORE }}"
           B2_APPLICATION_KEY: "${{ secrets.B2_APPLICATION_KEY_DATASTORE }}"
-          B2_BUCKET: "${{ vars.B2_BUCKET }}"
         run: |
           set -euo pipefail
-
-          if [[ -z "$B2_BUCKET" ]]; then
-              echo "::error::B2_BUCKET is not set"
-              exit 1
-          fi
-
-          # b2 file upload takes a bare bucket name and an object name, so
-          # split the b2://bucket/prefix/ destination into the two. A bare
-          # bucket name works as well, and lands the file at the root.
-          DEST="${B2_BUCKET#b2://}"
-          BUCKET="${DEST%%/*}"
-          PREFIX="${DEST#"$BUCKET"}"
-          PREFIX="${PREFIX#/}"
-          PREFIX="${PREFIX%/}"
-          OBJECT="${PREFIX:+$PREFIX/}riftbound.json"
-          echo "Uploading to b2://$BUCKET/$OBJECT"
 
           # The standalone binary avoids depending on the runner's Python
           # packaging (pip installs into an externally managed environment).
@@ -61,4 +44,4 @@ jobs:
               https://github.com/Backblaze/B2_Command_Line_Tool/releases/latest/download/b2-linux
           chmod +x b2
 
-          ./b2 file upload --no-progress "$BUCKET" riftbound.json "$OBJECT"
+          ./b2 file upload --no-progress "${{ vars.B2_BUCKET }}" riftbound.json riftbound.json
