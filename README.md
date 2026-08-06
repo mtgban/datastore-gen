@@ -34,8 +34,9 @@ It needs:
 - secrets `B2_APPLICATION_KEY_ID_DATASTORE` /
   `B2_APPLICATION_KEY_DATASTORE`: an application key allowed to write the
   target bucket, inherited from the organization;
-- variable `B2_BUCKET`: the bucket name; the object is always
-  `riftbound.json`.
+- variable `B2_BUCKET`: the destination, either a bare bucket name or a
+  `b2://bucket/prefix/` URI (e.g. `b2://mtgban-datastore/riftbound/`); the
+  object is always named `riftbound.json` under it.
 
 Consumers (the go-mtgban `bantool-*_riftbound` workflows) should point their
 `DATASTORE_RIFTBOUND` repository variable at the bucket's public URL for the
