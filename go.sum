@@ -1,6 +1,6 @@
 github.com/mroth/weightedrand/v2 v2.1.0 h1:o1ascnB1CIVzsqlfArQQjeMy1U0NcIbBO5rfd5E/OeU=
 github.com/mroth/weightedrand/v2 v2.1.0/go.mod h1:f2faGsfOGOwc1p94wzHKKZyTpcJUW7OJ/9U4yfiNAOU=
-github.com/mtgban/go-mtgban v0.6.12-0.20260806213336-cad90ce017d4 h1:Ci7JJuiV2gRhGeqZeGqESj+mHV1iEVn7vgRPiJDunlw=
-github.com/mtgban/go-mtgban v0.6.12-0.20260806213336-cad90ce017d4/go.mod h1:ifRnJzoMYIwIE40EAJCgTU+24wErFadcvYnjLzNlJMg=
-golang.org/x/text v0.38.0 h1:sXmwo9DwP3OK9EZ7PqAdaooSGozfl/3a6/xJcbzPRhE=
-golang.org/x/text v0.38.0/go.mod h1:YXZt3QhHUKYT53r2lLKFIVi6Ao1jdzrTR/KQ09qyxF4=
+github.com/mtgban/go-mtgban v0.7.0 h1:wIogZXTbjDmvl67Pk698YEcXisdT/T3ApmlRB9FgDrw=
+github.com/mtgban/go-mtgban v0.7.0/go.mod h1:ciibxRu00JmQXU6PyMwKibI5bn372kKgwN/j+YV/Kq4=
+golang.org/x/text v0.39.0 h1:UbZz4pLOvn600D6Oh6GGEI6VAmndrEBLv8/6BEXzyus=
+golang.org/x/text v0.39.0/go.mod h1:3UwRclnC2g0TU9x8PZiyfOajCd1zaUNHF9cvqcQZ+ZM=
