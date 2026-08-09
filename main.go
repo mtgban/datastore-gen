@@ -32,10 +32,9 @@ const (
 	galleryPageURL = "https://riftbound.leagueoflegends.com/en-us/card-gallery/"
 	galleryDataURL = "https://riftbound.leagueoflegends.com/_next/data/%s/en-us/card-gallery.json"
 
-	// tcgcsv republishes the TCGplayer catalog daily; category 89 is
-	// Riftbound.
-	tcgcsvGroupsURL   = "https://tcgcsv.com/tcgplayer/89/groups"
-	tcgcsvProductsURL = "https://tcgcsv.com/tcgplayer/89/%d/products"
+	// riftboundCategory is Riftbound's TCGplayer category, the one the
+	// catalog dump is expected to carry.
+	riftboundCategory = 89
 )
 
 var buildIdRe = regexp.MustCompile(`"buildId":"([^"]+)"`)
@@ -67,10 +66,75 @@ type tcgProduct struct {
 	ProductID    int    `json:"productId"`
 	Name         string `json:"name"`
 	ImageURL     string `json:"imageUrl"`
+	GroupID      int    `json:"groupId"`
 	ExtendedData []struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"extendedData"`
+	// Skus enumerate every printing/condition/language a product is sold
+	// in. Only the printing matters here, and it is the whole reason the
+	// catalog dump is read instead of a price feed: a printing exists
+	// whether or not anyone happens to be selling it today.
+	Skus []struct {
+		PrintingID int `json:"printingId"`
+	} `json:"skus"`
+}
+
+// tcgCatalog is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
+// for a category, published next to the datastore it describes.
+type tcgCatalog struct {
+	Category struct {
+		CategoryID int `json:"categoryId"`
+	} `json:"category"`
+	Printings []struct {
+		PrintingID int    `json:"printingId"`
+		Name       string `json:"name"`
+	} `json:"printings"`
+	Groups   []tcgGroup   `json:"groups"`
+	Products []tcgProduct `json:"products"`
+}
+
+// finishesByProduct maps each product to the finishes it is sold in, named as
+// the matcher names them. TCGplayer calls them Normal and Foil, and a
+// printing it does not list is one that does not exist: most of Riftbound is
+// sold in a single finish, promotional printings being foil and starter
+// cards plain.
+func (c *tcgCatalog) finishesByProduct() map[int][]string {
+	printing := map[int]string{}
+	for _, p := range c.Printings {
+		switch p.Name {
+		case "Normal":
+			printing[p.PrintingID] = "nonfoil"
+		case "Foil":
+			printing[p.PrintingID] = "foil"
+		}
+	}
+
+	out := map[int][]string{}
+	for _, product := range c.Products {
+		var nonfoil, foil bool
+		for _, sku := range product.Skus {
+			switch printing[sku.PrintingID] {
+			case "nonfoil":
+				nonfoil = true
+			case "foil":
+				foil = true
+			}
+		}
+		// Ordered rather than as encountered, so unchanged data keeps
+		// producing byte-identical output.
+		var finishes []string
+		if nonfoil {
+			finishes = append(finishes, "nonfoil")
+		}
+		if foil {
+			finishes = append(finishes, "foil")
+		}
+		if len(finishes) > 0 {
+			out[product.ProductID] = finishes
+		}
+	}
+	return out
 }
 
 func (p tcgProduct) extended(name string) string {
@@ -102,7 +166,31 @@ func numberOf(code string) string {
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	minCards := flag.Int("min-cards", 1000, "refuse to emit a datastore with fewer card printings")
+	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 89 (required)")
 	flag.Parse()
+
+	if *catalogPath == "" {
+		log.Fatalln("-tcg-catalog is required: the dump carries the product ids and the finishes")
+	}
+	catalogData, err := os.ReadFile(*catalogPath)
+	if err != nil {
+		log.Fatalln("tcg catalog:", err)
+	}
+	var catalog tcgCatalog
+	if err := json.Unmarshal(catalogData, &catalog); err != nil {
+		log.Fatalln("tcg catalog:", err)
+	}
+	if catalog.Category.CategoryID != riftboundCategory {
+		log.Fatalf("tcg catalog: category %d, want %d (wrong game's dump)",
+			catalog.Category.CategoryID, riftboundCategory)
+	}
+	finishes := catalog.finishesByProduct()
+	productsByGroup := map[int][]tcgProduct{}
+	for _, product := range catalog.Products {
+		productsByGroup[product.GroupID] = append(productsByGroup[product.GroupID], product)
+	}
+	log.Printf("catalog: %d groups, %d products, %d with a known finish",
+		len(catalog.Groups), len(catalog.Products), len(finishes))
 
 	page, err := fetch(galleryPageURL)
 	if err != nil {
@@ -152,23 +240,14 @@ func main() {
 		galleryByNumber[setID][numberOf(item["publicCode"].(string))] = item
 	}
 
-	var groupsResp struct {
-		Results []tcgGroup `json:"results"`
-	}
-	groupsData, err := fetch(tcgcsvGroupsURL)
-	if err != nil {
-		log.Fatalln("tcgcsv groups:", err)
-	}
-	if err := json.Unmarshal(groupsData, &groupsResp); err != nil {
-		log.Fatalln("tcgcsv groups:", err)
-	}
 	// Process in a stable order so unchanged data produces byte-identical
 	// output (consumers cache the file by etag).
-	sort.Slice(groupsResp.Results, func(i, j int) bool {
-		return groupsResp.Results[i].Abbreviation < groupsResp.Results[j].Abbreviation
+	groups := catalog.Groups
+	sort.Slice(groups, func(i, j int) bool {
+		return groups[i].Abbreviation < groups[j].Abbreviation
 	})
 
-	for _, group := range groupsResp.Results {
+	for _, group := range groups {
 		byNumber := galleryByNumber[group.Abbreviation]
 		if !isPromoGroup(group) && byNumber == nil {
 			// Neither a promo group nor a set the gallery knows: a set the
@@ -177,23 +256,17 @@ func main() {
 			continue
 		}
 
-		productsData, err := fetch(fmt.Sprintf(tcgcsvProductsURL, group.GroupID))
-		if err != nil {
-			log.Fatalln(group.Name, ":", err)
-		}
-		var productsResp struct {
-			Results []tcgProduct `json:"results"`
-		}
-		if err := json.Unmarshal(productsData, &productsResp); err != nil {
-			log.Fatalln(group.Name, ":", err)
-		}
+		products := productsByGroup[group.GroupID]
+		sort.Slice(products, func(i, j int) bool {
+			return products[i].ProductID < products[j].ProductID
+		})
 
 		// A main set: stamp the gallery printings with the TCGplayer product
 		// id resolving to them, keyed by collector number.
 		if byNumber != nil {
 			var stamped int
 			var missed []string
-			for _, product := range productsResp.Results {
+			for _, product := range products {
 				number := product.extended("Number")
 				if number == "" {
 					continue
@@ -206,6 +279,9 @@ func main() {
 					continue
 				}
 				item["tcgplayerProductId"] = product.ProductID
+				if f := finishes[product.ProductID]; len(f) > 0 {
+					item["finishes"] = f
+				}
 				stamped++
 			}
 			log.Printf("%s (%s): %d printings stamped, %d unknown to the gallery %v",
@@ -214,7 +290,7 @@ func main() {
 		}
 
 		var added, maxNum int
-		for _, product := range productsResp.Results {
+		for _, product := range products {
 			number := product.extended("Number")
 			if number == "" {
 				// Not a single (sealed, accessories, the odd unnumbered
@@ -236,6 +312,7 @@ func main() {
 				"publicCode":         fmt.Sprintf("%s-%s", group.Abbreviation, number),
 				"orientation":        "portrait",
 				"tcgplayerProductId": product.ProductID,
+				"finishes":           finishes[product.ProductID],
 				"set": map[string]any{
 					"value": map[string]any{
 						"id":    group.Abbreviation,
