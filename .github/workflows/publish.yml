@@ -38,10 +38,11 @@ jobs:
 
       - name: Build the datastore
         run: |
-          # The same URL the go-mtgban CI reads the upstream file from, so
-          # there is one place to change if LorcanaJSON moves.
+          # vars.DATASTORE_LORCANA overrides the upstream location when set
+          # (it lives on go-mtgban today, not at the org level), so there is
+          # one place to change if LorcanaJSON moves.
           go run . -tcg-catalog tcgplayer-catalog.json \
-            -lorcana "${{ vars.DATASTORE_LORCANA }}" \
+            -lorcana "${{ vars.DATASTORE_LORCANA || 'https://lorcanajson.org/files/current/en/allCards.json' }}" \
             -o lorcana.json
           # Consumers decompress by suffix (simplecloud.InitReader), so the
           # published object keeps the .xz extension.
