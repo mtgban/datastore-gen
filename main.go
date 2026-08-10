@@ -130,6 +130,12 @@ func (c *tcgCatalog) finishesByProduct() map[int][]string {
 			printing[p.PrintingID] = "nonfoil"
 		case "Foil":
 			printing[p.PrintingID] = "foil"
+		default:
+			// Normal and Foil are the category's whole vocabulary today;
+			// a printing TCGplayer adds later must be mapped here, not
+			// silently skipped (its skus would count for no finish and
+			// the loader would fall back to both).
+			log.Printf("unknown printing %q (%d): skus under it are ignored", p.Name, p.PrintingID)
 		}
 	}
 
