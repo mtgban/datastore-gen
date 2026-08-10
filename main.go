@@ -35,6 +35,13 @@ const (
 	// riftboundCategory is Riftbound's TCGplayer category, the one the
 	// catalog dump is expected to carry.
 	riftboundCategory = 89
+
+	// tcgSingles is the product type single cards are filed under.
+	// Everything else the catalog carries is a sealed product: the
+	// comparison is against the singles type rather than a list of sealed
+	// ones, so a type TCGplayer adds later lands on the sealed side where
+	// it is noticed instead of silently passing as a single.
+	tcgSingles = "Cards"
 )
 
 var buildIdRe = regexp.MustCompile(`"buildId":"([^"]+)"`)
@@ -67,6 +74,7 @@ type tcgProduct struct {
 	Name         string `json:"name"`
 	ImageURL     string `json:"imageUrl"`
 	GroupID      int    `json:"groupId"`
+	ProductType  string `json:"productType"`
 	ExtendedData []struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
@@ -186,11 +194,26 @@ func main() {
 	}
 	finishes := catalog.finishesByProduct()
 	productsByGroup := map[int][]tcgProduct{}
+	var singles int
 	for _, product := range catalog.Products {
 		productsByGroup[product.GroupID] = append(productsByGroup[product.GroupID], product)
+		if product.ProductType == tcgSingles {
+			singles++
+		}
 	}
-	log.Printf("catalog: %d groups, %d products, %d with a known finish",
-		len(catalog.Groups), len(catalog.Products), len(finishes))
+	// A dump from before the product type was recorded types nothing, and
+	// the sealed-by-exclusion rule would then file the whole catalog as
+	// sealed; a dump whose singles all vanished is equally implausible.
+	if singles == 0 {
+		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
+	}
+	for _, products := range productsByGroup {
+		sort.Slice(products, func(i, j int) bool {
+			return products[i].ProductID < products[j].ProductID
+		})
+	}
+	log.Printf("catalog: %d groups, %d products (%d singles), %d with a known finish",
+		len(catalog.Groups), len(catalog.Products), singles, len(finishes))
 
 	page, err := fetch(galleryPageURL)
 	if err != nil {
@@ -257,9 +280,6 @@ func main() {
 		}
 
 		products := productsByGroup[group.GroupID]
-		sort.Slice(products, func(i, j int) bool {
-			return products[i].ProductID < products[j].ProductID
-		})
 
 		// A main set: stamp the gallery printings with the TCGplayer product
 		// id resolving to them, keyed by collector number.
@@ -267,6 +287,9 @@ func main() {
 			var stamped int
 			var missed []string
 			for _, product := range products {
+				if product.ProductType != tcgSingles {
+					continue
+				}
 				number := product.extended("Number")
 				if number == "" {
 					continue
@@ -291,10 +314,13 @@ func main() {
 
 		var added, maxNum int
 		for _, product := range products {
+			if product.ProductType != tcgSingles {
+				continue
+			}
 			number := product.extended("Number")
 			if number == "" {
-				// Not a single (sealed, accessories, the odd unnumbered
-				// promo): nothing to identify it by.
+				// An unnumbered single (the odd promo variant): nothing
+				// to identify it by.
 				continue
 			}
 			collector := 0
@@ -343,6 +369,36 @@ func main() {
 		log.Printf("%s (%s): %d promo printings", group.Name, group.Abbreviation, added)
 	}
 
+	// Sealed products: everything the catalog files outside the singles
+	// type, from every group whether the gallery knows it or not - the
+	// gallery carries no product entity of any kind, so it has no say.
+	var sealedItems []any
+	for _, group := range groups {
+		for _, product := range productsByGroup[group.GroupID] {
+			if product.ProductType == tcgSingles {
+				continue
+			}
+			sealedItems = append(sealedItems, map[string]any{
+				"id":                 fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
+				"name":               product.Name,
+				"tcgplayerProductId": product.ProductID,
+				"set": map[string]any{
+					"value": map[string]any{
+						"id":    group.Abbreviation,
+						"label": group.Name,
+					},
+				},
+				"cardImage": map[string]any{
+					"url": product.ImageURL,
+				},
+			})
+		}
+	}
+	if len(sealedItems) > 0 {
+		gallery["sealed"] = map[string]any{"items": sealedItems}
+	}
+	log.Printf("sealed: %d products", len(sealedItems))
+
 	sets["items"] = setItems
 	cards["items"] = cardItems
 
@@ -358,18 +414,26 @@ func main() {
 	if err != nil {
 		log.Fatalln("validation:", err)
 	}
+	// Count identified printings over the cards themselves: uuids carry
+	// one entry per finish, so counting them would tally a printing once
+	// per finish it is sold in.
 	var identified int
-	for _, uuid := range backend.GetUUIDs() {
-		co, err := backend.GetUUID(uuid)
-		if err == nil && !strings.HasSuffix(uuid, "_f") && co.Identifiers["tcgplayerProductId"] != "" {
-			identified++
+	for _, set := range backend.Sets {
+		for _, card := range set.Cards {
+			if card.Identifiers["tcgplayerProductId"] != "" {
+				identified++
+			}
 		}
 	}
 	printings := len(cardItems)
-	log.Printf("validated: %d sets, %d printings (%d uuids), %d tcgplayer ids",
-		len(setItems), printings, len(backend.GetUUIDs()), identified)
+	log.Printf("validated: %d sets, %d printings (%d uuids), %d tcgplayer ids, %d sealed",
+		len(setItems), printings, len(backend.GetUUIDs()), identified, len(backend.AllSealedUUIDs))
 	if printings < *minCards {
 		log.Fatalf("only %d printings (minimum %d); refusing to publish", printings, *minCards)
+	}
+	if len(backend.AllSealedUUIDs) != len(sealedItems) {
+		log.Fatalf("%d sealed products emitted but %d loaded back; refusing to publish",
+			len(sealedItems), len(backend.AllSealedUUIDs))
 	}
 
 	out := os.Stdout
