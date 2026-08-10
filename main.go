@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mtgban/go-mtgban/mtgmatcher"
 	"github.com/mtgban/go-mtgban/mtgmatcher/riftbound"
 )
 
@@ -67,6 +68,19 @@ type tcgGroup struct {
 	GroupID      int    `json:"groupId"`
 	Name         string `json:"name"`
 	Abbreviation string `json:"abbreviation"`
+	PublishedOn  string `json:"publishedOn"`
+}
+
+// releaseDate reduces a group's publishedOn timestamp to the bare day the
+// loader parses ("2025-10-31T00:00:00" -> "2025-10-31").
+func (g tcgGroup) releaseDate() string {
+	return strings.SplitN(g.PublishedOn, "T", 2)[0]
+}
+
+// imageURL upgrades a catalog image link to the 400-wide rendition; the
+// dump links the smallest one there is.
+func imageURL(url string) string {
+	return strings.Replace(url, "_200w.", "_400w.", 1)
 }
 
 type tcgProduct struct {
@@ -251,6 +265,17 @@ func main() {
 	setItems := sets["items"].([]any)
 	cardItems := cards["items"].([]any)
 
+	// Index the gallery sets so the groups can stamp their release dates
+	setByID := map[string]map[string]any{}
+	for _, s := range setItems {
+		item, ok := s.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := item["id"].(string)
+		setByID[id] = item
+	}
+
 	// Index the gallery printings by set and canonical collector number, the
 	// identity TCGplayer products are mapped back onto.
 	galleryByNumber := map[string]map[string]map[string]any{}
@@ -284,6 +309,9 @@ func main() {
 		// A main set: stamp the gallery printings with the TCGplayer product
 		// id resolving to them, keyed by collector number.
 		if byNumber != nil {
+			if item := setByID[group.Abbreviation]; item != nil {
+				item["releaseDate"] = group.releaseDate()
+			}
 			var stamped int
 			var missed []string
 			for _, product := range products {
@@ -329,12 +357,24 @@ func main() {
 				maxNum = collector
 			}
 
-			cardItems = append(cardItems, map[string]any{
+			// The parenthetical qualifiers become promo types, so sibling
+			// promos share one clean name and are told apart by number or
+			// by the storefront's own wording matching the types.
+			name := product.Name
+			var promoTypes []string
+			if vars := mtgmatcher.SplitVariants(name); len(vars) > 1 {
+				name = vars[0]
+				for _, qualifier := range vars[1:] {
+					promoTypes = append(promoTypes, strings.ToLower(qualifier))
+				}
+			}
+
+			item := map[string]any{
 				// The TCGplayer product id is the stable identity of a
 				// promo printing; group-prefixed for readability.
 				"id":                 fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
 				"collectorNumber":    collector,
-				"name":               product.Name,
+				"name":               name,
 				"publicCode":         fmt.Sprintf("%s-%s", group.Abbreviation, number),
 				"orientation":        "portrait",
 				"tcgplayerProductId": product.ProductID,
@@ -351,9 +391,13 @@ func main() {
 					},
 				},
 				"cardImage": map[string]any{
-					"url": product.ImageURL,
+					"url": imageURL(product.ImageURL),
 				},
-			})
+			}
+			if len(promoTypes) > 0 {
+				item["promoTypes"] = promoTypes
+			}
+			cardItems = append(cardItems, item)
 			added++
 		}
 		if added == 0 {
@@ -365,6 +409,7 @@ func main() {
 			"name":               group.Name,
 			"collectorNumberMax": maxNum,
 			"type":               "promo",
+			"releaseDate":        group.releaseDate(),
 		})
 		log.Printf("%s (%s): %d promo printings", group.Name, group.Abbreviation, added)
 	}
@@ -382,6 +427,7 @@ func main() {
 				"id":                 fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
 				"name":               product.Name,
 				"tcgplayerProductId": product.ProductID,
+				"releaseDate":        group.releaseDate(),
 				"set": map[string]any{
 					"value": map[string]any{
 						"id":    group.Abbreviation,
@@ -389,7 +435,7 @@ func main() {
 					},
 				},
 				"cardImage": map[string]any{
-					"url": product.ImageURL,
+					"url": imageURL(product.ImageURL),
 				},
 			})
 		}
