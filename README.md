@@ -24,9 +24,13 @@ anyone is selling it today.
 
 The output is the gallery payload itself with the extra data merged into the
 gallery blade, so the loader reads it unchanged. Before writing anything the
-result is round-tripped through the real `mtgmatcher/riftbound` loader and
-checked against a minimum printing count (`-min-cards`, default 1000), so a
+result is re-read, structurally verified, and checked against a minimum
+printing count (`-min-cards`, default 1000), so a
 broken upstream payload can never be published.
+
+This repository is deliberately standalone: it produces JSON and depends on
+nothing, so a datastore change never waits on a go-mtgban release. The few
+helpers the loader also has are duplicated here instead of imported.
 
 ## Usage
 

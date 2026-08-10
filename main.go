@@ -8,8 +8,12 @@
 //
 // The output is the gallery payload itself with the extra data merged into
 // the gallery blade, so mtgmatcher/riftbound loads it unchanged — and it is
-// round-tripped through that very loader before being written, so a broken
+// re-read and structurally verified before being written, so a broken
 // upstream payload can never be published.
+//
+// This repository is deliberately standalone: it produces JSON and depends
+// on nothing, so a datastore change never waits on a go-mtgban tag. The
+// few helpers the loader also has are duplicated here instead of imported.
 package main
 
 import (
@@ -24,9 +28,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-
-	"github.com/mtgban/go-mtgban/mtgmatcher"
-	"github.com/mtgban/go-mtgban/mtgmatcher/riftbound"
 )
 
 const (
@@ -182,7 +183,121 @@ func numberOf(code string) string {
 		code = code[idx+1:]
 	}
 	code = strings.Split(code, "/")[0]
-	return strings.ToLower(riftbound.CanonicalNumber(code))
+	return strings.ToLower(canonicalNumber(code))
+}
+
+// canonicalNumber strips leading zeros from the digit run of a collector
+// number, preserving any letter prefix ("T01" -> "T1") and any suffix
+// ("066a" -> "66a"), duplicating the loader's CanonicalNumber so this
+// repository depends on nothing.
+func canonicalNumber(number string) string {
+	i := 0
+	for i < len(number) && (number[i] < '0' || number[i] > '9') {
+		i++
+	}
+	prefix, rest := number[:i], number[i:]
+	trimmed := strings.TrimLeft(rest, "0")
+	if trimmed == "" && rest != "" {
+		trimmed = "0"
+	}
+	return prefix + trimmed
+}
+
+// splitQualifiers splits the trailing parenthetical qualifiers off a
+// product name: "Sett - The Boss (Metal) (Best Of)" yields the base name
+// and the qualifiers in order. A name that is nothing but a parenthetical
+// stays whole.
+func splitQualifiers(name string) (string, []string) {
+	base := strings.TrimSpace(name)
+	var qualifiers []string
+	for strings.HasSuffix(base, ")") {
+		idx := strings.LastIndexByte(base, '(')
+		if idx <= 0 {
+			break
+		}
+		qualifiers = append([]string{strings.TrimSpace(base[idx+1 : len(base)-1])}, qualifiers...)
+		base = strings.TrimSpace(base[:idx])
+	}
+	if base == "" {
+		return strings.TrimSpace(name), nil
+	}
+	return base, qualifiers
+}
+
+// validate decodes an encoded datastore and checks its shape: the gallery
+// blade present, every set and printing carrying its identity, every id
+// unique across cards and sealed products alike. It returns the set,
+// printing, sealed and identified-printing counts.
+func validate(data []byte) (sets, cards, sealed, identified int, err error) {
+	var doc struct {
+		PageProps struct {
+			Page struct {
+				Blades []struct {
+					Type string `json:"type"`
+					Sets struct {
+						Items []struct {
+							ID          string `json:"id"`
+							Name        string `json:"name"`
+							ReleaseDate string `json:"releaseDate"`
+						} `json:"items"`
+					} `json:"sets"`
+					Cards struct {
+						Items []struct {
+							ID                 string `json:"id"`
+							Name               string `json:"name"`
+							PublicCode         string `json:"publicCode"`
+							TCGplayerProductID int    `json:"tcgplayerProductId"`
+						} `json:"items"`
+					} `json:"cards"`
+					Sealed struct {
+						Items []struct {
+							ID                 string `json:"id"`
+							Name               string `json:"name"`
+							TCGplayerProductID int    `json:"tcgplayerProductId"`
+						} `json:"items"`
+					} `json:"sealed"`
+				} `json:"blades"`
+			} `json:"page"`
+		} `json:"pageProps"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return 0, 0, 0, 0, err
+	}
+
+	for _, blade := range doc.PageProps.Page.Blades {
+		if blade.Type != "riftboundCardGallery" {
+			continue
+		}
+		ids := map[string]bool{}
+		for _, set := range blade.Sets.Items {
+			if set.ID == "" || set.Name == "" || set.ReleaseDate == "" {
+				return 0, 0, 0, 0, fmt.Errorf("set %q (%s) missing identity or date", set.Name, set.ID)
+			}
+		}
+		for _, card := range blade.Cards.Items {
+			if card.ID == "" || card.Name == "" || card.PublicCode == "" {
+				return 0, 0, 0, 0, fmt.Errorf("printing %q (%s) missing identity", card.Name, card.ID)
+			}
+			if ids[card.ID] {
+				return 0, 0, 0, 0, fmt.Errorf("duplicate id %s", card.ID)
+			}
+			ids[card.ID] = true
+			if card.TCGplayerProductID != 0 {
+				identified++
+			}
+		}
+		for _, product := range blade.Sealed.Items {
+			if product.ID == "" || product.Name == "" || product.TCGplayerProductID == 0 {
+				return 0, 0, 0, 0, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
+			}
+			if ids[product.ID] {
+				return 0, 0, 0, 0, fmt.Errorf("duplicate id %s", product.ID)
+			}
+			ids[product.ID] = true
+		}
+		return len(blade.Sets.Items), len(blade.Cards.Items), len(blade.Sealed.Items), identified, nil
+	}
+	return 0, 0, 0, 0, fmt.Errorf("no card gallery blade in the output")
 }
 
 func main() {
@@ -360,13 +475,10 @@ func main() {
 			// The parenthetical qualifiers become promo types, so sibling
 			// promos share one clean name and are told apart by number or
 			// by the storefront's own wording matching the types.
-			name := product.Name
+			name, qualifiers := splitQualifiers(product.Name)
 			var promoTypes []string
-			if vars := mtgmatcher.SplitVariants(name); len(vars) > 1 {
-				name = vars[0]
-				for _, qualifier := range vars[1:] {
-					promoTypes = append(promoTypes, strings.ToLower(qualifier))
-				}
+			for _, qualifier := range qualifiers {
+				promoTypes = append(promoTypes, strings.ToLower(qualifier))
 			}
 
 			item := map[string]any{
@@ -453,33 +565,23 @@ func main() {
 		log.Fatalln(err)
 	}
 
-	// Round-trip through the real loader before publishing anything: an
-	// upstream page redesign or a truncated download must fail here, not in
-	// every consumer.
-	backend, err := riftbound.Load(bytes.NewReader(buf.Bytes()))
+	// Re-read the encoded output and verify it structurally before
+	// publishing anything: an upstream page redesign or a truncated
+	// download must fail here, not in every consumer. The types mirror
+	// what go-mtgban's mtgmatcher/riftbound reads, duplicated so this
+	// repository depends on nothing.
+	sets2, cards2, sealed2, identified, err := validate(buf.Bytes())
 	if err != nil {
 		log.Fatalln("validation:", err)
 	}
-	// Count identified printings over the cards themselves: uuids carry
-	// one entry per finish, so counting them would tally a printing once
-	// per finish it is sold in.
-	var identified int
-	for _, set := range backend.Sets {
-		for _, card := range set.Cards {
-			if card.Identifiers["tcgplayerProductId"] != "" {
-				identified++
-			}
-		}
+	log.Printf("validated: %d sets, %d printings, %d tcgplayer ids, %d sealed",
+		sets2, cards2, identified, sealed2)
+	if sets2 != len(setItems) || cards2 != len(cardItems) || sealed2 != len(sealedItems) {
+		log.Fatalf("emitted %d sets, %d printings, %d sealed but read back %d, %d, %d; refusing to publish",
+			len(setItems), len(cardItems), len(sealedItems), sets2, cards2, sealed2)
 	}
-	printings := len(cardItems)
-	log.Printf("validated: %d sets, %d printings (%d uuids), %d tcgplayer ids, %d sealed",
-		len(setItems), printings, len(backend.GetUUIDs()), identified, len(backend.AllSealedUUIDs))
-	if printings < *minCards {
-		log.Fatalf("only %d printings (minimum %d); refusing to publish", printings, *minCards)
-	}
-	if len(backend.AllSealedUUIDs) != len(sealedItems) {
-		log.Fatalf("%d sealed products emitted but %d loaded back; refusing to publish",
-			len(sealedItems), len(backend.AllSealedUUIDs))
+	if cards2 < *minCards {
+		log.Fatalf("only %d printings (minimum %d); refusing to publish", cards2, *minCards)
 	}
 
 	out := os.Stdout
