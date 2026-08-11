@@ -15,3 +15,7 @@ change never drags a library upgrade behind it.
   catalog dump
 - cmd/onepiece - One Piece Card Game, from the category 68 catalog dump
   annotated with punk-records' mirror of the official Bandai card list
+- cmd/yugioh - Yu-Gi-Oh, from the category 2 catalog dump with release
+  dates filled from YGOPRODeck's set list
+- cmd/fleshandblood - Flesh and Blood, from the category 62 catalog dump
+  annotated with the flesh-and-blood-cards dataset
