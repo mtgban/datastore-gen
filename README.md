@@ -13,3 +13,5 @@ change never drags a library upgrade behind it.
   card gallery and the category 89 catalog dump
 - cmd/lorcana - Disney Lorcana, from LorcanaJSON and the category 71
   catalog dump
+- cmd/onepiece - One Piece Card Game, from the category 68 catalog dump
+  annotated with punk-records' mirror of the official Bandai card list
