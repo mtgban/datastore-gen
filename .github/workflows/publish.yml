@@ -1,0 +1,111 @@
+name: publish
+
+run-name: publish (${{ inputs.game || 'all' }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      game:
+        description: Which datastore to publish
+        type: choice
+        default: all
+        options:
+          - all
+          - riftbound
+          - lorcana
+  schedule:
+    # Two hours after the catalog dump (05:00 UTC in go-tcgplayer)
+    - cron: "0 7 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  # Scheduled runs publish everything, manual runs honor the selection. The
+  # matrix context is not available in a job level if, so the selection is
+  # applied by building the matrix itself.
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        env:
+          SELECTED: ${{ inputs.game || 'all' }}
+        run: |
+          games='["riftbound", "lorcana"]'
+          if [ "$SELECTED" = all ]; then
+            selection=$(jq -c . <<< "$games")
+          else
+            selection=$(jq -c --arg name "$SELECTED" \
+              '[.[] | select(. == $name)]' <<< "$games")
+          fi
+          echo "Publishing: $selection"
+          echo "matrix=$selection" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: select
+    runs-on: ubuntu-latest
+    strategy:
+      # One game at a time to keep the object store writes tidy
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        game: ${{ fromJSON(needs.select.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install golang
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install b2
+        run: pipx install b2
+
+      - name: Fetch the TCGplayer catalog
+        env:
+          B2_APPLICATION_KEY_ID: ${{ secrets.B2_APPLICATION_KEY_ID_DATASTORE }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY_DATASTORE }}
+        run: |
+          # The dump tcgdumper writes nightly, published beside the datastore
+          # this run is about to replace.
+          b2 file download --no-progress \
+            b2://mtgban-datastore/${{ matrix.game }}/tcgplayer-catalog.json.xz \
+            tcgplayer-catalog.json.xz
+          xz -d tcgplayer-catalog.json.xz
+
+      - name: Build the datastore
+        env:
+          # Overrides the upstream LorcanaJSON location when set (it lives
+          # on go-mtgban today, not at the org level), so there is one place
+          # to change if LorcanaJSON moves.
+          DATASTORE_LORCANA: ${{ vars.DATASTORE_LORCANA }}
+        run: |
+          args=""
+          if [ "${{ matrix.game }}" = lorcana ]; then
+            args="-lorcana ${DATASTORE_LORCANA:-https://lorcanajson.org/files/current/en/allCards.json}"
+          fi
+          go run ./cmd/${{ matrix.game }} -tcg-catalog tcgplayer-catalog.json \
+            $args -o ${{ matrix.game }}.json
+          # Consumers decompress by suffix (simplecloud.InitReader), so the
+          # published object keeps the .xz extension.
+          xz -9 ${{ matrix.game }}.json
+          ls -l ${{ matrix.game }}.json.xz
+
+      - name: Keep a copy on the run
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.game }}.json.xz
+          path: ${{ matrix.game }}.json.xz
+          retention-days: 7
+
+      - name: Publish to B2
+        env:
+          B2_APPLICATION_KEY_ID: ${{ secrets.B2_APPLICATION_KEY_ID_DATASTORE }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY_DATASTORE }}
+        run: |
+          b2 file upload --no-progress mtgban-datastore \
+            ${{ matrix.game }}.json.xz ${{ matrix.game }}/${{ matrix.game }}.json.xz
