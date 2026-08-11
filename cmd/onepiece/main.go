@@ -107,6 +107,24 @@ func imageURL(url string) string {
 	return strings.Replace(url, "_200w.", "_400w.", 1)
 }
 
+// cardImage picks the card's image. Every official image of the game -
+// Bandai's own card list and TCGplayer's copy of it alike - wears a giant
+// SAMPLE watermark, and the community onepiece.gg mirror keys its cleaned
+// renditions by the same Bandai printing id the datastore aligns, so the
+// clean image is derivable exactly where the printing identity is known:
+// the aligned printings by their id, the base printings by their bare
+// number. An unaligned variant keeps the watermarked catalog image, whose
+// art is at least the right one.
+func cardImage(s single, bandaiId string) string {
+	if bandaiId != "" {
+		return "https://static.dotgg.gg/onepiece/card/" + bandaiId + ".webp"
+	}
+	if len(s.quals) == 0 {
+		return "https://static.dotgg.gg/onepiece/card/" + s.number + ".webp"
+	}
+	return imageURL(s.product.ImageURL)
+}
+
 // fetch reads a local path, or an http(s) URL when one is given.
 func fetch(location string) ([]byte, error) {
 	if !strings.HasPrefix(location, "http://") && !strings.HasPrefix(location, "https://") {
@@ -347,7 +365,7 @@ func main() {
 			"rarity":  s.product.extended("Rarity"),
 			"color":   s.product.extended("Color"),
 			"type":    s.product.extended("CardType"),
-			"image":   imageURL(s.product.ImageURL),
+			"image":   cardImage(s, bandaiIDs[s.product.ProductID]),
 			"externalLinks": map[string]any{
 				"tcgPlayerId": s.product.ProductID,
 			},
