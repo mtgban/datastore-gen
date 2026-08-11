@@ -234,12 +234,16 @@ func main() {
 	log.Printf("singles: %d kept, %d japanese dropped, %d DON!! and %d unnumbered left out",
 		len(singles), japanese, donCards, unnumbered)
 
-	// Per collector number: a qualifier every product carries is part of
-	// the name, not a variant.
+	// Per collector number: a qualifier every product of the number carries
+	// is part of the name (the "(Bentham)" epithets), not a variant. A
+	// number with a single product cannot make that call alone, so the
+	// epithets learned from the multi-product numbers decide for it — the
+	// same epithet decorates the character's every printing.
 	byNumber := map[string][]*single{}
 	for i := range singles {
 		byNumber[singles[i].number] = append(byNumber[singles[i].number], &singles[i])
 	}
+	nameParens := map[string]bool{}
 	for _, bucket := range byNumber {
 		sort.Slice(bucket, func(i, j int) bool {
 			return bucket[i].product.ProductID < bucket[j].product.ProductID
@@ -253,11 +257,36 @@ func main() {
 				common[q]++
 			}
 		}
+		for q, n := range common {
+			if n == len(bucket) {
+				nameParens[q] = true
+			}
+		}
+	}
+	for _, bucket := range byNumber {
+		// Decide before mutating: the membership test must read every
+		// product's original qualifiers, not the ones a fold already moved.
+		isName := map[string]bool{}
+		if len(bucket) < 2 {
+			for _, q := range bucket[0].quals {
+				isName[q] = nameParens[q]
+			}
+		} else {
+			common := map[string]int{}
+			for _, s := range bucket {
+				for _, q := range s.quals {
+					common[q]++
+				}
+			}
+			for q, n := range common {
+				isName[q] = n == len(bucket)
+			}
+		}
 		for _, s := range bucket {
 			var name, variant []string
 			name = append(name, s.baseName)
 			for _, q := range s.quals {
-				if common[q] == len(bucket) {
+				if isName[q] {
 					name = append(name, "("+q+")")
 				} else {
 					variant = append(variant, q)
@@ -463,4 +492,13 @@ func validate(data []byte) (counts, error) {
 	out.cards = len(doc.Cards)
 	out.sealed = len(doc.Sealed)
 	return out, nil
+}
+
+func sliceContains(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
 }
