@@ -16,6 +16,7 @@ on:
           - onepiece
           - yugioh
           - fleshandblood
+          - pokemon
   schedule:
     # Two hours after the catalog dump (05:00 UTC in go-tcgplayer)
     - cron: "0 7 * * *"
@@ -36,7 +37,7 @@ jobs:
         env:
           SELECTED: ${{ inputs.game || 'all' }}
         run: |
-          games='["riftbound", "lorcana", "onepiece", "yugioh", "fleshandblood"]'
+          games='["riftbound", "lorcana", "onepiece", "yugioh", "fleshandblood", "pokemon"]'
           if [ "$SELECTED" = all ]; then
             selection=$(jq -c . <<< "$games")
           else
