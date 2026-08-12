@@ -2,13 +2,15 @@
 // by go-mtgban's mtgmatcher loader, from the TCGplayer catalog dump for
 // category 62 and the-fab-cube's community card dataset.
 //
-// Identity is the catalog's: every single product is one printing, with an
-// id minted from its collector number and product id, so every printing is
-// priced by construction and the id space never depends on a cross-source
-// join. The catalog's sku printing names (Normal, Rainbow Foil, Cold Foil,
-// and the 1st/Unlimited Edition variants of both) are exported per card as
-// its finishes: for this game they carry both the finish and the edition
-// axis, and TCGplayer folds them into one product instead of splitting.
+// Identity is the catalog's, one entry per product and sku printing: the
+// printing names carry both the edition and the treatment axis (Normal,
+// Rainbow Foil, Cold Foil and their 1st/Unlimited Edition forms), and
+// TCGplayer prices each as its own sku of one product, so each printing is
+// its own entry with its own id, priced by construction — the
+// finishes-as-flags shape this datastore used to publish folded those
+// price points onto one id. The id's finish suffix derives from the
+// printing name alone, never from which sibling printings exist, so an id
+// cannot churn when TCGplayer later adds a printing to a product.
 //
 // The name parentheticals follow the One Piece rule, told apart per
 // collector number: a parenthetical every product of the number carries is
@@ -61,6 +63,34 @@ const (
 	fabCardsURL = "https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card-flattened.json"
 )
 
+// finishSuffix maps each sku printing name to the suffix its entry's id
+// carries: the edition prefix (1e, unl, or none) glued to the treatment
+// (rainbow, cold, or none), so plain Normal is the bare id. Any other
+// printing name is a hard failure, because a suffix invented on the fly
+// would not be a stable identity.
+var finishSuffix = map[string]string{
+	"Normal":                         "",
+	"Rainbow Foil":                   "_rainbow",
+	"Cold Foil":                      "_cold",
+	"1st Edition Normal":             "_1e",
+	"1st Edition Rainbow Foil":       "_1erainbow",
+	"1st Edition Cold Foil":          "_1ecold",
+	"Unlimited Edition Normal":       "_unl",
+	"Unlimited Edition Rainbow Foil": "_unlrainbow",
+}
+
+// finishOrder fixes the order a product's entries are emitted in.
+var finishOrder = []string{
+	"Normal",
+	"Rainbow Foil",
+	"Cold Foil",
+	"1st Edition Normal",
+	"1st Edition Rainbow Foil",
+	"1st Edition Cold Foil",
+	"Unlimited Edition Normal",
+	"Unlimited Edition Rainbow Foil",
+}
+
 type tcgProduct struct {
 	ProductID    int    `json:"productId"`
 	Name         string `json:"name"`
@@ -110,13 +140,18 @@ type tcgCatalog struct {
 	Products []tcgProduct `json:"products"`
 }
 
-// printingNames maps each product to the sorted printing names it is sold
-// under; a printing the catalog does not list for a product is one that
-// does not exist.
+// printingNames maps each product to the distinct printing names its skus
+// carry, in finishOrder; a printing the catalog does not list for a product
+// is one that does not exist.
 func (c *tcgCatalog) printingNames() map[int][]string {
 	name := map[int]string{}
 	for _, p := range c.Printings {
 		name[p.PrintingID] = p.Name
+	}
+
+	rank := map[string]int{}
+	for i, n := range finishOrder {
+		rank[n] = i
 	}
 
 	out := map[int][]string{}
@@ -129,7 +164,17 @@ func (c *tcgCatalog) printingNames() map[int][]string {
 			}
 			names = append(names, n)
 		}
-		sort.Strings(names)
+		sort.Slice(names, func(i, j int) bool {
+			ri, iKnown := rank[names[i]]
+			rj, jKnown := rank[names[j]]
+			if iKnown && jKnown {
+				return ri < rj
+			}
+			if iKnown != jKnown {
+				return iKnown
+			}
+			return names[i] < names[j]
+		})
 		out[product.ProductID] = names
 	}
 	return out
@@ -285,7 +330,7 @@ func setCodes(groups []tcgGroup) map[int]string {
 
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
-	minCards := flag.Int("min-cards", 9000, "refuse to emit a datastore with fewer card printings")
+	minCards := flag.Int("min-cards", 15000, "refuse to emit a datastore with fewer card entries")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 62 (required)")
 	fabCards := flag.String("fab-cards", fabCardsURL, "the-fab-cube card-flattened file, path or URL")
 	flag.Parse()
@@ -328,7 +373,7 @@ func main() {
 	// non-single types become sealed, and the rest is counted out loud.
 	var singles []single
 	var sealedProducts []tcgProduct
-	var unnumbered int
+	var unnumbered, printingless int
 	for _, product := range catalog.Products {
 		if product.ProductType != tcgSingles {
 			sealedProducts = append(sealedProducts, product)
@@ -341,9 +386,15 @@ func main() {
 			unnumbered++
 			continue
 		}
+		if len(printings[product.ProductID]) == 0 {
+			printingless++
+			log.Printf("no sku printing: %q (%d) left out", product.Name, product.ProductID)
+			continue
+		}
 		singles = append(singles, decompose(product, num))
 	}
-	log.Printf("singles: %d kept, %d unnumbered left out", len(singles), unnumbered)
+	log.Printf("singles: %d kept, %d unnumbered and %d printingless left out",
+		len(singles), unnumbered, printingless)
 
 	// Per collector number: a qualifier every product of the number
 	// carries is part of the name (the pitch colors), not a variant. A
@@ -478,33 +529,36 @@ func main() {
 		return singles[i].product.ProductID < singles[j].product.ProductID
 	})
 	var cards []any
-	var finishless int
+	wantFinishes := map[int][]string{}
 	for _, s := range singles {
-		entry := map[string]any{
-			"id":       fmt.Sprintf("%s_%d", strings.ToLower(s.number), s.product.ProductID),
-			"name":     s.baseName,
-			"number":   s.number,
-			"setCode":  codes[s.product.GroupID],
-			"rarity":   s.product.extended("Rarity"),
-			"finishes": printings[s.product.ProductID],
-			"image":    imageURL(s.product.ImageURL),
-			"externalLinks": map[string]any{
-				"tcgPlayerId": s.product.ProductID,
-			},
+		productID := s.product.ProductID
+		wantFinishes[productID] = printings[productID]
+		for _, finish := range printings[productID] {
+			suffix, known := finishSuffix[finish]
+			if !known {
+				log.Fatalf("product %d carries printing %q, not one of the eight this identity scheme knows",
+					productID, finish)
+			}
+			entry := map[string]any{
+				"id":      fmt.Sprintf("%s_%d%s", strings.ToLower(s.number), productID, suffix),
+				"name":    s.baseName,
+				"number":  s.number,
+				"setCode": codes[s.product.GroupID],
+				"rarity":  s.product.extended("Rarity"),
+				"finish":  finish,
+				"image":   imageURL(s.product.ImageURL),
+				"externalLinks": map[string]any{
+					"tcgPlayerId": productID,
+				},
+			}
+			if len(s.quals) > 0 {
+				entry["variant"] = strings.Join(s.quals, " ")
+			}
+			if id, found := fabIDs[productID]; found {
+				entry["fabId"] = id
+			}
+			cards = append(cards, entry)
 		}
-		if len(printings[s.product.ProductID]) == 0 {
-			finishless++
-		}
-		if len(s.quals) > 0 {
-			entry["variant"] = strings.Join(s.quals, " ")
-		}
-		if id, found := fabIDs[s.product.ProductID]; found {
-			entry["fabId"] = id
-		}
-		cards = append(cards, entry)
-	}
-	if finishless > 0 {
-		log.Printf("finishes: %d cards without any sku printing", finishless)
 	}
 
 	sort.Slice(sealedProducts, func(i, j int) bool {
@@ -524,9 +578,11 @@ func main() {
 			},
 		})
 	}
-	log.Printf("emitting %d sets, %d cards, %d sealed", len(sets), len(cards), len(sealed))
+	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
+		len(sets), len(cards), len(singles), len(sealed))
 
 	doc := map[string]any{
+		"game":   "fleshandblood",
 		"sets":   sets,
 		"cards":  cards,
 		"sealed": sealed,
@@ -540,7 +596,7 @@ func main() {
 	// publishing anything: a format drift or a truncated download must
 	// fail here, not in every consumer. The types mirror what go-mtgban's
 	// loader reads, duplicated so this repository depends on nothing.
-	counted, err := validate(buf.Bytes())
+	counted, err := validate(buf.Bytes(), wantFinishes)
 	if err != nil {
 		log.Fatalln("validation:", err)
 	}
@@ -573,9 +629,12 @@ type counts struct {
 
 // validate decodes an encoded datastore and checks its shape: every card
 // and sealed product carrying its identity, every id unique within its
-// namespace, every referenced set existing.
-func validate(data []byte) (counts, error) {
+// namespace, every referenced set existing, every finish one of the eight
+// printing names, and every product's entries covering exactly the sku
+// printings the catalog lists for it.
+func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	var doc struct {
+		Game string `json:"game"`
 		Sets map[string]struct {
 			Name string `json:"name"`
 		} `json:"sets"`
@@ -584,6 +643,7 @@ func validate(data []byte) (counts, error) {
 			Name          string `json:"name"`
 			Number        string `json:"number"`
 			SetCode       string `json:"setCode"`
+			Finish        string `json:"finish"`
 			ExternalLinks struct {
 				TcgPlayerId int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
@@ -602,15 +662,23 @@ func validate(data []byte) (counts, error) {
 		return out, err
 	}
 
+	if doc.Game != "fleshandblood" {
+		return out, fmt.Errorf("game is %q, not fleshandblood", doc.Game)
+	}
 	for code, set := range doc.Sets {
 		if set.Name == "" {
 			return out, fmt.Errorf("set %s missing its name", code)
 		}
 	}
 	cardIDs := map[string]bool{}
+	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
-		if card.ID == "" || card.Name == "" || card.Number == "" || card.ExternalLinks.TcgPlayerId == 0 {
+		if card.ID == "" || card.Name == "" || card.Number == "" ||
+			card.Finish == "" || card.ExternalLinks.TcgPlayerId == 0 {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
+		}
+		if _, known := finishSuffix[card.Finish]; !known {
+			return out, fmt.Errorf("card %q (%s) carries unknown finish %q", card.Name, card.ID, card.Finish)
 		}
 		if cardIDs[card.ID] {
 			return out, fmt.Errorf("duplicate card id %s", card.ID)
@@ -618,6 +686,23 @@ func validate(data []byte) (counts, error) {
 		cardIDs[card.ID] = true
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
+		}
+		productID := card.ExternalLinks.TcgPlayerId
+		if sliceContains(gotFinishes[productID], card.Finish) {
+			return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
+		}
+		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
+	}
+	if len(gotFinishes) != len(wantFinishes) {
+		return out, fmt.Errorf("entries cover %d products, catalog carries %d", len(gotFinishes), len(wantFinishes))
+	}
+	for productID, want := range wantFinishes {
+		got := append([]string(nil), gotFinishes[productID]...)
+		sort.Strings(got)
+		expected := append([]string(nil), want...)
+		sort.Strings(expected)
+		if strings.Join(got, "|") != strings.Join(expected, "|") {
+			return out, fmt.Errorf("product %d emits finishes %v, skus carry %v", productID, got, expected)
 		}
 	}
 	sealedIDs := map[string]bool{}
