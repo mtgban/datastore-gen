@@ -225,11 +225,35 @@ var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
 // the catalog's typos produce.
 var numParenRe = regexp.MustCompile(`^[A-Z]{2,4}\d{3}(?:-[A-Z]{1,2})?$`)
 
-// dashNumRe matches a collector number worn as a dash suffix. The catalog
-// decorates these loosely — double spaces, "FAB 163" with a space inside,
-// numbers that disagree with the Number field — so the exact-match strip
-// is backed by this shape-based one.
-var dashNumRe = regexp.MustCompile(`\s+-\s*[A-Z]{2,6}\s?\d{2,4}(?:-[A-Z]{1,3})?$`)
+// numTailRe matches the shape a collector number takes when worn as a dash
+// suffix, so a tail that looks like a number but disagrees with the Number
+// field can be said out loud instead of dropped on a guess.
+var numTailRe = regexp.MustCompile(`^[A-Z]{2,6}\s?\d{2,4}(?:-[A-Z]{1,3})?$`)
+
+// componentEq compares one component of a collector number, blind to the
+// spacing the catalog sprinkles inside one ("FAB 163" for FAB163).
+func componentEq(a, b string) bool {
+	return strings.EqualFold(strings.Join(strings.Fields(a), ""), strings.Join(strings.Fields(b), ""))
+}
+
+// restatesNumber reports whether a name tail restates the Number field. A
+// fused card numbers both faces ("LGS127 // LGS128") while the name wears
+// only the face it hangs off, so either side may carry the leading
+// component alone.
+func restatesNumber(tail, num string) bool {
+	if num == "" {
+		return false
+	}
+	tparts := strings.SplitN(tail, "//", 2)
+	nparts := strings.SplitN(num, "//", 2)
+	if !componentEq(tparts[0], nparts[0]) {
+		return false
+	}
+	if len(tparts) == 2 && len(nparts) == 2 {
+		return componentEq(tparts[1], nparts[1])
+	}
+	return true
+}
 
 // single is one card product, its name split into the base name, the
 // parenthetical qualifiers, and the collector number.
@@ -260,12 +284,28 @@ func decompose(p tcgProduct, num string) single {
 		}
 		return ""
 	})
-	for {
-		stripped := dashNumRe.ReplaceAllString(name, "")
-		if stripped == name {
-			break
+	// The exact strip above misses the loose decorations ("Gold -  FAB121",
+	// "Banneret of Protection - FAB 163"), so what is left of the tail is
+	// weighed against the number once more. A number-shaped tail that
+	// disagrees with the Number field is an upstream typo on one side or
+	// the other, and which side is wrong is not knowable here. Dropping it
+	// merges two products whose tails were the only thing telling them
+	// apart, so the tail is kept - but as a qualifier rather than in the
+	// name, because the variant label is part of the identity a query
+	// resolves on and so separates the two just as well, while the name
+	// stays the one the card is actually sold under.
+	idx := strings.LastIndex(name, " - ")
+	if idx >= 0 {
+		tail := strings.TrimSpace(name[idx+3:])
+		if restatesNumber(tail, num) {
+			name = strings.TrimSpace(name[:idx])
+		} else if numTailRe.MatchString(tail) {
+			name = strings.TrimSpace(name[:idx])
+			if !sliceContains(quals, tail) {
+				quals = append(quals, tail)
+			}
+			log.Printf("dash number: %q disagrees with Number %q; kept as a variant", p.Name, num)
 		}
-		name = stripped
 	}
 	return single{
 		product:  p,
@@ -643,6 +683,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Name          string `json:"name"`
 			Number        string `json:"number"`
 			SetCode       string `json:"setCode"`
+			Variant       string `json:"variant"`
 			Finish        string `json:"finish"`
 			ExternalLinks struct {
 				TcgPlayerId int `json:"tcgPlayerId"`
@@ -671,6 +712,15 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		}
 	}
 	cardIDs := map[string]bool{}
+	// A query resolves a card by its name, number, set and variant label,
+	// and folds a product's finishes onto the product id before it picks
+	// one, so two products wearing all four alike are one card to every
+	// consumer and would alias each other's prices. The key holds the
+	// product id rather than a flag so a product's own eight printings pass
+	// while two different products never do — keying on the finish instead
+	// would wave through exactly the pair this is meant to catch, since the
+	// promos that collide carry a single printing each.
+	identities := map[string]int{}
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
 		if card.ID == "" || card.Name == "" || card.Number == "" ||
@@ -684,6 +734,13 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			return out, fmt.Errorf("duplicate card id %s", card.ID)
 		}
 		cardIDs[card.ID] = true
+		identity := strings.Join([]string{card.Name, card.Number, card.SetCode, card.Variant}, "|")
+		other, seen := identities[identity]
+		if seen && other != card.ExternalLinks.TcgPlayerId {
+			return out, fmt.Errorf("products %d and %d wear one identity: %s",
+				other, card.ExternalLinks.TcgPlayerId, identity)
+		}
+		identities[identity] = card.ExternalLinks.TcgPlayerId
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
