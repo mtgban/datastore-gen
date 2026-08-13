@@ -7,6 +7,9 @@
 // commerce, LorcanaJSON already carries a TCGplayer product id for 99.6% of
 // its cards, so the card-side merge is deliberately narrow:
 //
+//   - it takes a product id upstream put on two cards away from the card
+//     the product does not identify, since one printing belongs to one
+//     card and a shared id merges two cards' price histories;
 //   - it fills the product id on cards that have none, when exactly one
 //     unclaimed catalog product matches by name and collector number;
 //   - it records the extra product ids TCGplayer uses for a card's foil,
@@ -344,6 +347,7 @@ func main() {
 
 	var cards []card
 	claimed := map[int]bool{}
+	claimants := map[int][]int{}
 	for _, item := range items {
 		c, ok := decodeCard(item)
 		if !ok {
@@ -352,9 +356,52 @@ func main() {
 		cards = append(cards, c)
 		if c.tcgID != 0 {
 			claimed[c.tcgID] = true
+			claimants[c.tcgID] = append(claimants[c.tcgID], len(cards)-1)
 		}
 	}
 	log.Printf("lorcana: %d cards, %d already carrying a product id", len(cards), len(claimed))
+
+	// Upstream sometimes puts one product id on two cards, and one printing
+	// belongs to one card: a shared id merges their price histories into
+	// whichever of them a consumer loads last. Settle it on the product's
+	// own name and collector number rather than on upstream's array order,
+	// so the answer does not move when upstream reorders — the claimant the
+	// product identifies keeps the id, the other loses it and is left to
+	// the fill below, which finds it the product that does match. A product
+	// identifying none of its claimants or several is left for validate to
+	// refuse, because nothing here can tell those cards apart.
+	for id, indexes := range claimants {
+		if len(indexes) < 2 {
+			continue
+		}
+		product, found := productByID[id]
+		if !found {
+			continue
+		}
+		key := normalizeName(product.Name) + "|" + number(product.extended("Number"))
+		var keeps []int
+		for _, i := range indexes {
+			if normalizeName(cards[i].fullName)+"|"+cards[i].number == key {
+				keeps = append(keeps, i)
+			}
+		}
+		if len(keeps) != 1 {
+			continue
+		}
+		for _, i := range indexes {
+			if i == keeps[0] {
+				continue
+			}
+			cards[i].tcgID = 0
+			delete(cards[i].links, "tcgPlayerId")
+			// The url names the same contested product, so it would
+			// contradict whatever id the fill gives this card.
+			delete(cards[i].links, "tcgPlayerUrl")
+			log.Printf("contested product %d: kept on %s (%s %s), dropped from %s (%s %s)",
+				id, cards[keeps[0]].fullName, cards[keeps[0]].setCode, cards[keeps[0]].number,
+				cards[i].fullName, cards[i].setCode, cards[i].number)
+		}
+	}
 
 	// Index the single products no card claims, by normalized name and
 	// collector number. Both lookups below key on that pair rather than on
@@ -386,7 +433,11 @@ func main() {
 
 	var filled, extras int
 	matched := map[int]bool{}
-	for _, c := range cards {
+	// By index: the id filled below has to land on the card itself rather
+	// than on a copy of it, or the printing export and the finish audit
+	// that follow skip every card this just identified.
+	for i := range cards {
+		c := &cards[i]
 		key := normalizeName(c.fullName) + "|" + c.number
 		candidates := unclaimed[key]
 
@@ -619,7 +670,8 @@ func validate(data []byte) (counts, error) {
 			FullName      string `json:"fullName"`
 			SetCode       string `json:"setCode"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerId     int   `json:"tcgPlayerId"`
+				TcgPlayerExtras []int `json:"tcgPlayerExtraIds"`
 			} `json:"externalLinks"`
 		} `json:"cards"`
 		Sealed []struct {
@@ -644,6 +696,12 @@ func validate(data []byte) (counts, error) {
 		}
 	}
 	cardIDs := map[int]bool{}
+	// A product is one printing sold under one listing, so it belongs to one
+	// card: two cards claiming it merge their price histories into whichever
+	// of them a consumer happens to load last, which flips the day upstream
+	// reorders its array. Extra ids name products in the same namespace and
+	// are checked against the same claims.
+	claimedBy := map[int]string{}
 	for _, card := range doc.Cards {
 		if card.ID == 0 || card.FullName == "" || card.SetCode == "" {
 			return out, fmt.Errorf("card %q (%d) missing identity", card.FullName, card.ID)
@@ -654,6 +712,16 @@ func validate(data []byte) (counts, error) {
 		cardIDs[card.ID] = true
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.FullName, card.SetCode)
+		}
+		claimant := fmt.Sprintf("%q (%d)", card.FullName, card.ID)
+		for _, id := range append([]int{card.ExternalLinks.TcgPlayerId}, card.ExternalLinks.TcgPlayerExtras...) {
+			if id == 0 {
+				continue
+			}
+			if previous, found := claimedBy[id]; found {
+				return out, fmt.Errorf("tcgplayer product %d claimed by both %s and %s", id, previous, claimant)
+			}
+			claimedBy[id] = claimant
 		}
 		if card.ExternalLinks.TcgPlayerId != 0 {
 			out.identified++
