@@ -58,6 +58,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/mtgban/go-tcgplayer"
 	"io"
 	"log"
 	"net/http"
@@ -111,67 +112,20 @@ var finishOrder = []string{
 	"Unlimited Holofoil",
 }
 
-type tcgProduct struct {
-	ProductID    int    `json:"productId"`
-	Name         string `json:"name"`
-	ImageURL     string `json:"imageUrl"`
-	GroupID      int    `json:"groupId"`
-	ProductType  string `json:"productType"`
-	ExtendedData []struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	} `json:"extendedData"`
-	Skus []struct {
-		LanguageID int `json:"languageId"`
-		PrintingID int `json:"printingId"`
-	} `json:"skus"`
-}
-
-func (p tcgProduct) extended(name string) string {
-	for _, e := range p.ExtendedData {
-		if e.Name == name {
-			return e.Value
-		}
-	}
-	return ""
-}
-
-type tcgGroup struct {
-	GroupID      int    `json:"groupId"`
-	Name         string `json:"name"`
-	Abbreviation string `json:"abbreviation"`
-	PublishedOn  string `json:"publishedOn"`
-}
-
 // hasDate reports whether the group's publishedOn is a real date: the
 // catalog stamps the request time on groups it has no date for, so a genuine
 // value is always a bare midnight timestamp.
-func (g tcgGroup) hasDate() bool {
+func hasDate(g tcgplayer.Group) bool {
 	return strings.HasSuffix(g.PublishedOn, "T00:00:00")
 }
 
-func (g tcgGroup) releaseDate() string {
-	return strings.SplitN(g.PublishedOn, "T", 2)[0]
-}
-
-// tcgCatalog is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
+// tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
 // for a category, published next to the datastore it describes.
-type tcgCatalog struct {
-	Category struct {
-		CategoryID int `json:"categoryId"`
-	} `json:"category"`
-	Printings []struct {
-		PrintingID int    `json:"printingId"`
-		Name       string `json:"name"`
-	} `json:"printings"`
-	Groups   []tcgGroup   `json:"groups"`
-	Products []tcgProduct `json:"products"`
-}
 
 // printingNames maps each product to the distinct printing names its English
 // skus carry, in finishOrder; a printing the catalog does not list for a
 // product is one that does not exist.
-func (c *tcgCatalog) printingNames() map[int][]string {
+func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 	name := map[int]string{}
 	for _, p := range c.Printings {
 		name[p.PrintingID] = p.Name
@@ -472,7 +426,7 @@ func (q qual) String() string {
 // number or the rarity — kept around so the collision guard can take a drop
 // back.
 type single struct {
-	product  tcgProduct
+	product  tcgplayer.Product
 	number   string
 	baseName string
 	quals    []qual
@@ -515,7 +469,7 @@ func peelQuals(name string) (string, []qual) {
 // dash-hung collector number, and applies the pre-election drops. The dash
 // number sits between the name and the trailing qualifiers, so the
 // qualifiers peel first and the tail check runs on what remains.
-func decompose(p tcgProduct, num string) single {
+func decompose(p tcgplayer.Product, num string) single {
 	base, quals := peelQuals(p.Name)
 
 	idx := strings.LastIndex(base, " - ")
@@ -528,7 +482,7 @@ func decompose(p tcgProduct, num string) single {
 		}
 	}
 
-	rarity := p.extended("Rarity")
+	rarity := p.Extended("Rarity")
 	s := single{product: p, number: num, baseName: base}
 	for _, q := range quals {
 		if restatesNumber(strings.TrimPrefix(q.text, "#"), num) || restatesRarity(q.text, rarity) {
@@ -561,7 +515,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
 	}
-	var catalog tcgCatalog
+	var catalog tcgplayer.CatalogDump
 	err = json.Unmarshal(catalogData, &catalog)
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
@@ -611,7 +565,7 @@ func main() {
 	// would rewrite an existing set's code — and every id filed under it —
 	// the day TCGplayer adds a group carrying the same abbreviation. A
 	// blank abbreviation gets a code minted from the group id.
-	groups := append([]tcgGroup(nil), catalog.Groups...)
+	groups := append([]tcgplayer.Group(nil), catalog.Groups...)
 	sort.Slice(groups, func(i, j int) bool {
 		return groups[i].GroupID < groups[j].GroupID
 	})
@@ -679,8 +633,8 @@ func main() {
 	releaseDates := map[int]string{}
 	var placeholders, filled int
 	for _, group := range groups {
-		if group.hasDate() {
-			releaseDates[group.GroupID] = group.releaseDate()
+		if hasDate(group) {
+			releaseDates[group.GroupID] = group.ReleaseDate()
 			continue
 		}
 		placeholders++
@@ -697,16 +651,16 @@ func main() {
 	log.Printf("release dates: %d placeholders, %d filled from tcgdex, %d left empty",
 		placeholders, filled, placeholders-filled)
 
-	printings := catalog.printingNames()
+	printings := printingNames(&catalog)
 
 	// Split the products: singles become card entries per sku printing,
 	// Sealed Products become sealed, code cards are neither. "N/A" is a
 	// spelling of no number; the unnumbered are real singles and stay.
 	var singles []single
-	var sealedProducts []tcgProduct
+	var sealedProducts []tcgplayer.Product
 	var codeCards, unnumbered, printingless int
 	for _, product := range catalog.Products {
-		if product.extended("Rarity") == codeCardRarity {
+		if product.Extended("Rarity") == codeCardRarity {
 			codeCards++
 			continue
 		}
@@ -719,7 +673,7 @@ func main() {
 			log.Printf("no English sku printing: %q (%d) left out", product.Name, product.ProductID)
 			continue
 		}
-		num := product.extended("Number")
+		num := product.Extended("Number")
 		if strings.EqualFold(num, "N/A") {
 			num = ""
 		}
@@ -838,7 +792,7 @@ func main() {
 		return strings.Join(texts, " ")
 	}
 	keyOf := func(s *single) string {
-		return s.baseName + "|" + variantOf(s) + "|" + s.product.extended("Rarity")
+		return s.baseName + "|" + variantOf(s) + "|" + s.product.Extended("Rarity")
 	}
 	var restoredDrops, identicalPairs int
 	for _, bucket := range byNumber {
@@ -1006,7 +960,7 @@ func main() {
 				"id":      idBase(s.number, productID) + suffix,
 				"name":    s.baseName,
 				"setCode": setCodes[s.product.GroupID],
-				"rarity":  s.product.extended("Rarity"),
+				"rarity":  s.product.Extended("Rarity"),
 				"finish":  finish,
 				"image":   image,
 				"externalLinks": map[string]any{
@@ -1016,7 +970,7 @@ func main() {
 			if s.number != "" {
 				entry["number"] = s.number
 			}
-			cardType := s.product.extended("Card Type")
+			cardType := s.product.Extended("Card Type")
 			if cardType != "" {
 				entry["type"] = cardType
 			}

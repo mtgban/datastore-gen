@@ -53,6 +53,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/mtgban/go-tcgplayer"
 	"io"
 	"log"
 	"net/http"
@@ -76,66 +77,17 @@ const (
 	tcgSingles = "Cards"
 )
 
-type tcgProduct struct {
-	ProductID    int    `json:"productId"`
-	Name         string `json:"name"`
-	ImageURL     string `json:"imageUrl"`
-	GroupID      int    `json:"groupId"`
-	ProductType  string `json:"productType"`
-	ExtendedData []struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	} `json:"extendedData"`
-	// Skus enumerate every printing/condition/language a product is sold in.
-	// Only the printing matters here, and it is the whole reason the catalog
-	// dump is read instead of a price feed: a printing exists whether or not
-	// anyone happens to be selling it today.
-	Skus []struct {
-		PrintingID int `json:"printingId"`
-	} `json:"skus"`
-}
-
-func (p tcgProduct) extended(name string) string {
-	for _, e := range p.ExtendedData {
-		if e.Name == name {
-			return e.Value
-		}
-	}
-	return ""
-}
-
-type tcgGroup struct {
-	GroupID      int    `json:"groupId"`
-	Name         string `json:"name"`
-	Abbreviation string `json:"abbreviation"`
-	PublishedOn  string `json:"publishedOn"`
-}
-
 // releaseDate reduces a group's publishedOn timestamp to the bare day
 // LorcanaJSON dates carry ("2023-08-18T00:00:00" -> "2023-08-18").
-func (g tcgGroup) releaseDate() string {
-	return strings.SplitN(g.PublishedOn, "T", 2)[0]
-}
 
-// tcgCatalog is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
+// tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
 // for a category, published next to the datastore it describes.
-type tcgCatalog struct {
-	Category struct {
-		CategoryID int `json:"categoryId"`
-	} `json:"category"`
-	Printings []struct {
-		PrintingID int    `json:"printingId"`
-		Name       string `json:"name"`
-	} `json:"printings"`
-	Groups   []tcgGroup   `json:"groups"`
-	Products []tcgProduct `json:"products"`
-}
 
 // printingNames maps each product to the sorted printing names it is sold
 // under. TCGplayer's category 71 has exactly three — Normal, Holofoil and
 // Cold Foil — and a printing it does not list for a product is one that
 // does not exist.
-func (c *tcgCatalog) printingNames() map[int][]string {
+func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 	name := map[int]string{}
 	for _, p := range c.Printings {
 		name[p.PrintingID] = p.Name
@@ -304,7 +256,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
 	}
-	var catalog tcgCatalog
+	var catalog tcgplayer.CatalogDump
 	if err := json.Unmarshal(catalogData, &catalog); err != nil {
 		log.Fatalln("tcg catalog:", err)
 	}
@@ -313,7 +265,7 @@ func main() {
 			catalog.Category.CategoryID, lorcanaCategory)
 	}
 	var singles int
-	productByID := map[int]tcgProduct{}
+	productByID := map[int]tcgplayer.Product{}
 	for _, product := range catalog.Products {
 		productByID[product.ProductID] = product
 		if product.ProductType == tcgSingles {
@@ -326,7 +278,7 @@ func main() {
 	if singles == 0 {
 		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
 	}
-	printings := catalog.printingNames()
+	printings := printingNames(&catalog)
 	log.Printf("catalog: %d groups, %d products (%d singles)",
 		len(catalog.Groups), len(catalog.Products), singles)
 
@@ -378,7 +330,7 @@ func main() {
 		if !found {
 			continue
 		}
-		key := normalizeName(product.Name) + "|" + number(product.extended("Number"))
+		key := normalizeName(product.Name) + "|" + number(product.Extended("Number"))
 		var keeps []int
 		for _, i := range indexes {
 			if normalizeName(cards[i].fullName)+"|"+cards[i].number == key {
@@ -409,12 +361,12 @@ func main() {
 	// groups (DLPC, D23, D100) while LorcanaJSON files them under the set
 	// they belong to, so the group never lines up for exactly the cards
 	// that need the most help.
-	unclaimed := map[string][]tcgProduct{}
+	unclaimed := map[string][]tcgplayer.Product{}
 	for _, product := range catalog.Products {
 		if product.ProductType != tcgSingles || claimed[product.ProductID] {
 			continue
 		}
-		num := product.extended("Number")
+		num := product.Extended("Number")
 		if num == "" {
 			// An unnumbered single (puzzle inserts, lore cards): nothing
 			// to identify it by, and the matcher has no concept for it.
@@ -540,7 +492,7 @@ func main() {
 	// already carry an id; a growing count means upstream stopped covering
 	// something and the no-minting decision above needs revisiting.
 	remaining := map[string]int{}
-	groupByID := map[int]tcgGroup{}
+	groupByID := map[int]tcgplayer.Group{}
 	for _, group := range catalog.Groups {
 		groupByID[group.GroupID] = group
 	}
@@ -560,11 +512,11 @@ func main() {
 	// type, from every group, in a top-level array a stock LorcanaJSON
 	// reader ignores. Groups LorcanaJSON has no set for (the promotional
 	// ones) get a set entry minted so every sealed product's set exists.
-	groups := append([]tcgGroup(nil), catalog.Groups...)
+	groups := append([]tcgplayer.Group(nil), catalog.Groups...)
 	sort.Slice(groups, func(i, j int) bool {
 		return groups[i].Abbreviation < groups[j].Abbreviation
 	})
-	productsByGroup := map[int][]tcgProduct{}
+	productsByGroup := map[int][]tcgplayer.Product{}
 	for _, product := range catalog.Products {
 		productsByGroup[product.GroupID] = append(productsByGroup[product.GroupID], product)
 	}
@@ -589,7 +541,7 @@ func main() {
 				"id":          fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
 				"name":        product.Name,
 				"setCode":     group.Abbreviation,
-				"releaseDate": group.releaseDate(),
+				"releaseDate": group.ReleaseDate(),
 				"image":       imageURL(product.ImageURL),
 				"externalLinks": map[string]any{
 					"tcgPlayerId": product.ProductID,
@@ -603,7 +555,7 @@ func main() {
 		if _, found := sets[group.Abbreviation]; !found {
 			sets[group.Abbreviation] = map[string]any{
 				"name":        group.Name,
-				"releaseDate": group.releaseDate(),
+				"releaseDate": group.ReleaseDate(),
 				"type":        "promo",
 			}
 			log.Printf("%s (%s): set minted for %d sealed products", group.Name, group.Abbreviation, count)
