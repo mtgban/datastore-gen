@@ -642,9 +642,10 @@ type counts struct {
 // validate decodes an encoded datastore and checks its shape: every card
 // and sealed product carrying its identity — for a card that includes the
 // rarity it is varied by and the edition its skus price — every id unique
-// within its namespace, every referenced set existing, every finish one of
-// the three printing names, and every product's entries covering exactly
-// the sku printings the catalog lists for it.
+// within its namespace, no two products wearing the same identity, every
+// referenced set existing, every finish one of the three printing names,
+// and every product's entries covering exactly the sku printings the
+// catalog lists for it.
 func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	var doc struct {
 		Game string `json:"game"`
@@ -657,6 +658,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Number        string `json:"number"`
 			SetCode       string `json:"setCode"`
 			Rarity        string `json:"rarity"`
+			Variant       string `json:"variant"`
 			Finish        string `json:"finish"`
 			ExternalLinks struct {
 				TcgPlayerId int `json:"tcgPlayerId"`
@@ -685,6 +687,19 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		}
 	}
 	cardIDs := map[string]bool{}
+	// A query resolves a card by its name, number, set, rarity and variant
+	// label, never by the id, so two products wearing all five alike are one
+	// card to every consumer and would alias each other's prices. Rarity is
+	// in the key because it is the axis this game varies on: a number is
+	// reprinted across rarities as separate products carrying one name and
+	// no variant label of their own, and the matcher narrows on the rarity
+	// to tell them apart, so the four axes the other games identify by would
+	// call thousands of those reprints one card. The key holds the product
+	// id rather than a flag so a product's own edition entries pass while
+	// two different products never do - keying on the finish instead would
+	// wave through exactly the pair this is meant to catch, since most
+	// products carry a single edition.
+	identities := map[string]int{}
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
 		if card.ID == "" || card.Name == "" || card.Number == "" || card.Rarity == "" ||
@@ -698,6 +713,13 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			return out, fmt.Errorf("duplicate card id %s", card.ID)
 		}
 		cardIDs[card.ID] = true
+		identity := strings.Join([]string{
+			card.Name, card.Number, card.SetCode, card.Rarity, card.Variant}, "|")
+		if other, seen := identities[identity]; seen && other != card.ExternalLinks.TcgPlayerId {
+			return out, fmt.Errorf("products %d and %d wear one identity: %s",
+				other, card.ExternalLinks.TcgPlayerId, identity)
+		}
+		identities[identity] = card.ExternalLinks.TcgPlayerId
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
