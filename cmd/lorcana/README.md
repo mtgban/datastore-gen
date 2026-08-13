@@ -9,7 +9,9 @@ enriched with what our TCGplayer catalog dump for category 71 knows and it
 does not:
 
 - the product id on cards upstream publishes none for, when exactly one
-  unclaimed catalog product matches by name and collector number;
+  unclaimed catalog product matches by name and collector number, and the
+  removal of one upstream put on two cards from the card the product does
+  not identify, since two cards sharing an id merge their price histories;
 - the extra product ids TCGplayer uses for a card's foil, which it sells as
   a separate product (`tcgPlayerExtraIds`);
 - the TCGplayer printing names each card is sold under
