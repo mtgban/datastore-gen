@@ -45,6 +45,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/mtgban/go-tcgplayer"
 	"io"
 	"log"
 	"net/http"
@@ -81,101 +82,19 @@ var finishOrder = []string{
 	"Limited",
 }
 
-type tcgProduct struct {
-	ProductID    int    `json:"productId"`
-	Name         string `json:"name"`
-	ImageURL     string `json:"imageUrl"`
-	GroupID      int    `json:"groupId"`
-	ProductType  string `json:"productType"`
-	ExtendedData []struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	} `json:"extendedData"`
-	Skus []struct {
-		PrintingID int `json:"printingId"`
-	} `json:"skus"`
-}
-
-func (p tcgProduct) extended(name string) string {
-	for _, e := range p.ExtendedData {
-		if e.Name == name {
-			return e.Value
-		}
-	}
-	return ""
-}
-
-type tcgGroup struct {
-	GroupID      int    `json:"groupId"`
-	Name         string `json:"name"`
-	Abbreviation string `json:"abbreviation"`
-	PublishedOn  string `json:"publishedOn"`
-}
-
 // hasDate reports whether the group's publishedOn is a real date: the
 // catalog stamps the request time on groups it has no date for, so a
 // genuine value is always a bare midnight timestamp.
-func (g tcgGroup) hasDate() bool {
+func hasDate(g tcgplayer.Group) bool {
 	return strings.HasSuffix(g.PublishedOn, "T00:00:00")
 }
 
-func (g tcgGroup) releaseDate() string {
-	return strings.SplitN(g.PublishedOn, "T", 2)[0]
-}
-
-// tcgCatalog is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
+// tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
 // for a category, published next to the datastore it describes.
-type tcgCatalog struct {
-	Category struct {
-		CategoryID int `json:"categoryId"`
-	} `json:"category"`
-	Printings []struct {
-		PrintingID int    `json:"printingId"`
-		Name       string `json:"name"`
-	} `json:"printings"`
-	Groups   []tcgGroup   `json:"groups"`
-	Products []tcgProduct `json:"products"`
-}
 
 // printingNames maps each product to the distinct printing names its skus
 // carry, in finishOrder; a printing the catalog does not list for a product
 // is one that does not exist.
-func (c *tcgCatalog) printingNames() map[int][]string {
-	name := map[int]string{}
-	for _, p := range c.Printings {
-		name[p.PrintingID] = p.Name
-	}
-
-	rank := map[string]int{}
-	for i, n := range finishOrder {
-		rank[n] = i
-	}
-
-	out := map[int][]string{}
-	for _, product := range c.Products {
-		var names []string
-		for _, sku := range product.Skus {
-			n := name[sku.PrintingID]
-			if n == "" || sliceContains(names, n) {
-				continue
-			}
-			names = append(names, n)
-		}
-		sort.Slice(names, func(i, j int) bool {
-			ri, iKnown := rank[names[i]]
-			rj, jKnown := rank[names[j]]
-			if iKnown && jKnown {
-				return ri < rj
-			}
-			if iKnown != jKnown {
-				return iKnown
-			}
-			return names[i] < names[j]
-		})
-		out[product.ProductID] = names
-	}
-	return out
-}
 
 // ygoSet is the slice of a YGOPRODeck cardsets entry this build reads.
 type ygoSet struct {
@@ -258,7 +177,7 @@ var bareNumRe = regexp.MustCompile(`^\d{1,4}$`)
 // single is one card product, its name split into the base name, the
 // parenthetical qualifiers, and the collector number.
 type single struct {
-	product  tcgProduct
+	product  tcgplayer.Product
 	number   string
 	baseName string
 	quals    []string
@@ -268,10 +187,10 @@ type single struct {
 // suffix, a parenthetical repeat, a bare numeric parenthetical) and the
 // qualifiers that only restate the product's Rarity, keeping the rest for
 // the name-versus-variant call made per collector number below.
-func decompose(p tcgProduct, num string) single {
+func decompose(p tcgplayer.Product, num string) single {
 	name := p.Name
 	name = strings.ReplaceAll(name, " - "+num, "")
-	rarity := p.extended("Rarity")
+	rarity := p.Extended("Rarity")
 
 	var quals []string
 	name = parenRe.ReplaceAllStringFunc(name, func(m string) string {
@@ -290,6 +209,43 @@ func decompose(p tcgProduct, num string) single {
 	}
 }
 
+func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
+	name := map[int]string{}
+	for _, p := range c.Printings {
+		name[p.PrintingID] = p.Name
+	}
+
+	rank := map[string]int{}
+	for i, n := range finishOrder {
+		rank[n] = i
+	}
+
+	out := map[int][]string{}
+	for _, product := range c.Products {
+		var names []string
+		for _, sku := range product.Skus {
+			n := name[sku.PrintingID]
+			if n == "" || sliceContains(names, n) {
+				continue
+			}
+			names = append(names, n)
+		}
+		sort.Slice(names, func(i, j int) bool {
+			ri, iKnown := rank[names[i]]
+			rj, jKnown := rank[names[j]]
+			if iKnown && jKnown {
+				return ri < rj
+			}
+			if iKnown != jKnown {
+				return iKnown
+			}
+			return names[i] < names[j]
+		})
+		out[product.ProductID] = names
+	}
+	return out
+}
+
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	minCards := flag.Int("min-cards", 55000, "refuse to emit a datastore with fewer card entries")
@@ -304,7 +260,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
 	}
-	var catalog tcgCatalog
+	var catalog tcgplayer.CatalogDump
 	if err := json.Unmarshal(catalogData, &catalog); err != nil {
 		log.Fatalln("tcg catalog:", err)
 	}
@@ -346,7 +302,7 @@ func main() {
 	// lookup finds the YGOPRODeck dates for a group: abbreviation match
 	// first (whole, then the prefix ahead of the language tail "LOB-EN"
 	// carries), set name second.
-	lookup := func(g tcgGroup) (dates []string, how string) {
+	lookup := func(g tcgplayer.Group) (dates []string, how string) {
 		abbr := strings.ToUpper(g.Abbreviation)
 		if abbr != "" {
 			dates = datesByCode[abbr]
@@ -367,7 +323,7 @@ func main() {
 	// Assign every group its set code, in group-id order so the original
 	// print run keeps the bare abbreviation and the reissue gets marked. A
 	// blank abbreviation gets a code minted from the group id.
-	groups := append([]tcgGroup(nil), catalog.Groups...)
+	groups := append([]tcgplayer.Group(nil), catalog.Groups...)
 	sort.Slice(groups, func(i, j int) bool {
 		return groups[i].GroupID < groups[j].GroupID
 	})
@@ -408,8 +364,8 @@ func main() {
 		case "name":
 			joinedByName++
 		}
-		if group.hasDate() {
-			releaseDates[group.GroupID] = group.releaseDate()
+		if hasDate(group) {
+			releaseDates[group.GroupID] = group.ReleaseDate()
 			continue
 		}
 		placeholders++
@@ -428,20 +384,20 @@ func main() {
 		joinedByCode+joinedByName, len(groups), joinedByCode, joinedByName,
 		placeholders, filled, unfilled)
 
-	printings := catalog.printingNames()
+	printings := printingNames(&catalog)
 
 	// Split the products: numbered singles become card entries, the
 	// non-single types become sealed, and the rest is counted out loud.
 	// "N/A" is the catalog's spelling for a product with no number.
 	var singles []single
-	var sealedProducts []tcgProduct
+	var sealedProducts []tcgplayer.Product
 	var unnumbered, printingless int
 	for _, product := range catalog.Products {
 		if product.ProductType != tcgSingles {
 			sealedProducts = append(sealedProducts, product)
 			continue
 		}
-		num := product.extended("Number")
+		num := product.Extended("Number")
 		if num == "" || strings.EqualFold(num, "N/A") {
 			unnumbered++
 			continue
@@ -539,9 +495,9 @@ func main() {
 	var cards []any
 	wantFinishes := map[int][]string{}
 	for _, s := range singles {
-		cardType := s.product.extended("Card Type")
+		cardType := s.product.Extended("Card Type")
 		if cardType == "" {
-			cardType = s.product.extended("MonsterType")
+			cardType = s.product.Extended("MonsterType")
 		}
 		productID := s.product.ProductID
 		wantFinishes[productID] = printings[productID]
@@ -556,8 +512,8 @@ func main() {
 				"name":      s.baseName,
 				"number":    s.number,
 				"setCode":   setCodes[s.product.GroupID],
-				"rarity":    s.product.extended("Rarity"),
-				"attribute": s.product.extended("Attribute"),
+				"rarity":    s.product.Extended("Rarity"),
+				"attribute": s.product.Extended("Attribute"),
 				"type":      cardType,
 				"finish":    finish,
 				"image":     imageURL(s.product.ImageURL),
