@@ -31,11 +31,15 @@
 // English skus like any other card.
 //
 // Sets are the catalog groups. Group abbreviations repeat freely in this
-// category ("PR" 21 times), so only a globally unique abbreviation becomes a
-// set code on its own; shared ones carry the group id as a suffix and blank
-// ones are minted from it. The catalog stamps the request time on groups it
-// has no release date for, so only a midnight publishedOn is trusted and the
-// joined tcgdex set fills the rest.
+// category ("PR" 21 times), so codes are claimed in group-id order: the first
+// group to claim an abbreviation keeps it bare, a later one carries its own
+// group id as a suffix, and a blank abbreviation is minted from the group id.
+// A set code so decided depends on the groups that came before it and never
+// on the ones that come after, so an existing set keeps its code the day
+// TCGplayer files a new group under an abbreviation it already uses. The
+// catalog stamps the request time on groups it has no release date for, so
+// only a midnight publishedOn is trusted and the joined tcgdex set fills the
+// rest.
 //
 // tcgdex is annotation only, never identity: sets join by normalized name —
 // retried with the short-code or EX-era prefix stripped, and an alias table
@@ -601,34 +605,31 @@ func main() {
 		len(catalog.Groups), len(catalog.Products), len(setsResponse.Sets), len(dexSets),
 		tcgpSerie, len(cardsResponse.Cards))
 
-	// Assign every group its set code: a globally unique abbreviation
-	// stands alone, a shared one carries the group id, a blank one is
-	// minted from it.
+	// Assign every group its set code, in group-id order so the group that
+	// claimed an abbreviation keeps it and only the later arrival is
+	// marked. Counting the abbreviations first and suffixing every sharer
+	// would rewrite an existing set's code — and every id filed under it —
+	// the day TCGplayer adds a group carrying the same abbreviation. A
+	// blank abbreviation gets a code minted from the group id.
 	groups := append([]tcgGroup(nil), catalog.Groups...)
 	sort.Slice(groups, func(i, j int) bool {
 		return groups[i].GroupID < groups[j].GroupID
 	})
-	abbrCount := map[string]int{}
-	for _, group := range groups {
-		abbrCount[group.Abbreviation]++
-	}
 	setCodes := map[int]string{}
 	usedCodes := map[string]bool{}
 	var minted, suffixed int
 	for _, group := range groups {
-		var code string
-		switch {
-		case group.Abbreviation == "":
+		code := strings.ToLower(group.Abbreviation)
+		if code == "" {
 			code = fmt.Sprintf("g%d", group.GroupID)
 			minted++
 			log.Printf("%s: no abbreviation, set code %s minted", group.Name, code)
-		case abbrCount[group.Abbreviation] > 1:
-			code = fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), group.GroupID)
+		}
+		if usedCodes[code] {
+			code = fmt.Sprintf("%s-%d", code, group.GroupID)
 			suffixed++
-			log.Printf("%s: abbreviation %s shared, set code %s minted",
+			log.Printf("%s: abbreviation %s already taken, set code %s minted",
 				group.Name, group.Abbreviation, code)
-		default:
-			code = strings.ToLower(group.Abbreviation)
 		}
 		if usedCodes[code] {
 			log.Fatalf("set code %s not unique; refusing to guess further", code)
@@ -827,8 +828,8 @@ func main() {
 	// product takes its dropped qualifiers back as variant. The keys are
 	// re-derived until no restore fires, because a restore can restore the
 	// very text its sibling already carries, or newly collide with a third
-	// product; only what still collides with nothing left to restore is
-	// truly identical, and is warned about.
+	// product; what still collides with nothing left to restore is named
+	// here and refused by validate.
 	variantOf := func(s *single) string {
 		var texts []string
 		for _, q := range s.quals {
@@ -870,7 +871,7 @@ func main() {
 					continue
 				}
 				identicalPairs++
-				log.Printf("collision guard: %d products of %s|%s stay identical: %q",
+				log.Printf("collision guard: %d products of %s|%s wear one identity: %q",
 					len(colliding), setCodes[s.product.GroupID], s.number, s.product.Name)
 			}
 			break
@@ -1110,9 +1111,9 @@ type counts struct {
 
 // validate decodes an encoded datastore and checks its shape: every card
 // and sealed product carrying its identity, every id unique within its
-// namespace, every referenced set existing, every finish one of the seven
-// printing names, and every product's entries covering exactly the sku
-// printings the catalog lists for it.
+// namespace, no two products wearing the same identity, every referenced set
+// existing, every finish one of the seven printing names, and every product's
+// entries covering exactly the sku printings the catalog lists for it.
 func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	var doc struct {
 		Game string `json:"game"`
@@ -1122,7 +1123,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		Cards []struct {
 			ID            string `json:"id"`
 			Name          string `json:"name"`
+			Number        string `json:"number"`
 			SetCode       string `json:"setCode"`
+			Variant       string `json:"variant"`
 			Rarity        string `json:"rarity"`
 			Finish        string `json:"finish"`
 			Image         string `json:"image"`
@@ -1154,6 +1157,14 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		}
 	}
 	cardIDs := map[string]bool{}
+	// A query resolves a card by its name, number, set, variant label and
+	// rarity, never by the id, so two products wearing all five alike are
+	// one card to every consumer and would alias each other's prices. The
+	// key holds the product id rather than a flag so a product's own
+	// printing entries pass while two different products never do. This is
+	// what the collision guard's restores are for: what it cannot tell
+	// apart fails the build here instead of being published.
+	identities := map[string]int{}
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
 		if card.ID == "" || card.Name == "" || card.SetCode == "" || card.Rarity == "" ||
@@ -1170,6 +1181,14 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			return out, fmt.Errorf("duplicate card id %s", card.ID)
 		}
 		cardIDs[card.ID] = true
+		identity := strings.Join([]string{
+			card.Name, card.Number, card.SetCode, card.Variant, card.Rarity}, "|")
+		other, seen := identities[identity]
+		if seen && other != card.ExternalLinks.TcgPlayerId {
+			return out, fmt.Errorf("products %d and %d wear one identity: %s",
+				other, card.ExternalLinks.TcgPlayerId, identity)
+		}
+		identities[identity] = card.ExternalLinks.TcgPlayerId
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
