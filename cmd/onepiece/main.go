@@ -23,8 +23,10 @@
 // names) the matcher narrows on.
 //
 // Japanese-version products are dropped: the datastore is the English
-// program. DON!! cards carry no collector number in the catalog and are
-// left out of this version; the audit counts them so the gap stays visible.
+// program. DON!! cards have no collector number to carry — neither the
+// catalog nor Bandai's own card list numbers them — so they are filed
+// under one constant number and told apart by their set and their variant
+// label, which is how the storefronts name them too.
 //
 // Sealed products are everything the catalog files outside the singles
 // type, same as the other games: by exclusion, so a product type TCGplayer
@@ -51,6 +53,22 @@ const (
 	// tcgSingles is the product type single cards are filed under;
 	// everything else is sealed by exclusion.
 	tcgSingles = "Cards"
+
+	// donCardType is the card type the catalog gives every DON!! card. The
+	// rarity does not answer for them - TCGplayer files the event ones as
+	// "PR" alongside the promo characters - but the type does.
+	donCardType = "DON!!"
+
+	// donNumber stands in for the collector number a DON!! card does not
+	// have; the loader rejects a datastore whose cards carry none, so the
+	// stand-in has to be something. A constant is the stable choice: a
+	// counted or ordered number would renumber the cards the day TCGplayer
+	// adds a product, rewriting the price history keyed by it, and a number
+	// derived per product would read as a real one and invite a
+	// storefront's stray digits to match it. Identity falls to the set and
+	// the variant label instead, which the catalog already spells out per
+	// product and which no two DON!! products share.
+	donNumber = "DON"
 
 	punkCardsURL = "https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json"
 )
@@ -180,12 +198,14 @@ func imageURL(url string) string {
 // clean image is derivable exactly where the printing identity is known:
 // the aligned printings by their id, the base printings by their bare
 // number. An unaligned variant keeps the watermarked catalog image, whose
-// art is at least the right one.
+// art is at least the right one, and so does every DON!! card: the number
+// they are filed under is this builder's, not a printing id the mirror
+// could know.
 func cardImage(s single, bandaiId string) string {
 	if bandaiId != "" {
 		return "https://static.dotgg.gg/onepiece/card/" + bandaiId + ".webp"
 	}
-	if len(s.quals) == 0 {
+	if len(s.quals) == 0 && s.number != donNumber {
 		return "https://static.dotgg.gg/onepiece/card/" + s.number + ".webp"
 	}
 	return imageURL(s.product.ImageURL)
@@ -292,8 +312,9 @@ func main() {
 
 	printings := catalog.printingNames()
 
-	// Split the products: numbered English singles become printings, the
-	// non-single types become sealed, and the rest is counted out loud.
+	// Split the products: English singles become printings, numbered or
+	// DON!!, the non-single types become sealed, and the rest is counted
+	// out loud.
 	var singles []single
 	var sealedProducts []tcgProduct
 	var japanese, unnumbered, donCards, printingless int
@@ -308,12 +329,12 @@ func main() {
 		}
 		num := product.extended("Number")
 		if num == "" {
-			if strings.EqualFold(product.extended("Rarity"), "DON!!") {
-				donCards++
-			} else {
+			if !strings.EqualFold(product.extended("CardType"), donCardType) {
 				unnumbered++
+				continue
 			}
-			continue
+			num = donNumber
+			donCards++
 		}
 		if len(printings[product.ProductID]) == 0 {
 			printingless++
@@ -322,14 +343,17 @@ func main() {
 		}
 		singles = append(singles, decompose(product, num))
 	}
-	log.Printf("singles: %d kept, %d japanese dropped, %d DON!!, %d unnumbered and %d printingless left out",
-		len(singles), japanese, donCards, unnumbered, printingless)
+	log.Printf("singles: %d kept (%d of them DON!!), %d japanese dropped, %d unnumbered and %d printingless left out",
+		len(singles), donCards, japanese, unnumbered, printingless)
 
 	// Per collector number: a qualifier every product of the number carries
 	// is part of the name (the "(Bentham)" epithets), not a variant. A
 	// number with a single product cannot make that call alone, so the
 	// epithets learned from the multi-product numbers decide for it — the
-	// same epithet decorates the character's every printing.
+	// same epithet decorates the character's every printing. The DON!!
+	// bucket is the one holding unrelated cards rather than one card's
+	// printings, and it holds undecorated ones, so the rule finds nothing
+	// common there and hands every qualifier to the variant label.
 	byNumber := map[string][]*single{}
 	for i := range singles {
 		byNumber[singles[i].number] = append(byNumber[singles[i].number], &singles[i])
@@ -532,9 +556,10 @@ type counts struct {
 
 // validate decodes an encoded datastore and checks its shape: every card
 // and sealed product carrying its identity, every id unique within its
-// namespace, every referenced set existing, every finish one of the two
-// printing names, and every product's entries covering exactly the sku
-// printings the catalog lists for it.
+// namespace, no two entries wearing the same identity, every referenced
+// set existing, every finish one of the two printing names, and every
+// product's entries covering exactly the sku printings the catalog lists
+// for it.
 func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	var doc struct {
 		Game string `json:"game"`
@@ -546,6 +571,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Name          string `json:"name"`
 			Number        string `json:"number"`
 			SetCode       string `json:"setCode"`
+			Variant       string `json:"variant"`
 			Finish        string `json:"finish"`
 			ExternalLinks struct {
 				TcgPlayerId int `json:"tcgPlayerId"`
@@ -574,6 +600,16 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		}
 	}
 	cardIDs := map[string]bool{}
+	// A query resolves a card by its name, number, set and variant label,
+	// never by the id, so two products wearing all four alike are one card
+	// to every consumer and would alias each other's prices. The key holds
+	// the product id rather than a flag so a product's own Normal and Foil
+	// entries pass while two different products never do - keying on the
+	// finish instead would wave through exactly the pair this is meant to
+	// catch, since most DON!! products carry a single finish. This is what
+	// holds the DON!! cards' constant number up: the day a set labels two
+	// of them alike, the build says so instead of publishing the pair.
+	identities := map[string]int{}
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
 		if card.ID == "" || card.Name == "" || card.Number == "" ||
@@ -587,6 +623,12 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			return out, fmt.Errorf("duplicate card id %s", card.ID)
 		}
 		cardIDs[card.ID] = true
+		identity := strings.Join([]string{card.Name, card.Number, card.SetCode, card.Variant}, "|")
+		if other, seen := identities[identity]; seen && other != card.ExternalLinks.TcgPlayerId {
+			return out, fmt.Errorf("products %d and %d wear one identity: %s",
+				other, card.ExternalLinks.TcgPlayerId, identity)
+		}
+		identities[identity] = card.ExternalLinks.TcgPlayerId
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
