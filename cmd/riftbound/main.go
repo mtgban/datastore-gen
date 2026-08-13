@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/mtgban/go-tcgplayer"
 	"io"
 	"log"
 	"net/http"
@@ -65,18 +66,8 @@ func fetch(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-type tcgGroup struct {
-	GroupID      int    `json:"groupId"`
-	Name         string `json:"name"`
-	Abbreviation string `json:"abbreviation"`
-	PublishedOn  string `json:"publishedOn"`
-}
-
 // releaseDate reduces a group's publishedOn timestamp to the bare day the
 // loader parses ("2025-10-31T00:00:00" -> "2025-10-31").
-func (g tcgGroup) releaseDate() string {
-	return strings.SplitN(g.PublishedOn, "T", 2)[0]
-}
 
 // imageURL upgrades a catalog image link to the 400-wide rendition; the
 // dump links the smallest one there is.
@@ -84,45 +75,15 @@ func imageURL(url string) string {
 	return strings.Replace(url, "_200w.", "_400w.", 1)
 }
 
-type tcgProduct struct {
-	ProductID    int    `json:"productId"`
-	Name         string `json:"name"`
-	ImageURL     string `json:"imageUrl"`
-	GroupID      int    `json:"groupId"`
-	ProductType  string `json:"productType"`
-	ExtendedData []struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	} `json:"extendedData"`
-	// Skus enumerate every printing/condition/language a product is sold
-	// in. Only the printing matters here, and it is the whole reason the
-	// catalog dump is read instead of a price feed: a printing exists
-	// whether or not anyone happens to be selling it today.
-	Skus []struct {
-		PrintingID int `json:"printingId"`
-	} `json:"skus"`
-}
-
-// tcgCatalog is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
+// tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
 // for a category, published next to the datastore it describes.
-type tcgCatalog struct {
-	Category struct {
-		CategoryID int `json:"categoryId"`
-	} `json:"category"`
-	Printings []struct {
-		PrintingID int    `json:"printingId"`
-		Name       string `json:"name"`
-	} `json:"printings"`
-	Groups   []tcgGroup   `json:"groups"`
-	Products []tcgProduct `json:"products"`
-}
 
 // finishesByProduct maps each product to the finishes it is sold in, named as
 // the matcher names them. TCGplayer calls them Normal and Foil, and a
 // printing it does not list is one that does not exist: most of Riftbound is
 // sold in a single finish, promotional printings being foil and starter
 // cards plain.
-func (c *tcgCatalog) finishesByProduct() map[int][]string {
+func finishesByProduct(c *tcgplayer.CatalogDump) map[int][]string {
 	printing := map[int]string{}
 	for _, p := range c.Printings {
 		switch p.Name {
@@ -166,19 +127,10 @@ func (c *tcgCatalog) finishesByProduct() map[int][]string {
 	return out
 }
 
-func (p tcgProduct) extended(name string) string {
-	for _, e := range p.ExtendedData {
-		if e.Name == name {
-			return e.Value
-		}
-	}
-	return ""
-}
-
 // isPromoGroup reports whether a TCGplayer group holds promotional printings
 // rather than a main set the gallery already covers (or will cover once
 // published, like preview-season sets).
-func isPromoGroup(g tcgGroup) bool {
+func isPromoGroup(g tcgplayer.Group) bool {
 	return strings.Contains(g.Name, "Promotional") || strings.Contains(g.Name, "Bundle")
 }
 
@@ -319,7 +271,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
 	}
-	var catalog tcgCatalog
+	var catalog tcgplayer.CatalogDump
 	if err := json.Unmarshal(catalogData, &catalog); err != nil {
 		log.Fatalln("tcg catalog:", err)
 	}
@@ -327,8 +279,8 @@ func main() {
 		log.Fatalf("tcg catalog: category %d, want %d (wrong game's dump)",
 			catalog.Category.CategoryID, riftboundCategory)
 	}
-	finishes := catalog.finishesByProduct()
-	productsByGroup := map[int][]tcgProduct{}
+	finishes := finishesByProduct(&catalog)
+	productsByGroup := map[int][]tcgplayer.Product{}
 	var singles int
 	for _, product := range catalog.Products {
 		productsByGroup[product.GroupID] = append(productsByGroup[product.GroupID], product)
@@ -431,7 +383,7 @@ func main() {
 		// id resolving to them, keyed by collector number.
 		if byNumber != nil {
 			if item := setByID[group.Abbreviation]; item != nil {
-				item["releaseDate"] = group.releaseDate()
+				item["releaseDate"] = group.ReleaseDate()
 			}
 			var stamped int
 			var missed []string
@@ -439,7 +391,7 @@ func main() {
 				if product.ProductType != tcgSingles {
 					continue
 				}
-				number := product.extended("Number")
+				number := product.Extended("Number")
 				if number == "" {
 					continue
 				}
@@ -466,7 +418,7 @@ func main() {
 			if product.ProductType != tcgSingles {
 				continue
 			}
-			number := product.extended("Number")
+			number := product.Extended("Number")
 			if number == "" {
 				// An unnumbered single (the odd promo variant): nothing
 				// to identify it by.
@@ -505,7 +457,7 @@ func main() {
 				},
 				"rarity": map[string]any{
 					"value": map[string]any{
-						"id": strings.ToLower(product.extended("Rarity")),
+						"id": strings.ToLower(product.Extended("Rarity")),
 					},
 				},
 				"cardImage": map[string]any{
@@ -527,7 +479,7 @@ func main() {
 			"name":               group.Name,
 			"collectorNumberMax": maxNum,
 			"type":               "promo",
-			"releaseDate":        group.releaseDate(),
+			"releaseDate":        group.ReleaseDate(),
 		})
 		log.Printf("%s (%s): %d promo printings", group.Name, group.Abbreviation, added)
 	}
@@ -545,7 +497,7 @@ func main() {
 				"id":                 fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
 				"name":               product.Name,
 				"tcgplayerProductId": product.ProductID,
-				"releaseDate":        group.releaseDate(),
+				"releaseDate":        group.ReleaseDate(),
 				"set": map[string]any{
 					"value": map[string]any{
 						"id":    group.Abbreviation,

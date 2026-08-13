@@ -38,6 +38,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/mtgban/go-tcgplayer"
 	"io"
 	"log"
 	"net/http"
@@ -88,94 +89,12 @@ var finishOrder = []string{
 	"Foil",
 }
 
-type tcgProduct struct {
-	ProductID    int    `json:"productId"`
-	Name         string `json:"name"`
-	ImageURL     string `json:"imageUrl"`
-	GroupID      int    `json:"groupId"`
-	ProductType  string `json:"productType"`
-	ExtendedData []struct {
-		Name  string `json:"name"`
-		Value string `json:"value"`
-	} `json:"extendedData"`
-	Skus []struct {
-		PrintingID int `json:"printingId"`
-	} `json:"skus"`
-}
-
-func (p tcgProduct) extended(name string) string {
-	for _, e := range p.ExtendedData {
-		if e.Name == name {
-			return e.Value
-		}
-	}
-	return ""
-}
-
-type tcgGroup struct {
-	GroupID      int    `json:"groupId"`
-	Name         string `json:"name"`
-	Abbreviation string `json:"abbreviation"`
-	PublishedOn  string `json:"publishedOn"`
-}
-
-func (g tcgGroup) releaseDate() string {
-	return strings.SplitN(g.PublishedOn, "T", 2)[0]
-}
-
-// tcgCatalog is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
+// tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
 // for a category, published next to the datastore it describes.
-type tcgCatalog struct {
-	Category struct {
-		CategoryID int `json:"categoryId"`
-	} `json:"category"`
-	Printings []struct {
-		PrintingID int    `json:"printingId"`
-		Name       string `json:"name"`
-	} `json:"printings"`
-	Groups   []tcgGroup   `json:"groups"`
-	Products []tcgProduct `json:"products"`
-}
 
 // printingNames maps each product to the distinct printing names its skus
 // carry, in finishOrder; a printing the catalog does not list for a product
 // is one that does not exist.
-func (c *tcgCatalog) printingNames() map[int][]string {
-	name := map[int]string{}
-	for _, p := range c.Printings {
-		name[p.PrintingID] = p.Name
-	}
-
-	rank := map[string]int{}
-	for i, n := range finishOrder {
-		rank[n] = i
-	}
-
-	out := map[int][]string{}
-	for _, product := range c.Products {
-		var names []string
-		for _, sku := range product.Skus {
-			n := name[sku.PrintingID]
-			if n == "" || sliceContains(names, n) {
-				continue
-			}
-			names = append(names, n)
-		}
-		sort.Slice(names, func(i, j int) bool {
-			ri, iKnown := rank[names[i]]
-			rj, jKnown := rank[names[j]]
-			if iKnown && jKnown {
-				return ri < rj
-			}
-			if iKnown != jKnown {
-				return iKnown
-			}
-			return names[i] < names[j]
-		})
-		out[product.ProductID] = names
-	}
-	return out
-}
 
 // punkCard is the slice of a punk-records printing this build reads: the
 // _pN-suffixed card id is Bandai's own printing identity, mirrored from
@@ -233,7 +152,7 @@ var bareNumRe = regexp.MustCompile(`^\d{3}$`)
 // single is one card product, its name split into the base name, the
 // parenthetical qualifiers, and the collector number.
 type single struct {
-	product  tcgProduct
+	product  tcgplayer.Product
 	number   string
 	baseName string
 	quals    []string
@@ -242,7 +161,7 @@ type single struct {
 // decorations strips the collector number worn as decoration: a dash
 // suffix ("Yamato - OP16-098") and the parenthetical forms ("(003)",
 // "(OP01-003)").
-func decompose(p tcgProduct, num string) single {
+func decompose(p tcgplayer.Product, num string) single {
 	name := p.Name
 	name = strings.ReplaceAll(name, " - "+num, "")
 
@@ -277,7 +196,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
 	}
-	var catalog tcgCatalog
+	var catalog tcgplayer.CatalogDump
 	if err := json.Unmarshal(catalogData, &catalog); err != nil {
 		log.Fatalln("tcg catalog:", err)
 	}
@@ -305,18 +224,18 @@ func main() {
 	log.Printf("catalog: %d groups, %d products; punk-records: %d printings over %d numbers",
 		len(catalog.Groups), len(catalog.Products), len(punk), len(punkByNumber))
 
-	groupByID := map[int]tcgGroup{}
+	groupByID := map[int]tcgplayer.Group{}
 	for _, group := range catalog.Groups {
 		groupByID[group.GroupID] = group
 	}
 
-	printings := catalog.printingNames()
+	printings := catalog.PrintingNames()
 
 	// Split the products: English singles become printings, numbered or
 	// DON!!, the non-single types become sealed, and the rest is counted
 	// out loud.
 	var singles []single
-	var sealedProducts []tcgProduct
+	var sealedProducts []tcgplayer.Product
 	var japanese, unnumbered, donCards, printingless int
 	for _, product := range catalog.Products {
 		if product.ProductType != tcgSingles {
@@ -327,9 +246,9 @@ func main() {
 			japanese++
 			continue
 		}
-		num := product.extended("Number")
+		num := product.Extended("Number")
 		if num == "" {
-			if !strings.EqualFold(product.extended("CardType"), donCardType) {
+			if !strings.EqualFold(product.Extended("CardType"), donCardType) {
 				unnumbered++
 				continue
 			}
@@ -444,7 +363,7 @@ func main() {
 	for _, group := range catalog.Groups {
 		sets[group.Abbreviation] = map[string]any{
 			"name":        group.Name,
-			"releaseDate": group.releaseDate(),
+			"releaseDate": group.ReleaseDate(),
 		}
 	}
 
@@ -468,9 +387,9 @@ func main() {
 				"name":    s.baseName,
 				"number":  s.number,
 				"setCode": group.Abbreviation,
-				"rarity":  s.product.extended("Rarity"),
-				"color":   s.product.extended("Color"),
-				"type":    s.product.extended("CardType"),
+				"rarity":  s.product.Extended("Rarity"),
+				"color":   s.product.Extended("Color"),
+				"type":    s.product.Extended("CardType"),
 				"finish":  finish,
 				"image":   cardImage(s, bandaiIDs[productID]),
 				"externalLinks": map[string]any{
@@ -497,7 +416,7 @@ func main() {
 			"id":          fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
 			"name":        product.Name,
 			"setCode":     group.Abbreviation,
-			"releaseDate": group.releaseDate(),
+			"releaseDate": group.ReleaseDate(),
 			"image":       imageURL(product.ImageURL),
 			"externalLinks": map[string]any{
 				"tcgPlayerId": product.ProductID,
