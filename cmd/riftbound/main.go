@@ -165,6 +165,51 @@ func canonicalNumber(number string) string {
 // product name: "Sett - The Boss (Metal) (Best Of)" yields the base name
 // and the qualifiers in order. A name that is nothing but a parenthetical
 // stays whole.
+// adoptedCard builds a gallery card entry for a printing only the catalog
+// knows about, so a set carries every printing sold under its name rather
+// than only those the gallery published.
+func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string, printings []string) map[string]any {
+	name, qualifiers := splitQualifiers(product.Name)
+	// A qualifier that only repeats the collector number ("Fury Rune
+	// (R01a)") says nothing the number field does not, and would cost the
+	// name every storefront actually writes. Any other one is a real
+	// distinction between printings and is kept.
+	var promoTypes []string
+	for _, qualifier := range qualifiers {
+		if strings.EqualFold(numberOf(qualifier), numberOf(number)) {
+			continue
+		}
+		promoTypes = append(promoTypes, strings.ToLower(qualifier))
+	}
+
+	item := map[string]any{
+		"id":                 fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
+		"name":               name,
+		"publicCode":         fmt.Sprintf("%s-%s", group.Abbreviation, number),
+		"orientation":        "portrait",
+		"tcgplayerProductId": product.ProductID,
+		"finishes":           printings,
+		"set": map[string]any{
+			"value": map[string]any{
+				"id":    group.Abbreviation,
+				"label": group.Name,
+			},
+		},
+		"rarity": map[string]any{
+			"value": map[string]any{
+				"id": strings.ToLower(product.Extended("Rarity")),
+			},
+		},
+		"cardImage": map[string]any{
+			"url": imageURL(product.ImageURL),
+		},
+	}
+	if len(promoTypes) > 0 {
+		item["promoTypes"] = promoTypes
+	}
+	return item
+}
+
 func splitQualifiers(name string) (string, []string) {
 	base := strings.TrimSpace(name)
 	var qualifiers []string
@@ -385,7 +430,7 @@ func main() {
 			if item := setByID[group.Abbreviation]; item != nil {
 				item["releaseDate"] = group.ReleaseDate()
 			}
-			var stamped int
+			var stamped, adopted int
 			var missed []string
 			for _, product := range products {
 				if product.ProductType != tcgSingles {
@@ -397,9 +442,23 @@ func main() {
 				}
 				item, found := byNumber[numberOf(number)]
 				if !found {
-					// Printings TCGplayer carries but the gallery does not
-					// (rune variants, dual-faced tokens).
-					missed = append(missed, fmt.Sprintf("%s %q", number, product.Name))
+					// A printing TCGplayer carries and the gallery does
+					// not - the rune variants above all, which storefronts
+					// sell by the hundred. Adopt it into the set on the
+					// catalog's word, the same terms the promo groups are
+					// carried on.
+					//
+					// Dual-faced tokens are the exception: the gallery
+					// files one row per face, each with its own number,
+					// while the catalog sells the physical card once under
+					// both names. Adopting that would shadow the faces the
+					// gallery already carries, so it stays reported.
+					if strings.Contains(product.Name, " // ") {
+						missed = append(missed, fmt.Sprintf("%s %q", number, product.Name))
+						continue
+					}
+					cardItems = append(cardItems, adoptedCard(group, product, number, finishes[product.ProductID]))
+					adopted++
 					continue
 				}
 				item["tcgplayerProductId"] = product.ProductID
@@ -408,8 +467,8 @@ func main() {
 				}
 				stamped++
 			}
-			log.Printf("%s (%s): %d printings stamped, %d unknown to the gallery %v",
-				group.Name, group.Abbreviation, stamped, len(missed), missed)
+			log.Printf("%s (%s): %d printings stamped, %d adopted, %d dual-faced and left to the gallery %v",
+				group.Name, group.Abbreviation, stamped, adopted, len(missed), missed)
 			continue
 		}
 
