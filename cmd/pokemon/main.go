@@ -415,6 +415,48 @@ var numberLikeRe = regexp.MustCompile(`^(?:[A-Za-z]{1,6}\d{1,4}[a-z]?|\d{1,3}[a-
 
 // qual is one name qualifier with the delimiter style it wore, kept so an
 // elected name part is restored in its own brackets.
+// promoGroups reports which catalog groups hand out promotional printings.
+// Two things say so and they cover different ground: TCGplayer names most of
+// them, and the league, championship and blister groups hand out their cards
+// without saying so in the name, which the products' own rarity records. The
+// rarity test asks for every card product in the group, not most: a set that
+// merely holds some promos among its pack cards is not a promotional set,
+// and reading it as one would make a promo of everything beside them.
+func promoGroups(catalog tcgplayer.CatalogDump) map[int]bool {
+	cards := map[int]int{}
+	promos := map[int]int{}
+	for _, product := range catalog.Products {
+		if product.ProductType != tcgSingles {
+			continue
+		}
+		cards[product.GroupID]++
+		if strings.Contains(strings.ToLower(product.Extended("Rarity")), "promo") {
+			promos[product.GroupID]++
+		}
+	}
+	out := map[int]bool{}
+	for _, group := range catalog.Groups {
+		if strings.Contains(strings.ToLower(group.Name), "promo") {
+			out[group.GroupID] = true
+			continue
+		}
+		if n := cards[group.GroupID]; n > 0 && promos[group.GroupID] == n {
+			out[group.GroupID] = true
+		}
+	}
+	return out
+}
+
+// promoTypesOf folds a printing's surviving qualifiers to the spelling the
+// matcher declares tags in.
+func promoTypesOf(s *single) []string {
+	out := make([]string, 0, len(s.quals))
+	for _, q := range s.quals {
+		out = append(out, strings.ToLower(q.text))
+	}
+	return out
+}
+
 type qual struct {
 	text    string
 	bracket bool
@@ -934,6 +976,8 @@ func main() {
 	// they survive any upstream renumbering, and the finish suffix so each
 	// price point is its own entry.
 	sets := map[string]any{}
+	promoted := promoGroups(catalog)
+	var promoSets int
 	for _, group := range groups {
 		set := map[string]any{
 			"name":        group.Name,
@@ -942,8 +986,15 @@ func main() {
 		if group.Abbreviation != "" {
 			set["abbreviation"] = group.Abbreviation
 		}
+		// The type is what tells the matcher a printing is promotional, so
+		// only the wholly promotional groups carry it.
+		if promoted[group.GroupID] {
+			set["type"] = "promo"
+			promoSets++
+		}
 		sets[setCodes[group.GroupID]] = set
 	}
+	log.Printf("promotional sets: %d of %d", promoSets, len(groups))
 
 	// The coverage contract: every product the catalog types as a card,
 	// with the sku printings it is sold in. validate reads it back off the
@@ -994,6 +1045,10 @@ func main() {
 			variant := variantOf(s)
 			if variant != "" {
 				entry["variant"] = variant
+				// The same labels as a list: joined, "Full Art Staff"
+				// cannot be read back into the two tags it holds, and the
+				// matcher needs them whole to declare and to match on.
+				entry["promoTypes"] = promoTypesOf(s)
 			}
 			if dex != nil {
 				entry["tcgdexId"] = dex.ID
