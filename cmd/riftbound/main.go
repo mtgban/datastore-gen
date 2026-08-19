@@ -2,9 +2,22 @@
 // by go-mtgban's mtgmatcher/riftbound loader: it downloads the official
 // card-gallery payload (resolving the current site build id), stamps every
 // printing with the TCGplayer product id resolving to it, and appends the
-// promotional printings TCGplayer carries but the gallery does not, as
-// separate promo-typed sets, so promo listings resolve to their own uuids
-// instead of polluting the main printings.
+// printings TCGplayer carries but the gallery does not, the promotional
+// ones as separate promo-typed sets, so promo listings resolve to their own
+// uuids instead of polluting the main printings.
+//
+// The gallery says which printings are published, never which products
+// exist: every product the catalog types as a card becomes a printing, and
+// validate refuses a build that left one out. A group the gallery has no
+// set for is a set of its own rather than a group to skip — the sealed
+// products of such a group were being published while its singles were
+// dropped, which is not a position the gallery has any say in. A dual-faced
+// token product is adopted like any other printing the gallery does not
+// carry: the gallery files one row per face and the catalog sells the card
+// once under both names, so the composite number is the printing's own and
+// the single-face rows keep theirs. A product the catalog gives no number
+// is filed under its product id, which is already the id such a printing
+// carries and is no shape a Riftbound collector number takes.
 //
 // The output is the gallery payload itself with the extra data merged into
 // the gallery blade, so mtgmatcher/riftbound loads it unchanged — and it is
@@ -28,6 +41,7 @@ import (
 	"os"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -48,6 +62,24 @@ const (
 )
 
 var buildIdRe = regexp.MustCompile(`"buildId":"([^"]+)"`)
+
+// galleryPayload reads the card-gallery payload: a local file when one is
+// named, the live site otherwise, resolving the build id the data URL is
+// keyed by.
+func galleryPayload(location string) ([]byte, error) {
+	if location != "" {
+		return os.ReadFile(location)
+	}
+	page, err := fetch(galleryPageURL)
+	if err != nil {
+		return nil, err
+	}
+	m := buildIdRe.FindSubmatch(page)
+	if m == nil {
+		return nil, fmt.Errorf("%s: no buildId in the page", galleryPageURL)
+	}
+	return fetch(fmt.Sprintf(galleryDataURL, m[1]))
+}
 
 func fetch(url string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -134,6 +166,28 @@ func isPromoGroup(g tcgplayer.Group) bool {
 	return strings.Contains(g.Name, "Promotional") || strings.Contains(g.Name, "Bundle")
 }
 
+// numberFor is the collector number a printing is filed under: the
+// catalog's own Number, or the product id where the catalog gives none.
+// The id is already what such a printing's own id is built from, and six
+// digits is no shape a Riftbound collector number takes, so nothing a
+// storefront writes can be mistaken for it.
+func numberFor(product tcgplayer.Product) string {
+	number := product.Extended("Number")
+	if number != "" {
+		return number
+	}
+	return strconv.Itoa(product.ProductID)
+}
+
+// publicCode spells the code the gallery gives a printing, "<set>-<number>",
+// without the spacing a dual-faced number wears around its slash: the loader
+// reads a printing's number back off this code by cutting at the slash, and
+// "T06 // T04" would leave it a number ending in a space to compare a
+// storefront's own against.
+func publicCode(group tcgplayer.Group, number string) string {
+	return group.Abbreviation + "-" + strings.Join(strings.Fields(number), "")
+}
+
 // numberOf reduces a collector number or public code to the loader's
 // canonical form: what follows any set prefix, without the "/total" tail.
 func numberOf(code string) string {
@@ -185,7 +239,7 @@ func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string
 	item := map[string]any{
 		"id":                 fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
 		"name":               name,
-		"publicCode":         fmt.Sprintf("%s-%s", group.Abbreviation, number),
+		"publicCode":         publicCode(group, number),
 		"orientation":        "portrait",
 		"tcgplayerProductId": product.ProductID,
 		"finishes":           printings,
@@ -229,9 +283,12 @@ func splitQualifiers(name string) (string, []string) {
 
 // validate decodes an encoded datastore and checks its shape: the gallery
 // blade present, every set and printing carrying its identity, every id
-// unique across cards and sealed products alike. It returns the set,
-// printing, sealed and identified-printing counts.
-func validate(data []byte) (sets, cards, sealed, identified int, err error) {
+// unique across cards and sealed products alike, and every product the
+// catalog types as a card carried by a printing — the zero-skip invariant,
+// checked on the encoded output so a product no rule above knew what to do
+// with stops the publish instead of quietly leaving the datastore. It
+// returns the set, printing, sealed and identified-printing counts.
+func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, identified int, err error) {
 	var doc struct {
 		PageProps struct {
 			Page struct {
@@ -277,6 +334,7 @@ func validate(data []byte) (sets, cards, sealed, identified int, err error) {
 				return 0, 0, 0, 0, fmt.Errorf("set %q (%s) missing identity or date", set.Name, set.ID)
 			}
 		}
+		carried := map[int]bool{}
 		for _, card := range blade.Cards.Items {
 			if card.ID == "" || card.Name == "" || card.PublicCode == "" {
 				return 0, 0, 0, 0, fmt.Errorf("printing %q (%s) missing identity", card.Name, card.ID)
@@ -285,9 +343,31 @@ func validate(data []byte) (sets, cards, sealed, identified int, err error) {
 				return 0, 0, 0, 0, fmt.Errorf("duplicate id %s", card.ID)
 			}
 			ids[card.ID] = true
-			if card.TCGplayerProductID != 0 {
-				identified++
+			if card.TCGplayerProductID == 0 {
+				continue
 			}
+			identified++
+			// A product resolves to one printing: two printings claiming
+			// it would split its price history between them.
+			if carried[card.TCGplayerProductID] {
+				return 0, 0, 0, 0, fmt.Errorf("product %d claimed by two printings", card.TCGplayerProductID)
+			}
+			if !cardProducts[card.TCGplayerProductID] {
+				return 0, 0, 0, 0, fmt.Errorf("printing %q (%s) names product %d, which the catalog does not type as a card",
+					card.Name, card.ID, card.TCGplayerProductID)
+			}
+			carried[card.TCGplayerProductID] = true
+		}
+		var missing []int
+		for productID := range cardProducts {
+			if !carried[productID] {
+				missing = append(missing, productID)
+			}
+		}
+		sort.Ints(missing)
+		if len(missing) > 0 {
+			return 0, 0, 0, 0, fmt.Errorf("%d catalog card products carry no printing, first is %d",
+				len(missing), missing[0])
 		}
 		for _, product := range blade.Sealed.Items {
 			if product.ID == "" || product.Name == "" || product.TCGplayerProductID == 0 {
@@ -307,6 +387,7 @@ func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	minCards := flag.Int("min-cards", 1000, "refuse to emit a datastore with fewer card printings")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 89 (required)")
+	galleryPath := flag.String("gallery", "", "card-gallery payload file (default: fetch the live gallery)")
 	flag.Parse()
 
 	if *catalogPath == "" {
@@ -326,13 +407,17 @@ func main() {
 	}
 	finishes := finishesByProduct(&catalog)
 	productsByGroup := map[int][]tcgplayer.Product{}
-	var singles int
+	// The coverage contract: every product the catalog types as a card.
+	// validate reads it back off the encoded output, so a product no rule
+	// here carried fails the build instead of leaving the datastore.
+	cardProducts := map[int]bool{}
 	for _, product := range catalog.Products {
 		productsByGroup[product.GroupID] = append(productsByGroup[product.GroupID], product)
 		if product.ProductType == tcgSingles {
-			singles++
+			cardProducts[product.ProductID] = true
 		}
 	}
+	singles := len(cardProducts)
 	// A dump from before the product type was recorded types nothing, and
 	// the sealed-by-exclusion rule would then file the whole catalog as
 	// sealed; a dump whose singles all vanished is equally implausible.
@@ -347,15 +432,7 @@ func main() {
 	log.Printf("catalog: %d groups, %d products (%d singles), %d with a known finish",
 		len(catalog.Groups), len(catalog.Products), singles, len(finishes))
 
-	page, err := fetch(galleryPageURL)
-	if err != nil {
-		log.Fatalln("gallery page:", err)
-	}
-	m := buildIdRe.FindSubmatch(page)
-	if m == nil {
-		log.Fatalln("no buildId found in the gallery page")
-	}
-	payload, err := fetch(fmt.Sprintf(galleryDataURL, m[1]))
+	payload, err := galleryPayload(*galleryPath)
 	if err != nil {
 		log.Fatalln("gallery payload:", err)
 	}
@@ -415,76 +492,62 @@ func main() {
 
 	for _, group := range groups {
 		byNumber := galleryByNumber[group.Abbreviation]
-		if !isPromoGroup(group) && byNumber == nil {
-			// Neither a promo group nor a set the gallery knows: a set the
-			// gallery has not published yet, or storefront-only content.
-			log.Printf("%s (%s): not in the gallery, skipped", group.Name, group.Abbreviation)
-			continue
-		}
-
 		products := productsByGroup[group.GroupID]
 
-		// A main set: stamp the gallery printings with the TCGplayer product
-		// id resolving to them, keyed by collector number.
+		// A set the gallery published: stamp its printings with the
+		// TCGplayer product id resolving to them, keyed by collector
+		// number, and adopt the products it does not carry.
 		if byNumber != nil {
 			if item := setByID[group.Abbreviation]; item != nil {
 				item["releaseDate"] = group.ReleaseDate()
 			}
+			// One gallery row holds one product id, so a second product
+			// landing on a number already stamped is adopted rather than
+			// overwriting the first and losing itself.
+			stampedBy := map[string]int{}
 			var stamped, adopted int
-			var missed []string
 			for _, product := range products {
 				if product.ProductType != tcgSingles {
 					continue
 				}
-				number := product.Extended("Number")
-				if number == "" {
-					continue
-				}
-				item, found := byNumber[numberOf(number)]
-				if !found {
+				number := numberFor(product)
+				key := numberOf(number)
+				item, found := byNumber[key]
+				if !found || stampedBy[key] != 0 {
 					// A printing TCGplayer carries and the gallery does
 					// not - the rune variants above all, which storefronts
-					// sell by the hundred. Adopt it into the set on the
-					// catalog's word, the same terms the promo groups are
-					// carried on.
-					//
-					// Dual-faced tokens are the exception: the gallery
-					// files one row per face, each with its own number,
-					// while the catalog sells the physical card once under
-					// both names. Adopting that would shadow the faces the
-					// gallery already carries, so it stays reported.
-					if strings.Contains(product.Name, " // ") {
-						missed = append(missed, fmt.Sprintf("%s %q", number, product.Name))
-						continue
-					}
+					// sell by the hundred, and the dual-faced tokens the
+					// gallery files one row per face of while the catalog
+					// sells the card once under both names. Adopt it into
+					// the set on the catalog's word, the same terms the
+					// promo groups are carried on.
 					cardItems = append(cardItems, adoptedCard(group, product, number, finishes[product.ProductID]))
 					adopted++
 					continue
 				}
+				stampedBy[key] = product.ProductID
 				item["tcgplayerProductId"] = product.ProductID
 				if f := finishes[product.ProductID]; len(f) > 0 {
 					item["finishes"] = f
 				}
 				stamped++
 			}
-			log.Printf("%s (%s): %d printings stamped, %d adopted, %d dual-faced and left to the gallery %v",
-				group.Name, group.Abbreviation, stamped, adopted, len(missed), missed)
+			log.Printf("%s (%s): %d printings stamped, %d adopted",
+				group.Name, group.Abbreviation, stamped, adopted)
 			continue
 		}
 
+		// A group the gallery has no set for: the promotional ones, and a
+		// set sold before the gallery published it. Its printings are the
+		// catalog's alone, so they are minted here and the set with them.
 		var added, maxNum int
 		for _, product := range products {
 			if product.ProductType != tcgSingles {
 				continue
 			}
-			number := product.Extended("Number")
-			if number == "" {
-				// An unnumbered single (the odd promo variant): nothing
-				// to identify it by.
-				continue
-			}
+			number := numberFor(product)
 			collector := 0
-			fmt.Sscanf(strings.TrimLeft(number, "0"), "%d", &collector)
+			fmt.Sscanf(strings.TrimLeft(product.Extended("Number"), "0"), "%d", &collector)
 			if collector > maxNum {
 				maxNum = collector
 			}
@@ -504,7 +567,7 @@ func main() {
 				"id":                 fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
 				"collectorNumber":    collector,
 				"name":               name,
-				"publicCode":         fmt.Sprintf("%s-%s", group.Abbreviation, number),
+				"publicCode":         publicCode(group, number),
 				"orientation":        "portrait",
 				"tcgplayerProductId": product.ProductID,
 				"finishes":           finishes[product.ProductID],
@@ -533,14 +596,21 @@ func main() {
 			continue
 		}
 
-		setItems = append(setItems, map[string]any{
+		set := map[string]any{
 			"id":                 group.Abbreviation,
 			"name":               group.Name,
 			"collectorNumberMax": maxNum,
-			"type":               "promo",
 			"releaseDate":        group.ReleaseDate(),
-		})
-		log.Printf("%s (%s): %d promo printings", group.Name, group.Abbreviation, added)
+		}
+		// The promo type gates how a printing matches, so only the groups
+		// that hold promotional printings carry it: a set the gallery has
+		// merely not published yet is a main set, whatever it is missing.
+		if isPromoGroup(group) {
+			set["type"] = "promo"
+		}
+		setItems = append(setItems, set)
+		log.Printf("%s (%s): %d printings minted with a set of their own",
+			group.Name, group.Abbreviation, added)
 	}
 
 	// Sealed products: everything the catalog files outside the singles
@@ -587,12 +657,14 @@ func main() {
 	// download must fail here, not in every consumer. The types mirror
 	// what go-mtgban's mtgmatcher/riftbound reads, duplicated so this
 	// repository depends on nothing.
-	sets2, cards2, sealed2, identified, err := validate(buf.Bytes())
+	sets2, cards2, sealed2, identified, err := validate(buf.Bytes(), cardProducts)
 	if err != nil {
 		log.Fatalln("validation:", err)
 	}
 	log.Printf("validated: %d sets, %d printings, %d tcgplayer ids, %d sealed",
 		sets2, cards2, identified, sealed2)
+	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
+		identified, singles, singles-identified)
 	if sets2 != len(setItems) || cards2 != len(cardItems) || sealed2 != len(sealedItems) {
 		log.Fatalf("emitted %d sets, %d printings, %d sealed but read back %d, %d, %d; refusing to publish",
 			len(setItems), len(cardItems), len(sealedItems), sets2, cards2, sealed2)
