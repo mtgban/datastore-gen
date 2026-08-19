@@ -34,6 +34,21 @@
 // ids landing on one product is expected — treatments share products —
 // and annotates nothing. Annotation never changes identity.
 //
+// Every product the catalog types as a card becomes an entry, and validate
+// refuses a build that left one out: a shape nobody has seen yet stops the
+// publish instead of vanishing from the datastore. The products the game
+// gives no collector number — the puzzle-art panels, the set and deck art
+// cards, the counters, and the handful of playable cards TCGplayer files
+// without one — are carried on the id their product alone mints, the same
+// shape cmd/pokemon files its basic energies under, and are told apart by
+// the set and the variant label the product name spells out.
+//
+// A product TCGplayer prices only in Japanese skus carries the language it
+// is printed in, named from the catalog's own language list. The matcher
+// drops a non-English candidate from a query that named no language, so
+// the row exists for the listings that name it without English matching
+// changing at all.
+//
 // Sealed products are everything the catalog files outside the singles
 // type, by exclusion, so a product type TCGplayer adds later lands on the
 // sealed side where it is noticed.
@@ -50,7 +65,9 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -60,6 +77,10 @@ const (
 	// tcgSingles is the product type single cards are filed under;
 	// everything else is sealed by exclusion.
 	tcgSingles = "Cards"
+
+	// englishLanguage is the catalog's language id for English, the one a
+	// product needs a sku in to be part of the English program.
+	englishLanguage = 1
 
 	fabCardsURL = "https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card-flattened.json"
 )
@@ -119,6 +140,42 @@ type fabRow struct {
 // dump links the smallest one there is.
 func imageURL(url string) string {
 	return strings.Replace(url, "_200w.", "_400w.", 1)
+}
+
+// idBase mints the id stem an entry's finish suffix hangs off: the
+// collector number and the product id, or the product id alone for a
+// product the game gives no number.
+func idBase(num string, productID int) string {
+	if num == "" {
+		return strconv.Itoa(productID)
+	}
+	return strings.ToLower(num) + "_" + strconv.Itoa(productID)
+}
+
+// productLanguage names the language a product is printed in, empty for
+// the English program: a product TCGplayer prices in no English sku is
+// sold in another language, and the catalog's own language list spells out
+// which. Several non-English languages on one product would be a shape
+// this has never seen, so it is said out loud and the lowest id wins.
+func productLanguage(names map[int]string, product tcgplayer.Product) string {
+	var ids []int
+	for _, sku := range product.Skus {
+		if sku.LanguageID == englishLanguage {
+			return ""
+		}
+		if !slices.Contains(ids, sku.LanguageID) {
+			ids = append(ids, sku.LanguageID)
+		}
+	}
+	if len(ids) == 0 {
+		return ""
+	}
+	sort.Ints(ids)
+	if len(ids) > 1 {
+		log.Printf("%q (%d) prices skus in %d languages, filed under the first",
+			product.Name, product.ProductID, len(ids))
+	}
+	return names[ids[0]]
 }
 
 // fetch reads a local path, or an http(s) URL when one is given.
@@ -365,32 +422,32 @@ func main() {
 	codes := setCodes(catalog.Groups)
 	printings := printingNames(&catalog)
 
-	// Split the products: numbered singles become printings, the
-	// non-single types become sealed, and the rest is counted out loud.
+	// Split the products: every single becomes printings, the non-single
+	// types become sealed.
 	var singles []single
 	var sealedProducts []tcgplayer.Product
-	var unnumbered, printingless int
+	var unnumbered int
 	for _, product := range catalog.Products {
 		if product.ProductType != tcgSingles {
 			sealedProducts = append(sealedProducts, product)
 			continue
 		}
+		if len(printings[product.ProductID]) == 0 {
+			// Every card product the catalog has ever carried prices at
+			// least one sku, and a product with none has no printing to
+			// file an entry under: stop rather than drop it.
+			log.Fatalf("no sku printing: %q (%d) has no entry to carry it",
+				product.Name, product.ProductID)
+		}
 		num := product.Extended("Number")
 		if num == "" {
-			// Art cards, counters, uncut-sheet pieces: nothing to
-			// identify them by, and no id can be minted without a number.
+			// Art cards, counters, uncut-sheet pieces: the product id is
+			// the whole id, as it is for the numberless Pokemon singles.
 			unnumbered++
-			continue
-		}
-		if len(printings[product.ProductID]) == 0 {
-			printingless++
-			log.Printf("no sku printing: %q (%d) left out", product.Name, product.ProductID)
-			continue
 		}
 		singles = append(singles, decompose(product, num))
 	}
-	log.Printf("singles: %d kept, %d unnumbered and %d printingless left out",
-		len(singles), unnumbered, printingless)
+	log.Printf("singles: %d kept (%d unnumbered)", len(singles), unnumbered)
 
 	// Per collector number: a qualifier every product of the number
 	// carries is part of the name (the pitch colors), not a variant. A
@@ -398,6 +455,12 @@ func main() {
 	// epithets learned from the multi-product numbers decide for it.
 	byNumber := map[string][]*single{}
 	for i := range singles {
+		// The unnumbered products are unrelated cards, not one card's
+		// printings, so they elect nothing together: they take the
+		// verdicts the real numbers reached, as a lone printing does.
+		if singles[i].number == "" {
+			continue
+		}
 		byNumber[singles[i].number] = append(byNumber[singles[i].number], &singles[i])
 	}
 	nameParens := map[string]bool{}
@@ -426,6 +489,19 @@ func main() {
 	}
 	sort.Strings(learned)
 	log.Printf("name parentheticals learned: %v", learned)
+	assemble := func(s *single, isName map[string]bool) {
+		var name, variant []string
+		name = append(name, s.baseName)
+		for _, q := range s.quals {
+			if isName[q] {
+				name = append(name, "("+q+")")
+			} else {
+				variant = append(variant, q)
+			}
+		}
+		s.baseName = strings.Join(name, " ")
+		s.quals = variant
+	}
 	for _, bucket := range byNumber {
 		// Decide before mutating: the membership test must read every
 		// product's original qualifiers, not the ones a fold already moved.
@@ -446,18 +522,14 @@ func main() {
 			}
 		}
 		for _, s := range bucket {
-			var name, variant []string
-			name = append(name, s.baseName)
-			for _, q := range s.quals {
-				if isName[q] {
-					name = append(name, "("+q+")")
-				} else {
-					variant = append(variant, q)
-				}
-			}
-			s.baseName = strings.Join(name, " ")
-			s.quals = variant
+			assemble(s, isName)
 		}
+	}
+	for i := range singles {
+		if singles[i].number != "" {
+			continue
+		}
+		assemble(&singles[i], nameParens)
 	}
 
 	// Annotate the game's own printing id where the dataset maps exactly
@@ -524,11 +596,31 @@ func main() {
 	sort.Slice(singles, func(i, j int) bool {
 		return singles[i].product.ProductID < singles[j].product.ProductID
 	})
+	// The coverage contract: every product the catalog types as a card,
+	// with the sku printings it is sold in. validate reads it back off the
+	// encoded output, so a product no rule here carried fails the build
+	// instead of quietly leaving the datastore.
+	catalogFinishes := map[int][]string{}
+	for _, product := range catalog.Products {
+		if product.ProductType != tcgSingles {
+			continue
+		}
+		catalogFinishes[product.ProductID] = printings[product.ProductID]
+	}
+
+	languageNames := map[int]string{}
+	for _, language := range catalog.Languages {
+		languageNames[language.LanguageID] = language.Name
+	}
+
 	var cards []any
-	wantFinishes := map[int][]string{}
+	var nonEnglish int
 	for _, s := range singles {
 		productID := s.product.ProductID
-		wantFinishes[productID] = printings[productID]
+		language := productLanguage(languageNames, s.product)
+		if language != "" {
+			nonEnglish++
+		}
 		for _, finish := range printings[productID] {
 			suffix, known := finishSuffix[finish]
 			if !known {
@@ -536,9 +628,8 @@ func main() {
 					productID, finish)
 			}
 			entry := map[string]any{
-				"id":      fmt.Sprintf("%s_%d%s", strings.ToLower(s.number), productID, suffix),
+				"id":      idBase(s.number, productID) + suffix,
 				"name":    s.baseName,
-				"number":  s.number,
 				"setCode": codes[s.product.GroupID],
 				"rarity":  s.product.Extended("Rarity"),
 				"finish":  finish,
@@ -546,6 +637,12 @@ func main() {
 				"externalLinks": map[string]any{
 					"tcgPlayerId": productID,
 				},
+			}
+			if s.number != "" {
+				entry["number"] = s.number
+			}
+			if language != "" {
+				entry["language"] = language
 			}
 			if len(s.quals) > 0 {
 				entry["variant"] = strings.Join(s.quals, " ")
@@ -574,8 +671,10 @@ func main() {
 			},
 		})
 	}
-	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
-		len(sets), len(cards), len(singles), len(sealed))
+	log.Printf("emitting %d sets, %d card entries over %d products (%d not in English), %d sealed",
+		len(sets), len(cards), len(singles), nonEnglish, len(sealed))
+	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
+		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
 	doc := map[string]any{
 		"game":   "fleshandblood",
@@ -592,7 +691,7 @@ func main() {
 	// publishing anything: a format drift or a truncated download must
 	// fail here, not in every consumer. The types mirror what go-mtgban's
 	// loader reads, duplicated so this repository depends on nothing.
-	counted, err := validate(buf.Bytes(), wantFinishes)
+	counted, err := validate(buf.Bytes(), catalogFinishes)
 	if err != nil {
 		log.Fatalln("validation:", err)
 	}
@@ -623,6 +722,38 @@ type counts struct {
 	sets, cards, sealed int
 }
 
+// coverage is the zero-skip invariant: the products the emitted entries
+// cover must be exactly the products the catalog types as cards. Checked on
+// the encoded output, so a card product no rule above knew what to do with
+// stops the publish instead of quietly leaving the datastore. The offender
+// is named lowest id first, so the same data always reports the same one.
+func coverage(got, want map[int][]string) error {
+	var missing, extra []int
+	for productID := range want {
+		_, found := got[productID]
+		if !found {
+			missing = append(missing, productID)
+		}
+	}
+	for productID := range got {
+		_, found := want[productID]
+		if !found {
+			extra = append(extra, productID)
+		}
+	}
+	sort.Ints(missing)
+	sort.Ints(extra)
+	if len(missing) > 0 {
+		return fmt.Errorf("%d catalog card products carry no entry, first is %d",
+			len(missing), missing[0])
+	}
+	if len(extra) > 0 {
+		return fmt.Errorf("%d entries name a product the catalog does not type as a card, first is %d",
+			len(extra), extra[0])
+	}
+	return nil
+}
+
 // validate decodes an encoded datastore and checks its shape: every card
 // and sealed product carrying its identity, every id unique within its
 // namespace, every referenced set existing, every finish one of the eight
@@ -640,6 +771,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Number        string `json:"number"`
 			SetCode       string `json:"setCode"`
 			Variant       string `json:"variant"`
+			Language      string `json:"language"`
 			Finish        string `json:"finish"`
 			ExternalLinks struct {
 				TcgPlayerId int `json:"tcgPlayerId"`
@@ -679,7 +811,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	identities := map[string]int{}
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
-		if card.ID == "" || card.Name == "" || card.Number == "" ||
+		if card.ID == "" || card.Name == "" ||
 			card.Finish == "" || card.ExternalLinks.TcgPlayerId == 0 {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
 		}
@@ -690,7 +822,11 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			return out, fmt.Errorf("duplicate card id %s", card.ID)
 		}
 		cardIDs[card.ID] = true
-		identity := strings.Join([]string{card.Name, card.Number, card.SetCode, card.Variant}, "|")
+		// The language is part of the identity for the same reason the
+		// variant label is: the matcher narrows on it, so the Japanese
+		// printing of a card is not the English one wearing its name.
+		identity := strings.Join([]string{
+			card.Name, card.Number, card.SetCode, card.Variant, card.Language}, "|")
 		other, seen := identities[identity]
 		if seen && other != card.ExternalLinks.TcgPlayerId {
 			return out, fmt.Errorf("products %d and %d wear one identity: %s",
@@ -706,8 +842,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		}
 		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 	}
-	if len(gotFinishes) != len(wantFinishes) {
-		return out, fmt.Errorf("entries cover %d products, catalog carries %d", len(gotFinishes), len(wantFinishes))
+	err := coverage(gotFinishes, wantFinishes)
+	if err != nil {
+		return out, err
 	}
 	for productID, want := range wantFinishes {
 		got := append([]string(nil), gotFinishes[productID]...)
