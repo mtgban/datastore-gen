@@ -20,13 +20,24 @@
 //     sub-types, and reports where the two sources disagree.
 //
 // The promotional printings TCGplayer files in their own groups (DLPC, D23,
-// D100) are not appended as new cards: LorcanaJSON already carries them,
-// filed under the set they belong to, and the id fill above maps the
-// catalog's promo products onto those printings by name and number. Minting
-// our own entries would create an id space that collides with LorcanaJSON's
-// integer ids the day upstream publishes the real card. The audit below
-// counts the singles that match nothing, so a gap upstream never covers
-// would be noticed rather than assumed away.
+// D100) are matched onto upstream's own cards wherever the id fill above
+// can do it by name and number, because upstream files them under the set
+// they belong to and its card is the better one. What no card claims or
+// matches is minted here rather than dropped: a product TCGplayer sells is
+// a printing that exists, and a datastore leaving it out leaves every
+// listing of it unresolvable.
+//
+// A minted card is filed under the negated product id. LorcanaJSON's ids
+// are positive counting numbers, so the negative half of the integer space
+// is unmistakably ours and cannot collide with an id upstream publishes
+// later however far its numbering runs — which is what kept these products
+// out before — and the product a card was minted from reads straight off
+// its id. Everything else a minted card carries is the catalog's own word:
+// the product name, the group's abbreviation as the set code, the collector
+// number where there is one and 0 where there is none, the rarity, the
+// printings as foil types, and the language for a printing sold in no
+// English sku. The day upstream publishes the real card, its own entry
+// claims the product id and the minted one stops being minted.
 //
 // Sealed products are appended in full: everything the catalog files
 // outside the singles type, in a top-level "sealed" array a stock
@@ -58,6 +69,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -75,6 +87,10 @@ const (
 	// ones, so a type TCGplayer adds later lands on the sealed side where
 	// it is noticed instead of silently passing as a single.
 	tcgSingles = "Cards"
+
+	// englishLanguage is the catalog's language id for English, the one a
+	// product needs a sku in to be part of the English program.
+	englishLanguage = 1
 )
 
 // releaseDate reduces a group's publishedOn timestamp to the bare day
@@ -148,6 +164,71 @@ func number(code string) string {
 		return "0"
 	}
 	return trimmed
+}
+
+// mintedID is the card id given to a printing upstream does not carry: the
+// negated product id. LorcanaJSON's ids are positive counting numbers, so
+// the negative half of the space is unmistakably ours and cannot collide
+// with an id upstream publishes later, however far its own numbering runs -
+// and the product the card was minted from reads straight off it.
+func mintedID(productID int) int {
+	return -productID
+}
+
+// mintedNumber splits a catalog collector number into the integer upstream
+// files a card under and the letter tail it calls the card's variant
+// ("25a"), reading through the "/total" tail the catalog writes. A product
+// with no number at all is filed under 0, as the numberless promos are.
+func mintedNumber(code string) (int, string) {
+	digits := number(code)
+	i := 0
+	for i < len(digits) && digits[i] >= '0' && digits[i] <= '9' {
+		i++
+	}
+	num, _ := strconv.Atoi(digits[:i])
+	return num, digits[i:]
+}
+
+// foilTypes names the finishes a minted card is sold in the way upstream
+// names them: "None" for the plain printing, and TCGplayer's own printing
+// name for a foil, which is all that is knowable about a card upstream has
+// never published. The loader reads every name but "None" as a foil.
+func foilTypes(printings []string) []string {
+	var types []string
+	for _, name := range printings {
+		if name == "Normal" {
+			types = append(types, "None")
+			continue
+		}
+		types = append(types, name)
+	}
+	return types
+}
+
+// productLanguage names the language a product is printed in, empty for the
+// English program: a product TCGplayer prices in no English sku is sold in
+// another language, and the catalog's own language list spells out which.
+// Several non-English languages on one product would be a shape this has
+// never seen, so it is said out loud and the lowest id wins.
+func productLanguage(names map[int]string, product tcgplayer.Product) string {
+	var ids []int
+	for _, sku := range product.Skus {
+		if sku.LanguageID == englishLanguage {
+			return ""
+		}
+		if !slices.Contains(ids, sku.LanguageID) {
+			ids = append(ids, sku.LanguageID)
+		}
+	}
+	if len(ids) == 0 {
+		return ""
+	}
+	sort.Ints(ids)
+	if len(ids) > 1 {
+		log.Printf("%q (%d) prices skus in %d languages, filed under the first",
+			product.Name, product.ProductID, len(ids))
+	}
+	return names[ids[0]]
 }
 
 // normalizeName reduces a name to what two spellings of the same card share:
@@ -264,14 +345,18 @@ func main() {
 		log.Fatalf("tcg catalog: category %d, want %d (wrong game's dump)",
 			catalog.Category.CategoryID, lorcanaCategory)
 	}
-	var singles int
 	productByID := map[int]tcgplayer.Product{}
+	// The coverage contract: every product the catalog types as a card.
+	// validate reads it back off the encoded output, so a product no rule
+	// here carried fails the build instead of leaving the datastore.
+	cardProducts := map[int]bool{}
 	for _, product := range catalog.Products {
 		productByID[product.ProductID] = product
 		if product.ProductType == tcgSingles {
-			singles++
+			cardProducts[product.ProductID] = true
 		}
 	}
+	singles := len(cardProducts)
 	// A dump from before the product type was recorded types nothing, and
 	// the sealed-by-exclusion rule would then file the whole catalog as
 	// sealed; a dump whose singles all vanished is equally implausible.
@@ -486,32 +571,80 @@ func main() {
 		log.Printf("finish disagreements: %d cards (upstream stays authoritative)", disagreements)
 	}
 
-	// Audit what remains unmatched: a single the catalog carries that no
-	// card claimed or matched. Today these are the presale printings
-	// upstream has not published yet and the split listings of cards that
-	// already carry an id; a growing count means upstream stopped covering
-	// something and the no-minting decision above needs revisiting.
-	remaining := map[string]int{}
+	// Mint a card for every single the catalog carries that no card
+	// claimed or matched: the printings upstream has not published, the
+	// unnumbered inserts and oversized components it has no concept for,
+	// and the listings a card's own product join refused. A product
+	// TCGplayer sells is a printing that exists, and a datastore leaving
+	// it out leaves every listing of it unresolvable.
 	groupByID := map[int]tcgplayer.Group{}
 	for _, group := range catalog.Groups {
 		groupByID[group.GroupID] = group
 	}
-	for _, products := range unclaimed {
-		for _, product := range products {
-			if matched[product.ProductID] {
-				continue
-			}
-			remaining[groupByID[product.GroupID].Abbreviation]++
+	languageNames := map[int]string{}
+	for _, language := range catalog.Languages {
+		languageNames[language.LanguageID] = language.Name
+	}
+	var mintable []tcgplayer.Product
+	for _, product := range catalog.Products {
+		if product.ProductType != tcgSingles {
+			continue
 		}
+		if claimed[product.ProductID] || matched[product.ProductID] {
+			continue
+		}
+		mintable = append(mintable, product)
 	}
-	if len(remaining) > 0 {
-		log.Printf("unmatched singles by group: %v", remaining)
+	sort.Slice(mintable, func(i, j int) bool {
+		return mintable[i].ProductID < mintable[j].ProductID
+	})
+	mintedByGroup := map[string]int{}
+	for _, product := range mintable {
+		group := groupByID[product.GroupID]
+		num, variant := mintedNumber(product.Extended("Number"))
+		links := map[string]any{"tcgPlayerId": product.ProductID}
+		if names := printings[product.ProductID]; len(names) > 0 {
+			links["tcgPrintings"] = names
+		}
+		item := map[string]any{
+			"id":        mintedID(product.ProductID),
+			"fullName":  product.Name,
+			"name":      product.Name,
+			"setCode":   group.Abbreviation,
+			"number":    num,
+			"rarity":    product.Extended("Rarity"),
+			"foilTypes": foilTypes(printings[product.ProductID]),
+			"images": map[string]any{
+				"full":      imageURL(product.ImageURL),
+				"thumbnail": product.ImageURL,
+			},
+			"externalLinks": links,
+		}
+		if variant != "" {
+			item["variant"] = variant
+		}
+		if cardType := product.Extended("CardType"); cardType != "" {
+			item["type"] = cardType
+		}
+		// A printing TCGplayer prices in no English sku is sold in another
+		// language; the catalog's own language list says which. The
+		// matcher drops a non-English candidate from a query that named no
+		// language, so the row exists without English matching changing.
+		if language := productLanguage(languageNames, product); language != "" {
+			item["language"] = language
+		}
+		items = append(items, item)
+		mintedByGroup[group.Abbreviation]++
 	}
+	doc["cards"] = items
+	log.Printf("minted: %d cards for products upstream does not carry, by group %v",
+		len(mintable), mintedByGroup)
 
 	// Sealed products: everything the catalog files outside the singles
 	// type, from every group, in a top-level array a stock LorcanaJSON
 	// reader ignores. Groups LorcanaJSON has no set for (the promotional
-	// ones) get a set entry minted so every sealed product's set exists.
+	// ones) get a set entry minted so every product's set exists, card
+	// and sealed alike.
 	groups := append([]tcgplayer.Group(nil), catalog.Groups...)
 	sort.Slice(groups, func(i, j int) bool {
 		return groups[i].Abbreviation < groups[j].Abbreviation
@@ -549,6 +682,7 @@ func main() {
 			})
 			count++
 		}
+		count += mintedByGroup[group.Abbreviation]
 		if count == 0 {
 			continue
 		}
@@ -558,7 +692,7 @@ func main() {
 				"releaseDate": group.ReleaseDate(),
 				"type":        "promo",
 			}
-			log.Printf("%s (%s): set minted for %d sealed products", group.Name, group.Abbreviation, count)
+			log.Printf("%s (%s): set minted for %d products", group.Name, group.Abbreviation, count)
 		}
 	}
 	if len(sealedItems) > 0 {
@@ -576,15 +710,19 @@ func main() {
 	// download must fail here, not in every consumer. The types mirror
 	// what go-mtgban's mtgmatcher/lorcana reads, duplicated so this
 	// repository depends on nothing.
-	counted, err := validate(buf.Bytes())
+	counted, err := validate(buf.Bytes(), cardProducts)
 	if err != nil {
 		log.Fatalln("validation:", err)
 	}
 	log.Printf("validated: %d sets, %d cards, %d tcgplayer ids, %d sealed",
 		counted.sets, counted.cards, counted.identified, counted.sealed)
-	if counted.cards != len(cards) || counted.sealed != len(sealedItems) {
+	log.Printf("coverage: %d of %d catalog card products carried, %d skipped (%d minted, %d upstream)",
+		counted.carried, len(cardProducts), len(cardProducts)-counted.carried,
+		len(mintable), counted.carried-len(mintable))
+	emitted := len(cards) + len(mintable)
+	if counted.cards != emitted || counted.sealed != len(sealedItems) {
 		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			len(cards), len(sealedItems), counted.cards, counted.sealed)
+			emitted, len(sealedItems), counted.cards, counted.sealed)
 	}
 	if counted.cards < *minCards {
 		log.Fatalf("only %d cards (minimum %d); refusing to publish", counted.cards, *minCards)
@@ -605,13 +743,16 @@ func main() {
 }
 
 type counts struct {
-	sets, cards, sealed, identified int
+	sets, cards, sealed, identified, carried int
 }
 
 // validate decodes an encoded datastore and checks its shape: sets and
 // cards present, every card and sealed product carrying its identity,
-// every id unique within its namespace, every sealed set existing.
-func validate(data []byte) (counts, error) {
+// every id unique within its namespace, every sealed set existing, and
+// every product the catalog types as a card claimed by a card — the
+// zero-skip invariant, checked on the encoded output so a product no rule
+// above carried stops the publish instead of leaving the datastore.
+func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 	var doc struct {
 		Sets map[string]struct {
 			Name        string `json:"name"`
@@ -678,6 +819,32 @@ func validate(data []byte) (counts, error) {
 		if card.ExternalLinks.TcgPlayerId != 0 {
 			out.identified++
 		}
+	}
+	var missing, foreign []int
+	for id := range claimedBy {
+		if !cardProducts[id] {
+			foreign = append(foreign, id)
+			continue
+		}
+		out.carried++
+	}
+	for id := range cardProducts {
+		if _, found := claimedBy[id]; !found {
+			missing = append(missing, id)
+		}
+	}
+	sort.Ints(missing)
+	sort.Ints(foreign)
+	if len(missing) > 0 {
+		return out, fmt.Errorf("%d catalog card products carry no card, first is %d",
+			len(missing), missing[0])
+	}
+	// A claim naming no card product is upstream's to make, not this
+	// build's: the dump can lag a day behind a product upstream already
+	// links, so it is said out loud rather than refused.
+	if len(foreign) > 0 {
+		log.Printf("%d claimed product ids the catalog types as no card, first is %d",
+			len(foreign), foreign[0])
 	}
 	sealedIDs := map[string]bool{}
 	for _, product := range doc.Sealed {
