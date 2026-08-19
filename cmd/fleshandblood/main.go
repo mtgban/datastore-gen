@@ -194,6 +194,15 @@ func fetch(location string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+// lowered folds a label list to the spelling the matcher declares tags in.
+func lowered(quals []string) []string {
+	out := make([]string, len(quals))
+	for i, q := range quals {
+		out[i] = strings.ToLower(q)
+	}
+	return out
+}
+
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
 
 // numParenRe matches a collector number worn as a parenthetical
@@ -308,6 +317,42 @@ func initials(name string) string {
 // the group name's initials; any code already claimed gets "-groupId"
 // appended. Every repair is logged, because none of it is the catalog's
 // own identity.
+// promoGroups reports which catalog groups hand out promotional printings.
+// Two things say so and they cover different ground: TCGplayer names the one
+// promo group outright, and the welcome decks give their cards away without
+// naming themselves promotional, which the products' own rarity records. The
+// rarity test asks for every card product in the group, not most: a set that
+// merely holds some promos among its pack cards is not a promotional set,
+// and reading it as one would make a promo of everything beside them.
+func promoGroups(catalog tcgplayer.CatalogDump) map[int]bool {
+	cards := map[int]int{}
+	promos := map[int]int{}
+	for _, product := range catalog.Products {
+		if product.ProductType != tcgSingles {
+			continue
+		}
+		cards[product.GroupID]++
+		if strings.EqualFold(product.Extended("Rarity"), promoRarity) {
+			promos[product.GroupID]++
+		}
+	}
+	out := map[int]bool{}
+	for _, group := range catalog.Groups {
+		if strings.Contains(strings.ToLower(group.Name), "promo") {
+			out[group.GroupID] = true
+			continue
+		}
+		if n := cards[group.GroupID]; n > 0 && promos[group.GroupID] == n {
+			out[group.GroupID] = true
+		}
+	}
+	return out
+}
+
+// promoRarity is what the catalog calls the rarity of a printing handed out
+// rather than sold in a pack.
+const promoRarity = "Promo"
+
 func setCodes(groups []tcgplayer.Group) map[int]string {
 	ordered := append([]tcgplayer.Group(nil), groups...)
 	sort.Slice(ordered, func(i, j int) bool {
@@ -586,12 +631,22 @@ func main() {
 	// Emit. Sets are the catalog groups under their repaired codes; ids
 	// embed the product id so they survive any upstream renumbering.
 	sets := map[string]any{}
+	promoted := promoGroups(catalog)
+	var promoSets int
 	for _, group := range catalog.Groups {
-		sets[codes[group.GroupID]] = map[string]any{
+		set := map[string]any{
 			"name":        group.Name,
 			"releaseDate": group.ReleaseDate(),
 		}
+		// The type is what tells the matcher a printing is promotional, so
+		// only the wholly promotional groups carry it.
+		if promoted[group.GroupID] {
+			set["type"] = "promo"
+			promoSets++
+		}
+		sets[codes[group.GroupID]] = set
 	}
+	log.Printf("promotional sets: %d of %d", promoSets, len(catalog.Groups))
 
 	sort.Slice(singles, func(i, j int) bool {
 		return singles[i].product.ProductID < singles[j].product.ProductID
@@ -646,6 +701,11 @@ func main() {
 			}
 			if len(s.quals) > 0 {
 				entry["variant"] = strings.Join(s.quals, " ")
+				// The same labels as a list, because joining them loses
+				// where one ends and the next begins: "Cold Foil Extended
+				// Art" cannot be read back into its two tags, and the
+				// matcher needs them whole to declare and to match on.
+				entry["promoTypes"] = lowered(s.quals)
 			}
 			if id, found := fabIDs[productID]; found {
 				entry["fabId"] = id
