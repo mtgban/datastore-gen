@@ -22,11 +22,23 @@
 // remains is the variant label ("Alternate Art", "Manga", "SP", event
 // names) the matcher narrows on.
 //
-// Japanese-version products are dropped: the datastore is the English
-// program. DON!! cards have no collector number to carry — neither the
-// catalog nor Bandai's own card list numbers them — so they are filed
-// under one constant number and told apart by their set and their variant
-// label, which is how the storefronts name them too.
+// Every product the catalog types as a card becomes an entry, and validate
+// refuses a build that left one out: a shape nobody has seen yet stops the
+// publish instead of vanishing from the datastore. The Japanese-version
+// promos TCGplayer sells are products like any other, so they are carried
+// with the language their name calls them out as — the category prices
+// them through English skus, so the name is the only source there is — and
+// the matcher drops a non-English candidate from a query that named no
+// language, leaving English matching exactly as it was.
+//
+// A card the game gives no collector number is filed under its card type:
+// the DON!! cards, which neither the catalog nor Bandai's own card list
+// numbers, and the promo Leaders handed out in sealed-battle packs. A type
+// is stable where a counted or ordered number would renumber the cards the
+// day TCGplayer adds a product, and it reads as what the card is rather
+// than as a number a storefront's stray digits could match; identity falls
+// to the set and the variant label, which the catalog spells out per
+// product and no two of them share.
 //
 // Sealed products are everything the catalog files outside the singles
 // type, same as the other games: by exclusion, so a product type TCGplayer
@@ -60,15 +72,9 @@ const (
 	// "PR" alongside the promo characters - but the type does.
 	donCardType = "DON!!"
 
-	// donNumber stands in for the collector number a DON!! card does not
-	// have; the loader rejects a datastore whose cards carry none, so the
-	// stand-in has to be something. A constant is the stable choice: a
-	// counted or ordered number would renumber the cards the day TCGplayer
-	// adds a product, rewriting the price history keyed by it, and a number
-	// derived per product would read as a real one and invite a
-	// storefront's stray digits to match it. Identity falls to the set and
-	// the variant label instead, which the catalog already spells out per
-	// product and which no two DON!! products share.
+	// donNumber is the shorter spelling the DON!! cards' ids were published
+	// under, kept so this datastore's oldest minted numbers do not churn;
+	// every other unnumbered card is filed under its card type as spelled.
 	donNumber = "DON"
 
 	punkCardsURL = "https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json"
@@ -149,6 +155,48 @@ func fetch(location string) ([]byte, error) {
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
 var bareNumRe = regexp.MustCompile(`^\d{3}$`)
 
+// languageWords maps the word a product name calls a printing out with to
+// the language the entry carries. The category prices every product through
+// English skus, this one included, so the name is the only thing that says
+// which printing of the game a product actually is.
+var languageWords = map[string]string{
+	"japanese": "Japanese",
+}
+
+// nameLanguage names the language a product's qualifiers call it out as,
+// empty when they name none.
+func nameLanguage(quals []string) string {
+	for _, qual := range quals {
+		for _, word := range strings.Fields(strings.ToLower(qual)) {
+			language, found := languageWords[word]
+			if found {
+				return language
+			}
+		}
+	}
+	return ""
+}
+
+// numberFor is the collector number a product is filed under: the catalog's
+// own Number, or the product's card type where the game numbers nothing.
+// A product carrying neither has nothing to be told apart by and stops the
+// build rather than being dropped from it.
+func numberFor(product tcgplayer.Product) string {
+	num := product.Extended("Number")
+	if num != "" {
+		return num
+	}
+	cardType := product.Extended("CardType")
+	if strings.EqualFold(cardType, donCardType) {
+		return donNumber
+	}
+	if cardType == "" {
+		log.Fatalf("%q (%d) carries neither a collector number nor a card type",
+			product.Name, product.ProductID)
+	}
+	return strings.ToUpper(cardType)
+}
+
 // single is one card product, its name split into the base name, the
 // parenthetical qualifiers, and the collector number.
 type single struct {
@@ -156,6 +204,10 @@ type single struct {
 	number   string
 	baseName string
 	quals    []string
+
+	// language is what the product's own name calls the printing out as,
+	// read before the election below moves a qualifier into the name.
+	language string
 }
 
 // decorations strips the collector number worn as decoration: a dash
@@ -179,6 +231,7 @@ func decompose(p tcgplayer.Product, num string) single {
 		number:   num,
 		baseName: strings.Join(strings.Fields(name), " "),
 		quals:    quals,
+		language: nameLanguage(quals),
 	}
 }
 
@@ -231,39 +284,30 @@ func main() {
 
 	printings := catalog.PrintingNames()
 
-	// Split the products: English singles become printings, numbered or
-	// DON!!, the non-single types become sealed, and the rest is counted
-	// out loud.
+	// Split the products: every single becomes printings, the non-single
+	// types become sealed.
 	var singles []single
 	var sealedProducts []tcgplayer.Product
-	var japanese, unnumbered, donCards, printingless int
+	var unnumbered int
 	for _, product := range catalog.Products {
 		if product.ProductType != tcgSingles {
 			sealedProducts = append(sealedProducts, product)
 			continue
 		}
-		if strings.Contains(strings.ToLower(product.Name), "japanese") {
-			japanese++
-			continue
-		}
-		num := product.Extended("Number")
-		if num == "" {
-			if !strings.EqualFold(product.Extended("CardType"), donCardType) {
-				unnumbered++
-				continue
-			}
-			num = donNumber
-			donCards++
-		}
 		if len(printings[product.ProductID]) == 0 {
-			printingless++
-			log.Printf("no sku printing: %q (%d) left out", product.Name, product.ProductID)
-			continue
+			// Every card product the catalog has ever carried prices at
+			// least one sku, and a product with none has no printing to
+			// file an entry under: stop rather than drop it.
+			log.Fatalf("no sku printing: %q (%d) has no entry to carry it",
+				product.Name, product.ProductID)
 		}
-		singles = append(singles, decompose(product, num))
+		if product.Extended("Number") == "" {
+			unnumbered++
+		}
+		singles = append(singles, decompose(product, numberFor(product)))
 	}
-	log.Printf("singles: %d kept (%d of them DON!!), %d japanese dropped, %d unnumbered and %d printingless left out",
-		len(singles), donCards, japanese, unnumbered, printingless)
+	log.Printf("singles: %d kept (%d filed under a card type for want of a number)",
+		len(singles), unnumbered)
 
 	// Per collector number: a qualifier every product of the number carries
 	// is part of the name (the "(Bentham)" epithets), not a variant. A
@@ -335,14 +379,24 @@ func main() {
 	// unambiguously: same printing count for the number, base product to
 	// the bare id, variant products in product-id order to _p1, _p2, ...
 	// A number the sources disagree on is left unannotated, not guessed.
+	// The count is taken over the English printings alone, because the
+	// mirrored list is the English one: a Japanese-version product sharing
+	// a number would otherwise make the two sources disagree and cost its
+	// English siblings the annotation they already had.
 	var annotated int
 	bandaiIDs := map[int]string{}
 	for num, bucket := range byNumber {
+		var english []*single
+		for _, s := range bucket {
+			if s.language == "" {
+				english = append(english, s)
+			}
+		}
 		ids := punkByNumber[num]
-		if len(ids) == 0 || len(ids) != len(bucket) {
+		if len(ids) == 0 || len(ids) != len(english) {
 			continue
 		}
-		ordered := append([]*single(nil), bucket...)
+		ordered := append([]*single(nil), english...)
 		sort.Slice(ordered, func(i, j int) bool {
 			bi, bj := len(ordered[i].quals) == 0, len(ordered[j].quals) == 0
 			if bi != bj {
@@ -353,7 +407,7 @@ func main() {
 		for i, s := range ordered {
 			bandaiIDs[s.product.ProductID] = ids[i]
 		}
-		annotated += len(bucket)
+		annotated += len(ordered)
 	}
 	log.Printf("bandai ids: %d of %d printings annotated", annotated, len(singles))
 
@@ -370,12 +424,26 @@ func main() {
 	sort.Slice(singles, func(i, j int) bool {
 		return singles[i].product.ProductID < singles[j].product.ProductID
 	})
+	// The coverage contract: every product the catalog types as a card,
+	// with the sku printings it is sold in. validate reads it back off the
+	// encoded output, so a product no rule here carried fails the build
+	// instead of quietly leaving the datastore.
+	catalogFinishes := map[int][]string{}
+	for _, product := range catalog.Products {
+		if product.ProductType != tcgSingles {
+			continue
+		}
+		catalogFinishes[product.ProductID] = printings[product.ProductID]
+	}
+
 	var cards []any
-	wantFinishes := map[int][]string{}
+	var nonEnglish int
 	for _, s := range singles {
 		group := groupByID[s.product.GroupID]
 		productID := s.product.ProductID
-		wantFinishes[productID] = printings[productID]
+		if s.language != "" {
+			nonEnglish++
+		}
 		for _, finish := range printings[productID] {
 			suffix, known := finishSuffix[finish]
 			if !known {
@@ -398,6 +466,9 @@ func main() {
 			}
 			if len(s.quals) > 0 {
 				entry["variant"] = strings.Join(s.quals, " ")
+			}
+			if s.language != "" {
+				entry["language"] = s.language
 			}
 			if bandai, found := bandaiIDs[productID]; found {
 				entry["bandaiId"] = bandai
@@ -423,8 +494,10 @@ func main() {
 			},
 		})
 	}
-	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
-		len(sets), len(cards), len(singles), len(sealed))
+	log.Printf("emitting %d sets, %d card entries over %d products (%d not in English), %d sealed",
+		len(sets), len(cards), len(singles), nonEnglish, len(sealed))
+	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
+		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
 	doc := map[string]any{
 		"game":   "onepiece",
@@ -442,7 +515,7 @@ func main() {
 	// fail here, not in every consumer. The types mirror what go-mtgban's
 	// mtgmatcher/onepiece reads, duplicated so this repository depends on
 	// nothing.
-	counted, err := validate(buf.Bytes(), wantFinishes)
+	counted, err := validate(buf.Bytes(), catalogFinishes)
 	if err != nil {
 		log.Fatalln("validation:", err)
 	}
@@ -473,6 +546,38 @@ type counts struct {
 	sets, cards, sealed int
 }
 
+// coverage is the zero-skip invariant: the products the emitted entries
+// cover must be exactly the products the catalog types as cards. Checked on
+// the encoded output, so a card product no rule above knew what to do with
+// stops the publish instead of quietly leaving the datastore. The offender
+// is named lowest id first, so the same data always reports the same one.
+func coverage(got, want map[int][]string) error {
+	var missing, extra []int
+	for productID := range want {
+		_, found := got[productID]
+		if !found {
+			missing = append(missing, productID)
+		}
+	}
+	for productID := range got {
+		_, found := want[productID]
+		if !found {
+			extra = append(extra, productID)
+		}
+	}
+	sort.Ints(missing)
+	sort.Ints(extra)
+	if len(missing) > 0 {
+		return fmt.Errorf("%d catalog card products carry no entry, first is %d",
+			len(missing), missing[0])
+	}
+	if len(extra) > 0 {
+		return fmt.Errorf("%d entries name a product the catalog does not type as a card, first is %d",
+			len(extra), extra[0])
+	}
+	return nil
+}
+
 // validate decodes an encoded datastore and checks its shape: every card
 // and sealed product carrying its identity, every id unique within its
 // namespace, no two entries wearing the same identity, every referenced
@@ -491,6 +596,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Number        string `json:"number"`
 			SetCode       string `json:"setCode"`
 			Variant       string `json:"variant"`
+			Language      string `json:"language"`
 			Finish        string `json:"finish"`
 			ExternalLinks struct {
 				TcgPlayerId int `json:"tcgPlayerId"`
@@ -542,7 +648,11 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			return out, fmt.Errorf("duplicate card id %s", card.ID)
 		}
 		cardIDs[card.ID] = true
-		identity := strings.Join([]string{card.Name, card.Number, card.SetCode, card.Variant}, "|")
+		// The language is part of the identity for the same reason the
+		// variant label is: the matcher narrows on it, so the Japanese
+		// printing of a card is not the English one wearing its name.
+		identity := strings.Join([]string{
+			card.Name, card.Number, card.SetCode, card.Variant, card.Language}, "|")
 		if other, seen := identities[identity]; seen && other != card.ExternalLinks.TcgPlayerId {
 			return out, fmt.Errorf("products %d and %d wear one identity: %s",
 				other, card.ExternalLinks.TcgPlayerId, identity)
@@ -557,8 +667,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		}
 		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 	}
-	if len(gotFinishes) != len(wantFinishes) {
-		return out, fmt.Errorf("entries cover %d products, catalog carries %d", len(gotFinishes), len(wantFinishes))
+	err := coverage(gotFinishes, wantFinishes)
+	if err != nil {
+		return out, err
 	}
 	for productID, want := range wantFinishes {
 		got := append([]string(nil), gotFinishes[productID]...)
