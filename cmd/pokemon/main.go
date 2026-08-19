@@ -23,12 +23,17 @@
 // Number field; a number-like tail that disagrees is warned about and kept,
 // because the typo could be in either field.
 //
-// Digital code cards (rarity "Code Card") are neither cards nor sealed and
-// are excluded entirely. Unnumbered singles — basic energies, World
-// Championship deck cards — are real cards and stay, with the product id
-// alone as their id base. The few Japanese-exclusive singles stay too:
-// identity is the catalog's, and the catalog types and prices them through
-// English skus like any other card.
+// Every product the catalog types as a card becomes an entry, and validate
+// refuses a build that left one out: a shape nobody has seen yet stops the
+// publish instead of vanishing from the datastore. Unnumbered singles —
+// basic energies, World Championship deck cards — are real cards and stay,
+// with the product id alone as their id base. The few Japanese-exclusive
+// singles stay too: identity is the catalog's, and the catalog types and
+// prices them through English skus like any other card. The digital code
+// cards (rarity "Code Card") stay on the card side rather than the sealed
+// one: TCGplayer prices them through the five graded-condition skus every
+// single carries, where a sealed product carries the one Unopened sku, so
+// the card side is the only side that prices them at all.
 //
 // Sets are the catalog groups. Group abbreviations repeat freely in this
 // category ("PR" 21 times), so codes are claimed in group-id order: the first
@@ -50,7 +55,7 @@
 //
 // Sealed is everything the catalog does not type as singles, one entry per
 // product, so a product type TCGplayer invents next lands where it is
-// noticed; the code-card exclusion runs first and applies to both kinds.
+// noticed.
 package main
 
 import (
@@ -76,7 +81,8 @@ const (
 	// only other type in this category is Sealed Products.
 	tcgSingles = "Cards"
 
-	// codeCardRarity marks the digital code cards excluded entirely.
+	// codeCardRarity marks the digital code cards, counted apart because
+	// they are the one population here that is not a playable card.
 	codeCardRarity = "Code Card"
 
 	tcgdexGraphQLURL = "https://api.tcgdex.net/v2/graphql"
@@ -653,25 +659,26 @@ func main() {
 
 	printings := printingNames(&catalog)
 
-	// Split the products: singles become card entries per sku printing,
-	// Sealed Products become sealed, code cards are neither. "N/A" is a
-	// spelling of no number; the unnumbered are real singles and stay.
+	// Split the products: every single becomes card entries per sku
+	// printing, Sealed Products become sealed. "N/A" is a spelling of no
+	// number; the unnumbered are real singles and stay.
 	var singles []single
 	var sealedProducts []tcgplayer.Product
-	var codeCards, unnumbered, printingless int
+	var codeCards, unnumbered int
 	for _, product := range catalog.Products {
-		if product.Extended("Rarity") == codeCardRarity {
-			codeCards++
-			continue
-		}
 		if product.ProductType != tcgSingles {
 			sealedProducts = append(sealedProducts, product)
 			continue
 		}
 		if len(printings[product.ProductID]) == 0 {
-			printingless++
-			log.Printf("no English sku printing: %q (%d) left out", product.Name, product.ProductID)
-			continue
+			// Every card product the catalog has ever carried prices at
+			// least one English sku, and a product with none has no
+			// printing to file an entry under: stop rather than drop it.
+			log.Fatalf("no English sku printing: %q (%d) has no entry to carry it",
+				product.Name, product.ProductID)
+		}
+		if product.Extended("Rarity") == codeCardRarity {
+			codeCards++
 		}
 		num := product.Extended("Number")
 		if strings.EqualFold(num, "N/A") {
@@ -682,7 +689,7 @@ func main() {
 		}
 		singles = append(singles, decompose(product, num))
 	}
-	log.Printf("singles: %d kept (%d unnumbered), %d code cards excluded, %d sealed",
+	log.Printf("singles: %d kept (%d unnumbered, %d code cards), %d sealed",
 		len(singles), unnumbered, codeCards, len(sealedProducts))
 	if len(singles) == 0 {
 		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
@@ -938,12 +945,22 @@ func main() {
 		sets[setCodes[group.GroupID]] = set
 	}
 
+	// The coverage contract: every product the catalog types as a card,
+	// with the sku printings it is sold in. validate reads it back off the
+	// encoded output, so a product no rule here carried fails the build
+	// instead of quietly leaving the datastore.
+	catalogFinishes := map[int][]string{}
+	for _, product := range catalog.Products {
+		if product.ProductType != tcgSingles {
+			continue
+		}
+		catalogFinishes[product.ProductID] = printings[product.ProductID]
+	}
+
 	var cards []any
-	wantFinishes := map[int][]string{}
 	for i := range singles {
 		s := &singles[i]
 		productID := s.product.ProductID
-		wantFinishes[productID] = printings[productID]
 
 		image := imageURL(s.product.ImageURL)
 		dex := dexCards[productID]
@@ -1004,6 +1021,8 @@ func main() {
 	}
 	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
 		len(sets), len(cards), len(singles), len(sealed))
+	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
+		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
 	doc := map[string]any{
 		"game":   "pokemon",
@@ -1021,7 +1040,7 @@ func main() {
 	// publishing anything: a format drift or a truncated download must
 	// fail here, not in every consumer. The types mirror what go-mtgban's
 	// loader reads, duplicated so this repository depends on nothing.
-	counted, err := validate(buf.Bytes(), wantFinishes)
+	counted, err := validate(buf.Bytes(), catalogFinishes)
 	if err != nil {
 		log.Fatalln("validation:", err)
 	}
@@ -1061,6 +1080,38 @@ func numeratorKey(s string) string {
 
 type counts struct {
 	sets, cards, sealed int
+}
+
+// coverage is the zero-skip invariant: the products the emitted entries
+// cover must be exactly the products the catalog types as cards. Checked on
+// the encoded output, so a card product no rule above knew what to do with
+// stops the publish instead of quietly leaving the datastore. The offender
+// is named lowest id first, so the same data always reports the same one.
+func coverage(got, want map[int][]string) error {
+	var missing, extra []int
+	for productID := range want {
+		_, found := got[productID]
+		if !found {
+			missing = append(missing, productID)
+		}
+	}
+	for productID := range got {
+		_, found := want[productID]
+		if !found {
+			extra = append(extra, productID)
+		}
+	}
+	sort.Ints(missing)
+	sort.Ints(extra)
+	if len(missing) > 0 {
+		return fmt.Errorf("%d catalog card products carry no entry, first is %d",
+			len(missing), missing[0])
+	}
+	if len(extra) > 0 {
+		return fmt.Errorf("%d entries name a product the catalog does not type as a card, first is %d",
+			len(extra), extra[0])
+	}
+	return nil
 }
 
 // validate decodes an encoded datastore and checks its shape: every card
@@ -1128,9 +1179,6 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		if _, known := finishSuffix[card.Finish]; !known {
 			return out, fmt.Errorf("card %q (%s) carries unknown finish %q", card.Name, card.ID, card.Finish)
 		}
-		if card.Rarity == codeCardRarity {
-			return out, fmt.Errorf("card %q (%s) is a code card", card.Name, card.ID)
-		}
 		if cardIDs[card.ID] {
 			return out, fmt.Errorf("duplicate card id %s", card.ID)
 		}
@@ -1152,8 +1200,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		}
 		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 	}
-	if len(gotFinishes) != len(wantFinishes) {
-		return out, fmt.Errorf("entries cover %d products, catalog carries %d", len(gotFinishes), len(wantFinishes))
+	err = coverage(gotFinishes, wantFinishes)
+	if err != nil {
+		return out, err
 	}
 	for productID, want := range wantFinishes {
 		got := append([]string(nil), gotFinishes[productID]...)
