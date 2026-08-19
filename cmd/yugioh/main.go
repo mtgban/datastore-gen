@@ -191,6 +191,25 @@ func restatesRarity(qual, rarity string) bool {
 	return q == r || q+" rare" == r || normRarity(rarityShorthand[qual]) == r
 }
 
+// isPromoGroup reports whether a catalog group hands out promotional
+// printings. The group name is the only thing that says so in this
+// category: Yu-Gi-Oh rarities name the foil treatment ("Secret Rare",
+// "Starfoil Rare") and never the promotion, so the 732 Duelist League
+// promos carry no promotional rarity at all. Reading the name also keeps
+// the collector tins out, which reprint at retail rather than hand out.
+func isPromoGroup(group tcgplayer.Group) bool {
+	return strings.Contains(strings.ToLower(group.Name), "promo")
+}
+
+// lowered folds a label list to the spelling the matcher declares tags in.
+func lowered(quals []string) []string {
+	out := make([]string, len(quals))
+	for i, q := range quals {
+		out[i] = strings.ToLower(q)
+	}
+	return out
+}
+
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
 var bareNumRe = regexp.MustCompile(`^\d{1,4}$`)
 
@@ -520,12 +539,19 @@ func main() {
 	// Emit. Sets are the catalog groups; ids embed the product id so they
 	// survive any upstream renumbering.
 	sets := map[string]any{}
+	var promoSets int
 	for _, group := range groups {
-		sets[setCodes[group.GroupID]] = map[string]any{
+		set := map[string]any{
 			"name":        group.Name,
 			"releaseDate": releaseDates[group.GroupID],
 		}
+		if isPromoGroup(group) {
+			set["type"] = "promo"
+			promoSets++
+		}
+		sets[setCodes[group.GroupID]] = set
 	}
+	log.Printf("promotional sets: %d of %d", promoSets, len(groups))
 
 	sort.Slice(singles, func(i, j int) bool {
 		return singles[i].product.ProductID < singles[j].product.ProductID
@@ -573,6 +599,10 @@ func main() {
 			}
 			if len(s.quals) > 0 {
 				entry["variant"] = strings.Join(s.quals, " ")
+				// The same labels as a list: joined, "OTS Stamp Blue"
+				// cannot be read back into the two tags it holds, and the
+				// matcher needs them whole to declare and to match on.
+				entry["promoTypes"] = lowered(s.quals)
 			}
 			cards = append(cards, entry)
 		}
