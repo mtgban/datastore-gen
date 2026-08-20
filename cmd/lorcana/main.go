@@ -69,6 +69,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -752,6 +753,11 @@ type counts struct {
 // every product the catalog types as a card claimed by a card — the
 // zero-skip invariant, checked on the encoded output so a product no rule
 // above carried stops the publish instead of leaving the datastore.
+// codeShape is what a set code has to look like to be asked for: a search
+// query is split on whitespace before a filter sees it and on the colon that
+// names the filter, so a code holding either can never be typed after "is:".
+var codeShape = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+
 func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 	var doc struct {
 		Sets map[string]struct {
@@ -786,6 +792,9 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 	for code, set := range doc.Sets {
 		if set.Name == "" {
 			return out, fmt.Errorf("set %s missing its name", code)
+		}
+		if !codeShape.MatchString(code) {
+			return out, fmt.Errorf("set code %q holds what a query cannot carry", code)
 		}
 	}
 	cardIDs := map[int]bool{}
