@@ -285,6 +285,19 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 	return out
 }
 
+// nonCodeRe matches the runs a set code cannot carry.
+var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
+
+// setCodeOf reduces a catalog abbreviation to what a search query can carry.
+// A set code is typed after "is:", and a query is split on whitespace before
+// a filter ever sees it and on the colon that names the filter, so a code
+// holding either cannot be asked for: "is:OP11 RE" reaches the filter as
+// "is:OP11" and "is:crz:gg" names a filter called crz. Every run of anything
+// but a letter or a digit becomes one dash, and the ends are trimmed of them.
+func setCodeOf(abbreviation string) string {
+	return strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-")
+}
+
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	minCards := flag.Int("min-cards", 55000, "refuse to emit a datastore with fewer card entries")
@@ -370,7 +383,7 @@ func main() {
 	usedCodes := map[string]bool{}
 	var minted, suffixed int
 	for _, group := range groups {
-		code := group.Abbreviation
+		code := setCodeOf(group.Abbreviation)
 		if code == "" {
 			code = fmt.Sprintf("G%d", group.GroupID)
 			minted++
@@ -716,6 +729,16 @@ func coverage(got, want map[int][]string) error {
 // referenced set existing, every finish one of the three printing names,
 // and every product's entries covering exactly the sku printings the
 // catalog lists for it.
+// codeShape is what a set code has to look like to be asked for: a search
+// query is split on whitespace before a filter sees it and on the colon that
+// names the filter, so a code holding either can never be typed after "is:".
+var codeShape = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+
+// idShape is what a uuid has to look like wherever one is written down: a
+// slash is a path separator and a space ends a word, and a uuid travels
+// through urls, filenames and query strings alike.
+var idShape = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
 func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	var doc struct {
 		Game string `json:"game"`
@@ -755,6 +778,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		if code == "" || set.Name == "" {
 			return out, fmt.Errorf("set %q missing its identity", code)
 		}
+		if !codeShape.MatchString(code) {
+			return out, fmt.Errorf("set code %q holds what a query cannot carry", code)
+		}
 	}
 	cardIDs := map[string]bool{}
 	// A query resolves a card by its name, number, set, rarity and variant
@@ -775,6 +801,12 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		if card.ID == "" || card.Name == "" || card.Rarity == "" ||
 			card.Finish == "" || card.ExternalLinks.TcgPlayerId == 0 {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
+		}
+		if !idShape.MatchString(card.ID) {
+			return out, fmt.Errorf("card %q has a uuid nothing can carry: %q", card.Name, card.ID)
+		}
+		if strings.ContainsAny(card.Number, " \t") {
+			return out, fmt.Errorf("card %q (%s) has a collector number a query cannot carry: %q", card.Name, card.ID, card.Number)
 		}
 		if _, known := finishSuffix[card.Finish]; !known {
 			return out, fmt.Errorf("card %q (%s) carries unknown finish %q", card.Name, card.ID, card.Finish)
@@ -816,6 +848,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	for _, product := range doc.Sealed {
 		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerId == 0 {
 			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
+		}
+		if !idShape.MatchString(product.ID) {
+			return out, fmt.Errorf("sealed %q has a uuid nothing can carry: %q", product.Name, product.ID)
 		}
 		if sealedIDs[product.ID] {
 			return out, fmt.Errorf("duplicate sealed id %s", product.ID)

@@ -288,6 +288,11 @@ func splitQualifiers(name string) (string, []string) {
 // checked on the encoded output so a product no rule above knew what to do
 // with stops the publish instead of quietly leaving the datastore. It
 // returns the set, printing, sealed and identified-printing counts.
+// codeShape is what a set code has to look like to be asked for: a search
+// query is split on whitespace before a filter sees it and on the colon that
+// names the filter, so a code holding either can never be typed after "is:".
+var codeShape = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+
 func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, identified int, err error) {
 	var doc struct {
 		PageProps struct {
@@ -332,6 +337,9 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 		for _, set := range blade.Sets.Items {
 			if set.ID == "" || set.Name == "" || set.ReleaseDate == "" {
 				return 0, 0, 0, 0, fmt.Errorf("set %q (%s) missing identity or date", set.Name, set.ID)
+			}
+			if !codeShape.MatchString(set.ID) {
+				return 0, 0, 0, 0, fmt.Errorf("set code %q holds what a query cannot carry", set.ID)
 			}
 		}
 		carried := map[int]bool{}

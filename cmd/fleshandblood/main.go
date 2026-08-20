@@ -145,7 +145,20 @@ func imageURL(url string) string {
 // idBase mints the id stem an entry's finish suffix hangs off: the
 // collector number and the product id, or the product id alone for a
 // product the game gives no number.
+// numberOf spells a collector number the way a query can carry it. A search
+// is split on whitespace before a filter sees it, so the two halves of a
+// double-faced number have to stay one token: "WTR040 // WTR039" is
+// "WTR040//WTR039", and "PW 1" is "PW1". The separators are already there;
+// only the spaces around them go.
+func numberOf(number string) string {
+	return strings.Join(strings.Fields(number), "")
+}
+
 func idBase(num string, productID int) string {
+	// A double-faced number holds two of them with a separator between,
+	// which would put a space inside a uuid.
+	num = nonCodeRe.ReplaceAllString(num, "-")
+	num = strings.Trim(num, "-")
 	if num == "" {
 		return strconv.Itoa(productID)
 	}
@@ -353,6 +366,19 @@ func promoGroups(catalog tcgplayer.CatalogDump) map[int]bool {
 // rather than sold in a pack.
 const promoRarity = "Promo"
 
+// nonCodeRe matches the runs a set code cannot carry.
+var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
+
+// setCodeOf reduces a catalog abbreviation to what a search query can carry.
+// A set code is typed after "is:", and a query is split on whitespace before
+// a filter ever sees it and on the colon that names the filter, so a code
+// holding either cannot be asked for: "is:OP11 RE" reaches the filter as
+// "is:OP11" and "is:crz:gg" names a filter called crz. Every run of anything
+// but a letter or a digit becomes one dash, and the ends are trimmed of them.
+func setCodeOf(abbreviation string) string {
+	return strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-")
+}
+
 func setCodes(groups []tcgplayer.Group) map[int]string {
 	ordered := append([]tcgplayer.Group(nil), groups...)
 	sort.Slice(ordered, func(i, j int) bool {
@@ -371,12 +397,12 @@ func setCodes(groups []tcgplayer.Group) map[int]string {
 		taken[code] = true
 	}
 	for _, g := range ordered {
-		if g.Abbreviation != "" {
-			claim(g, g.Abbreviation)
+		if code := setCodeOf(g.Abbreviation); code != "" {
+			claim(g, code)
 		}
 	}
 	for _, g := range ordered {
-		if g.Abbreviation != "" {
+		if setCodeOf(g.Abbreviation) != "" {
 			continue
 		}
 		code := initials(g.Name)
@@ -694,7 +720,7 @@ func main() {
 				},
 			}
 			if s.number != "" {
-				entry["number"] = s.number
+				entry["number"] = numberOf(s.number)
 			}
 			if language != "" {
 				entry["language"] = language
@@ -819,6 +845,16 @@ func coverage(got, want map[int][]string) error {
 // namespace, every referenced set existing, every finish one of the eight
 // printing names, and every product's entries covering exactly the sku
 // printings the catalog lists for it.
+// codeShape is what a set code has to look like to be asked for: a search
+// query is split on whitespace before a filter sees it and on the colon that
+// names the filter, so a code holding either can never be typed after "is:".
+var codeShape = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+
+// idShape is what a uuid has to look like wherever one is written down: a
+// slash is a path separator and a space ends a word, and a uuid travels
+// through urls, filenames and query strings alike.
+var idShape = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
 func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	var doc struct {
 		Game string `json:"game"`
@@ -858,6 +894,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		if set.Name == "" {
 			return out, fmt.Errorf("set %s missing its name", code)
 		}
+		if !codeShape.MatchString(code) {
+			return out, fmt.Errorf("set code %q holds what a query cannot carry", code)
+		}
 	}
 	cardIDs := map[string]bool{}
 	// A query resolves a card by its name, number, set and variant label,
@@ -874,6 +913,12 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		if card.ID == "" || card.Name == "" ||
 			card.Finish == "" || card.ExternalLinks.TcgPlayerId == 0 {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
+		}
+		if !idShape.MatchString(card.ID) {
+			return out, fmt.Errorf("card %q has a uuid nothing can carry: %q", card.Name, card.ID)
+		}
+		if strings.ContainsAny(card.Number, " \t") {
+			return out, fmt.Errorf("card %q (%s) has a collector number a query cannot carry: %q", card.Name, card.ID, card.Number)
 		}
 		if _, known := finishSuffix[card.Finish]; !known {
 			return out, fmt.Errorf("card %q (%s) carries unknown finish %q", card.Name, card.ID, card.Finish)
@@ -919,6 +964,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	for _, product := range doc.Sealed {
 		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerId == 0 {
 			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
+		}
+		if !idShape.MatchString(product.ID) {
+			return out, fmt.Errorf("sealed %q has a uuid nothing can carry: %q", product.Name, product.ID)
 		}
 		if sealedIDs[product.ID] {
 			return out, fmt.Errorf("duplicate sealed id %s", product.ID)
