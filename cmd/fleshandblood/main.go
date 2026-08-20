@@ -194,15 +194,6 @@ func fetch(location string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-// lowered folds a label list to the spelling the matcher declares tags in.
-func lowered(quals []string) []string {
-	out := make([]string, len(quals))
-	for i, q := range quals {
-		out[i] = strings.ToLower(q)
-	}
-	return out
-}
-
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
 
 // numParenRe matches a collector number worn as a parenthetical
@@ -705,7 +696,7 @@ func main() {
 				// where one ends and the next begins: "Cold Foil Extended
 				// Art" cannot be read back into its two tags, and the
 				// matcher needs them whole to declare and to match on.
-				entry["promoTypes"] = lowered(s.quals)
+				entry["promoTypes"] = append([]string(nil), s.quals...)
 			}
 			if id, found := fabIDs[productID]; found {
 				entry["fabId"] = id

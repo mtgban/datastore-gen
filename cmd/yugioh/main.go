@@ -201,15 +201,6 @@ func isPromoGroup(group tcgplayer.Group) bool {
 	return strings.Contains(strings.ToLower(group.Name), "promo")
 }
 
-// lowered folds a label list to the spelling the matcher declares tags in.
-func lowered(quals []string) []string {
-	out := make([]string, len(quals))
-	for i, q := range quals {
-		out[i] = strings.ToLower(q)
-	}
-	return out
-}
-
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
 var bareNumRe = regexp.MustCompile(`^\d{1,4}$`)
 
@@ -602,7 +593,7 @@ func main() {
 				// The same labels as a list: joined, "OTS Stamp Blue"
 				// cannot be read back into the two tags it holds, and the
 				// matcher needs them whole to declare and to match on.
-				entry["promoTypes"] = lowered(s.quals)
+				entry["promoTypes"] = append([]string(nil), s.quals...)
 			}
 			cards = append(cards, entry)
 		}

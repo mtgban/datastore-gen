@@ -447,12 +447,13 @@ func promoGroups(catalog tcgplayer.CatalogDump) map[int]bool {
 	return out
 }
 
-// promoTypesOf folds a printing's surviving qualifiers to the spelling the
-// matcher declares tags in.
+// promoTypesOf lists a printing's surviving qualifiers, each whole. The
+// catalog's own spelling is kept: it is what the qualified name is built
+// from and what a storefront writes.
 func promoTypesOf(s *single) []string {
 	out := make([]string, 0, len(s.quals))
 	for _, q := range s.quals {
-		out = append(out, strings.ToLower(q.text))
+		out = append(out, q.text)
 	}
 	return out
 }
