@@ -643,9 +643,9 @@ func main() {
 	usedCodes := map[string]bool{}
 	var minted, suffixed int
 	for _, group := range groups {
-		code := strings.ToLower(setCodeOf(group.Abbreviation))
+		code := strings.ToUpper(setCodeOf(group.Abbreviation))
 		if code == "" {
-			code = fmt.Sprintf("g%d", group.GroupID)
+			code = fmt.Sprintf("G%d", group.GroupID)
 			minted++
 			log.Printf("%s: no abbreviation, set code %s minted", group.Name, code)
 		}
