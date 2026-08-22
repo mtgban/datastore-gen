@@ -529,6 +529,11 @@ func peelQuals(name string) (string, []qual) {
 func decompose(p tcgplayer.Product, num string) single {
 	base, quals := peelQuals(p.Name)
 
+	// A name that hangs its qualifier off a dash of its own leaves that
+	// dash behind once the qualifier is peeled, and the dash number then
+	// looks like it ends the name rather than sitting before it.
+	base = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(base), "-"))
+
 	idx := strings.LastIndex(base, " - ")
 	if idx >= 0 {
 		tail := strings.TrimSpace(base[idx+3:])
