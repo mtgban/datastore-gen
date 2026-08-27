@@ -46,6 +46,20 @@
 // only a midnight publishedOn is trusted and the joined tcgdex set fills the
 // rest.
 //
+// tcgdex also holds cards the catalog has no product for, whole sets of them
+// where TCGplayer files no group at all — the trainer kits, the McDonald's
+// promos. Those are minted here, so the datastore is the sum of both
+// sources rather than the catalog alone: a card the game prints is a card
+// that exists, and leaving it out leaves every listing of it unresolvable.
+// A minted entry names no product because there is none, and the loader
+// groups an entry without a product id by its own id with the finish
+// suffix stripped, which is how these are built. Its set is the group's
+// where one joined and tcgdex's own id, name and release date where none
+// did. Each variant tcgdex flags becomes its own entry, as a product's sku
+// printings do. Some of these cards have no art upstream at all, so a
+// minted entry may carry no image where an entry naming a product always
+// does; the count is logged.
+//
 // tcgdex is annotation only, never identity: sets join by normalized name —
 // retried with the short-code or EX-era prefix stripped, and an alias table
 // for the promo sets tcgdex files as "Black Star Promos" — cards by localId
@@ -88,7 +102,7 @@ const (
 	tcgpSerie = "tcgp"
 
 	tcgdexSetsQuery  = "{ sets { id name releaseDate serie { id } } }"
-	tcgdexCardsQuery = "{ cards { id localId image variants { normal reverse holo firstEdition } set { id } } }"
+	tcgdexCardsQuery = "{ cards { id localId name rarity category image variants { normal reverse holo firstEdition } set { id } } }"
 )
 
 // tcgSingles are the product types single cards are filed under; the
@@ -195,6 +209,9 @@ type tcgdexSet struct {
 type tcgdexCard struct {
 	ID       string `json:"id"`
 	LocalID  string `json:"localId"`
+	Name     string `json:"name"`
+	Rarity   string `json:"rarity"`
+	Category string `json:"category"`
 	Image    string `json:"image"`
 	Variants struct {
 		Normal       bool `json:"normal"`
@@ -353,6 +370,20 @@ func sanitizeID(s string) string {
 // only the spaces around them go.
 func numberOf(number string) string {
 	return strings.Join(strings.Fields(number), "")
+}
+
+// mintedIDBase is the id stem of an entry that names no product: the
+// upstream id reduced to the alphabet a uuid travels through. A catalog id
+// always carries "_<product id>" before its finish suffix and a minted one
+// never does, so the two namespaces cannot meet.
+func mintedIDBase(id string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(id) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '.' || r == '-' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func idBase(num string, productID int) string {
@@ -625,11 +656,16 @@ func main() {
 	}
 
 	var dexSets []tcgdexSet
+	// dexSetKnown is the sets a tcgdex card may be counted under: the
+	// digital Pocket ones are dropped here, and a card of theirs is not a
+	// printing this datastore is missing.
+	dexSetKnown := map[string]bool{}
 	for _, set := range setsResponse.Sets {
 		if set.Serie.ID == tcgpSerie {
 			continue
 		}
 		dexSets = append(dexSets, set)
+		dexSetKnown[set.ID] = true
 	}
 	log.Printf("catalog: %d groups, %d products; tcgdex: %d sets (%d after dropping %s), %d cards",
 		len(catalog.Groups), len(catalog.Products), len(setsResponse.Sets), len(dexSets),
@@ -991,6 +1027,62 @@ func main() {
 	}
 	log.Printf("tcgdex card join: %d of %d singles (%.1f%%), %d ambiguous localIds skipped",
 		len(dexCards), len(singles), 100*float64(len(dexCards))/float64(len(singles)), ambiguousLocal)
+
+	// The other direction, which nothing counted before: a tcgdex card no
+	// product joined is a card the catalog does not sell, and a tcgdex set
+	// no group joined is a whole set of them. The join rate above measures
+	// only how much of the catalog tcgdex could annotate, so a set upstream
+	// carries and TCGplayer does not was invisible - it neither annotated
+	// anything nor showed up as a gap. These are what the minting below
+	// adds, so the datastore holds both sources rather than the catalog
+	// alone.
+	joinedGroups := map[string]bool{}
+	for _, dex := range joinedSets {
+		joinedGroups[dex.ID] = true
+	}
+	carried := map[string]bool{}
+	for _, card := range dexCards {
+		carried[card.ID] = true
+	}
+	uncarriedBySet := map[string]int{}
+	var uncarried, inUnjoinedSets int
+	var mintable []*tcgdexCard
+	for i := range cardsResponse.Cards {
+		card := &cardsResponse.Cards[i]
+		if !dexSetKnown[card.Set.ID] || carried[card.ID] {
+			continue
+		}
+		uncarried++
+		uncarriedBySet[card.Set.ID]++
+		if !joinedGroups[card.Set.ID] {
+			inUnjoinedSets++
+		}
+		mintable = append(mintable, card)
+	}
+	// Stable order, so unchanged data keeps producing byte-identical output.
+	sort.Slice(mintable, func(i, j int) bool {
+		return mintable[i].ID < mintable[j].ID
+	})
+	log.Printf("tcgdex cards the catalog has no product for: %d of %d over %d sets (%d of them in the %d sets no group joined)",
+		uncarried, len(cardsResponse.Cards), len(uncarriedBySet), inUnjoinedSets,
+		len(dexSets)-len(joinedGroups))
+	var worst []string
+	for id := range uncarriedBySet {
+		worst = append(worst, id)
+	}
+	sort.Slice(worst, func(i, j int) bool {
+		if uncarriedBySet[worst[i]] != uncarriedBySet[worst[j]] {
+			return uncarriedBySet[worst[i]] > uncarriedBySet[worst[j]]
+		}
+		return worst[i] < worst[j]
+	})
+	for i, id := range worst {
+		if i >= 10 {
+			log.Printf("tcgdex uncarried: %d more sets", len(worst)-i)
+			break
+		}
+		log.Printf("tcgdex uncarried: %s holds %d", id, uncarriedBySet[id])
+	}
 	var checkKeys []string
 	for k := range crossCheck {
 		checkKeys = append(checkKeys, k)
@@ -1023,6 +1115,58 @@ func main() {
 		sets[setCodes[group.GroupID]] = set
 	}
 	log.Printf("promotional sets: %d of %d", promoSets, len(groups))
+
+	// The sets a minted card is filed under. A tcgdex set a group joined is
+	// that group's set, under the code the group already claimed, so a
+	// minted card lands beside the printings TCGplayer does sell. A tcgdex
+	// set no group joined is a set TCGplayer files nothing for, and is
+	// minted from tcgdex's own id, name and release date, deduplicated
+	// against the codes the groups already hold so nothing folds onto them.
+	dexSetByID := map[string]*tcgdexSet{}
+	for i := range dexSets {
+		dexSetByID[dexSets[i].ID] = &dexSets[i]
+	}
+	groupCodeByDexSet := map[string]string{}
+	for groupID, dex := range joinedSets {
+		if _, taken := groupCodeByDexSet[dex.ID]; !taken {
+			groupCodeByDexSet[dex.ID] = setCodes[groupID]
+		}
+	}
+	mintedSetCode := map[string]string{}
+	var mintedSets int
+	for _, card := range mintable {
+		if _, decided := mintedSetCode[card.Set.ID]; decided {
+			continue
+		}
+		if code, joined := groupCodeByDexSet[card.Set.ID]; joined {
+			mintedSetCode[card.Set.ID] = code
+			continue
+		}
+		dex := dexSetByID[card.Set.ID]
+		code := strings.ToUpper(setCodeOf(card.Set.ID))
+		if code == "" {
+			log.Fatalf("tcgdex set %q reduces to no set code", card.Set.ID)
+		}
+		if usedCodes[code] {
+			code = code + "-DEX"
+			log.Printf("tcgdex set %s: code already taken, minted set code %s", card.Set.ID, code)
+		}
+		if usedCodes[code] {
+			log.Fatalf("minted set code %s still not unique; refusing to guess further", code)
+		}
+		usedCodes[code] = true
+		mintedSetCode[card.Set.ID] = code
+		set := map[string]any{"name": card.Set.ID, "releaseDate": ""}
+		if dex != nil {
+			set["name"] = dex.Name
+			set["releaseDate"] = dex.ReleaseDate
+		}
+		sets[code] = set
+		mintedSets++
+	}
+	if mintedSets > 0 {
+		log.Printf("sets minted for tcgdex sets no group joined: %d", mintedSets)
+	}
 
 	// The coverage contract: every product the catalog types as a card,
 	// with the sku printings it is sold in. validate reads it back off the
@@ -1083,6 +1227,70 @@ func main() {
 			}
 			cards = append(cards, entry)
 		}
+	}
+
+	// Mint the cards tcgdex publishes that the catalog has no product for -
+	// the trainer kits, the McDonald's promos, whole sets TCGplayer files
+	// no group for. A datastore leaving them out leaves every listing of
+	// one unresolvable, so it carries the sum of both sources rather than
+	// the catalog alone. A minted entry names no product because there is
+	// none: nothing prices it, and the loader groups an entry without a
+	// product id by its own id with the finish suffix stripped, which is
+	// exactly how these are built. Each variant tcgdex flags becomes its
+	// own entry, as a product's sku printings do, and a card tcgdex flags
+	// nothing on still gets its plain one.
+	var mintedCards, mintedWithoutArt int
+	for _, card := range mintable {
+		var finishes []string
+		for _, v := range []struct {
+			flag   bool
+			finish string
+		}{
+			{card.Variants.Normal, "Normal"},
+			{card.Variants.Holo, "Holofoil"},
+			{card.Variants.Reverse, "Reverse Holofoil"},
+			{card.Variants.FirstEdition, "1st Edition"},
+		} {
+			if v.flag {
+				finishes = append(finishes, v.finish)
+			}
+		}
+		if len(finishes) == 0 {
+			finishes = []string{"Normal"}
+		}
+		rarity := card.Rarity
+		if rarity == "" {
+			rarity = "None"
+		}
+		var image string
+		if card.Image != "" {
+			image = card.Image + "/high.webp"
+		} else {
+			mintedWithoutArt++
+		}
+		for _, finish := range finishes {
+			entry := map[string]any{
+				"id":       mintedIDBase(card.ID) + finishSuffix[finish],
+				"name":     card.Name,
+				"setCode":  mintedSetCode[card.Set.ID],
+				"rarity":   rarity,
+				"finish":   finish,
+				"image":    image,
+				"tcgdexId": card.ID,
+			}
+			if card.LocalID != "" {
+				entry["number"] = numberOf(card.LocalID)
+			}
+			if card.Category != "" {
+				entry["type"] = card.Category
+			}
+			cards = append(cards, entry)
+			mintedCards++
+		}
+	}
+	if mintedCards > 0 {
+		log.Printf("minted: %d entries over %d tcgdex cards the catalog has no product for (%d of those cards have no art upstream)",
+			mintedCards, len(mintable), mintedWithoutArt)
 	}
 
 	sort.Slice(sealedProducts, func(i, j int) bool {
@@ -1265,12 +1473,23 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	// printing entries pass while two different products never do. This is
 	// what the collision guard's restores are for: what it cannot tell
 	// apart fails the build here instead of being published.
-	identities := map[string]int{}
+	// The discriminator two entries wearing one identity are told apart by:
+	// the product for an entry that names one, and the card key for a
+	// minted entry, which names no product because none exists. A minted
+	// card's own finishes share that key and pass, exactly as a product's
+	// sibling printings do.
+	identities := map[string]string{}
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
 		if card.ID == "" || card.Name == "" || card.SetCode == "" || card.Rarity == "" ||
-			card.Finish == "" || card.Image == "" || card.ExternalLinks.TcgPlayerId == 0 {
+			card.Finish == "" {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
+		}
+		// An entry that names a product is one TCGplayer sells, and it
+		// always has the catalog's image. A minted entry has whatever
+		// tcgdex holds, which for some cards is no art at all.
+		if card.Image == "" && card.ExternalLinks.TcgPlayerId != 0 {
+			return out, fmt.Errorf("card %q (%s) carries no image", card.Name, card.ID)
 		}
 		if !idShape.MatchString(card.ID) {
 			return out, fmt.Errorf("card %q has a uuid nothing can carry: %q", card.Name, card.ID)
@@ -1287,16 +1506,26 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		cardIDs[card.ID] = true
 		identity := strings.Join([]string{
 			card.Name, card.Number, card.SetCode, card.Variant, card.Rarity}, "|")
-		other, seen := identities[identity]
-		if seen && other != card.ExternalLinks.TcgPlayerId {
-			return out, fmt.Errorf("products %d and %d wear one identity: %s",
-				other, card.ExternalLinks.TcgPlayerId, identity)
+		productID := card.ExternalLinks.TcgPlayerId
+		discriminator := fmt.Sprint(productID)
+		if productID == 0 {
+			discriminator = "minted:" + card.SetCode + "|" + card.Number
 		}
-		identities[identity] = card.ExternalLinks.TcgPlayerId
+		other, seen := identities[identity]
+		if seen && other != discriminator {
+			return out, fmt.Errorf("%s and %s wear one identity: %s",
+				other, discriminator, identity)
+		}
+		identities[identity] = discriminator
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
-		productID := card.ExternalLinks.TcgPlayerId
+		// A minted entry counts for no product, so the coverage check below
+		// still compares exactly the catalog's card products against the
+		// entries that name one.
+		if productID == 0 {
+			continue
+		}
 		if sliceContains(gotFinishes[productID], card.Finish) {
 			return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 		}
