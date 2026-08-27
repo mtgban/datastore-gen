@@ -620,6 +620,9 @@ func main() {
 		return groups[i].Abbreviation < groups[j].Abbreviation
 	})
 
+	// Printings the catalog names no finish for, whose gallery finishes
+	// therefore stand. Zero today, and it should stay that way.
+	var unpriced int
 	for _, group := range groups {
 		byNumber := galleryByNumber[group.Abbreviation]
 		products := productsByGroup[group.GroupID]
@@ -657,8 +660,19 @@ func main() {
 				}
 				stampedBy[key] = product.ProductID
 				item["tcgplayerProductId"] = product.ProductID
+				// The catalog decides which finishes exist: a printing it
+				// prices a sku for is one that exists, and the gallery says
+				// nothing about finish at all. It can only fall back to the
+				// gallery's own when the catalog names no finish for the
+				// product, which means skus under a printing name this
+				// build does not know - said out loud, because the gallery
+				// answering for commerce is exactly what it cannot do.
 				if f := finishes[product.ProductID]; len(f) > 0 {
 					item["finishes"] = f
+				} else {
+					unpriced++
+					log.Printf("%q (%d) has no finish in the catalog; the gallery's stand",
+						product.Name, product.ProductID)
 				}
 				stamped++
 			}
@@ -741,6 +755,10 @@ func main() {
 		setItems = append(setItems, set)
 		log.Printf("%s (%s): %d printings minted with a set of their own",
 			group.Name, group.Abbreviation, added)
+	}
+
+	if unpriced > 0 {
+		log.Printf("finishes: %d printings the catalog names none for; the gallery's stand", unpriced)
 	}
 
 	// Sealed products: everything the catalog files outside the singles
