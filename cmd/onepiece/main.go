@@ -99,8 +99,8 @@ const (
 	punkCardsURL = "https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json"
 )
 
-// tcgSingles are the product types single cards are filed under;
-// everything else is sealed by exclusion.
+// tcgSingles are the product types single cards are filed under, as the
+// catalog names them for this game; everything else is sealed by exclusion.
 var tcgSingles = tcgplayer.SinglesProductTypes(onepieceCategory)
 
 // finishSuffix maps each sku printing name to the suffix its entry's id
