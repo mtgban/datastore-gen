@@ -3,16 +3,37 @@
 // for category 68 and the punk-records mirror of Bandai's official card
 // list.
 //
-// The Bandai printing id is annotated two ways. A collector number whose
-// printings the two sources count alike is aligned in order, base printing
-// to the bare id and variants to _p1, _p2, and so on. A number they count
-// differently - two thirds of them, TCGplayer selling one printing under
-// more listings than Bandai publishes printings, a card reprinted into a
-// starter deck and a pre-release and a promo set being four products of one
-// Bandai printing - has its variants left unnamed, because ordering them
-// against the suffixed ids would be a guess, and its base printings named
-// with the bare id, because that needs no ordering: there is one bare id
-// per number and they are all that printing.
+// The Bandai printing id is annotated three ways, each needing less of a
+// guess than the last would have been.
+//
+// A collector number whose printings the two sources count alike is aligned
+// in order: base printing to the bare id, variants to _p1, _p2 and so on.
+// That is 1243 numbers of 2785 - the census that once put it at 82% was
+// counting something the data no longer bears out.
+//
+// A number they count differently is the common case, TCGplayer selling one
+// printing under more listings than Bandai publishes printings: a card
+// reprinted into a starter deck, its pre-release, a promo set and a reprint
+// set is four products of one Bandai printing. Its base printings take the
+// bare id, which needs no ordering - there is one bare id per number and
+// they are all that printing - and is the id the clean image was already
+// being fetched under.
+//
+// Its variants are named where Bandai's own pack pins them. Every printing
+// carries the product it was handed out in, and packs.json labels that
+// product with the set code the catalog files it under, so the ordering
+// runs over one pack's printings rather than the whole number's; a pack
+// holding exactly as many unclaimed ids as the set holds unnamed variants
+// leaves nothing to guess at.
+//
+// What none of that reaches is the promotional printings, and nothing can:
+// the list files every promo of every card in one of two unlabelled packs,
+// while the catalog names the event each was handed out at - Judge Pack
+// Vol. 3, Online Regional 2023, eighty of them. No field on either side
+// joins the two, so they stay unnamed rather than being given an ordinal
+// that means nothing. They, the DON!! cards the game never numbers, and the
+// printings sold in no English sku are the fifth of the datastore that
+// carries no Bandai id, and this source cannot supply one.
 //
 // Identity is the catalog's, one entry per English product and sku
 // printing: TCGplayer prices Normal and Foil as separate sku printings of
@@ -108,6 +129,7 @@ const (
 	donNumber = "DON"
 
 	punkCardsURL = "https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json"
+	punkPacksURL = "https://raw.githubusercontent.com/buhbbl/punk-records/main/english/packs.json"
 )
 
 // tcgSingles are the product types single cards are filed under, as the
@@ -138,6 +160,20 @@ var finishSuffix = map[string]string{
 type punkCard struct {
 	CardID string `json:"card_id"`
 	ImgURL string `json:"img_url"`
+
+	// PackID is the Bandai product the printing was handed out in, which
+	// is what pins a variant to a set without guessing at its ordinal.
+	PackID string `json:"pack_id"`
+}
+
+// punkPack is the slice of a punk-records pack this build reads: the set
+// code Bandai labels the product with, where it labels one at all. The two
+// promo packs carry none, which is exactly why the promotional printings
+// cannot be told apart from this source.
+type punkPack struct {
+	TitleParts struct {
+		Label string `json:"label"`
+	} `json:"title_parts"`
 }
 
 // imageURL upgrades a catalog image link to the 400-wide rendition; the
@@ -285,6 +321,15 @@ func setCodeOf(abbreviation string) string {
 	return strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-")
 }
 
+// packKey reduces a Bandai pack label and a TCGplayer group abbreviation to
+// what the two spell alike: Bandai writes "OP-01" where the catalog writes
+// "OP01". A group the catalog qualifies further - "OP02 PRE" for the
+// pre-release of a set - keeps the qualifier and so matches no pack, which
+// is right: it is a different product handing the cards out.
+func packKey(s string) string {
+	return strings.ToUpper(nonCodeRe.ReplaceAllString(s, ""))
+}
+
 // setCodes assigns every group a unique, non-empty set code. Abbreviations
 // repeat across groups in this category the way they do in every other one
 // — a set beside the promo group that hands its cards out, a reissue beside
@@ -420,6 +465,7 @@ func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 68 (required)")
 	punkCards := flag.String("punk-cards", punkCardsURL, "punk-records cards_by_id file, path or URL")
+	punkPacks := flag.String("punk-packs", punkPacksURL, "punk-records packs file, path or URL")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.02, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -457,6 +503,24 @@ func main() {
 	// the annotation for all of its printings. A One Piece collector number
 	// holds no underscore of its own, so the first one always starts the
 	// suffix.
+	packsData, err := fetch(*punkPacks)
+	if err != nil {
+		log.Fatalln("punk-records packs:", err)
+	}
+	var packs map[string]punkPack
+	if err := json.Unmarshal(packsData, &packs); err != nil {
+		log.Fatalln("punk-records packs:", err)
+	}
+	// The set code each pack hands its cards out under, as a catalog group
+	// abbreviation would spell it. A pack Bandai gives no label - the two
+	// promotional ones - maps to nothing and pins nothing.
+	packSet := map[string]string{}
+	for id, pack := range packs {
+		if key := packKey(pack.TitleParts.Label); key != "" {
+			packSet[id] = key
+		}
+	}
+
 	punkByNumber := map[string][]string{}
 	for id := range punk {
 		base, _, _ := strings.Cut(id, "_")
@@ -575,7 +639,7 @@ func main() {
 	// mirrored list is the English one: a Japanese-version product sharing
 	// a number would otherwise make the two sources disagree and cost its
 	// English siblings the annotation they already had.
-	var aligned, named int
+	var aligned, named, inPacks int
 	bandaiIDs := map[int]string{}
 	for num, bucket := range byNumber {
 		var english []*single
@@ -617,19 +681,77 @@ func main() {
 		// are all that printing, and the image they already carry is
 		// keyed by that very id, so the id was being asserted and only not
 		// written down.
-		if !sliceContains(ids, num) {
-			continue
+		if sliceContains(ids, num) {
+			for _, s := range ordered {
+				if len(s.quals) > 0 {
+					continue
+				}
+				bandaiIDs[s.product.ProductID] = num
+				named++
+			}
 		}
+
+		// The variants can still be named where Bandai's own pack pins
+		// them: a printing carries the product it was handed out in, and
+		// where that product is the very set the catalog files the variant
+		// under, the ordering is over one pack's printings rather than the
+		// number's. A pack holding exactly as many unclaimed ids as the set
+		// holds unnamed variants leaves nothing to guess at.
+		//
+		// This reaches none of the promotional printings, and cannot: the
+		// list files every promo of every card in one of two unlabelled
+		// packs, while the catalog names the event each was handed out at.
+		// Nothing on either side joins them, so they stay unnamed rather
+		// than being given an ordinal that means nothing.
+		used := map[string]bool{}
+		for _, s := range bucket {
+			if id, found := bandaiIDs[s.product.ProductID]; found {
+				used[id] = true
+			}
+		}
+		byGroup := map[int][]*single{}
 		for _, s := range ordered {
-			if len(s.quals) > 0 {
+			if len(s.quals) == 0 {
 				continue
 			}
-			bandaiIDs[s.product.ProductID] = num
-			named++
+			if _, done := bandaiIDs[s.product.ProductID]; done {
+				continue
+			}
+			byGroup[s.product.GroupID] = append(byGroup[s.product.GroupID], s)
+		}
+		groupIDs := make([]int, 0, len(byGroup))
+		for groupID := range byGroup {
+			groupIDs = append(groupIDs, groupID)
+		}
+		sort.Ints(groupIDs)
+		for _, groupID := range groupIDs {
+			variants := byGroup[groupID]
+			key := packKey(groupByID[groupID].Abbreviation)
+			if key == "" {
+				continue
+			}
+			var inPack []string
+			for _, id := range ids {
+				if !used[id] && packSet[punk[id].PackID] == key {
+					inPack = append(inPack, id)
+				}
+			}
+			if len(inPack) == 0 || len(inPack) != len(variants) {
+				continue
+			}
+			sort.Strings(inPack)
+			sort.Slice(variants, func(i, j int) bool {
+				return variants[i].product.ProductID < variants[j].product.ProductID
+			})
+			for i, s := range variants {
+				bandaiIDs[s.product.ProductID] = inPack[i]
+				used[inPack[i]] = true
+				inPacks++
+			}
 		}
 	}
-	log.Printf("bandai ids: %d of %d printings annotated (%d by an aligned number, %d base printings of a number that does not align)",
-		aligned+named, len(singles), aligned, named)
+	log.Printf("bandai ids: %d of %d printings annotated (%d by an aligned number, %d base printings, %d variants pinned by their pack)",
+		aligned+named+inPacks, len(singles), aligned, named, inPacks)
 
 	// The other direction, which nothing counted before: a Bandai printing
 	// whose collector number no card product carries is a card this
