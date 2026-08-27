@@ -3,6 +3,17 @@
 // for category 68 and the punk-records mirror of Bandai's official card
 // list.
 //
+// The Bandai printing id is annotated two ways. A collector number whose
+// printings the two sources count alike is aligned in order, base printing
+// to the bare id and variants to _p1, _p2, and so on. A number they count
+// differently - two thirds of them, TCGplayer selling one printing under
+// more listings than Bandai publishes printings, a card reprinted into a
+// starter deck and a pre-release and a promo set being four products of one
+// Bandai printing - has its variants left unnamed, because ordering them
+// against the suffixed ids would be a guess, and its base printings named
+// with the bare id, because that needs no ordering: there is one bare id
+// per number and they are all that printing.
+//
 // Identity is the catalog's, one entry per English product and sku
 // printing: TCGplayer prices Normal and Foil as separate sku printings of
 // one product, so each printing is its own entry with its own id, priced
@@ -564,7 +575,7 @@ func main() {
 	// mirrored list is the English one: a Japanese-version product sharing
 	// a number would otherwise make the two sources disagree and cost its
 	// English siblings the annotation they already had.
-	var annotated int
+	var aligned, named int
 	bandaiIDs := map[int]string{}
 	for num, bucket := range byNumber {
 		var english []*single
@@ -574,7 +585,7 @@ func main() {
 			}
 		}
 		ids := punkByNumber[num]
-		if len(ids) == 0 || len(ids) != len(english) {
+		if len(ids) == 0 {
 			continue
 		}
 		ordered := append([]*single(nil), english...)
@@ -585,12 +596,40 @@ func main() {
 			}
 			return ordered[i].product.ProductID < ordered[j].product.ProductID
 		})
-		for i, s := range ordered {
-			bandaiIDs[s.product.ProductID] = ids[i]
+
+		// The whole number aligns: every printing takes the id its position
+		// names, base printing to the bare id and variants to _p1, _p2, ...
+		if len(ids) == len(english) {
+			for i, s := range ordered {
+				bandaiIDs[s.product.ProductID] = ids[i]
+			}
+			aligned += len(ordered)
+			continue
 		}
-		annotated += len(ordered)
+
+		// The counts disagree, which for two thirds of the numbers means
+		// TCGplayer sells a printing under more listings than Bandai
+		// publishes printings: one card reprinted into a starter deck, a
+		// pre-release, a promo and a reprint set is four products of one
+		// Bandai printing. Ordering the variants against the suffixed ids
+		// would be a guess and stays refused - but the base printings need
+		// no ordering to be named. There is one bare id per number, they
+		// are all that printing, and the image they already carry is
+		// keyed by that very id, so the id was being asserted and only not
+		// written down.
+		if !sliceContains(ids, num) {
+			continue
+		}
+		for _, s := range ordered {
+			if len(s.quals) > 0 {
+				continue
+			}
+			bandaiIDs[s.product.ProductID] = num
+			named++
+		}
 	}
-	log.Printf("bandai ids: %d of %d printings annotated", annotated, len(singles))
+	log.Printf("bandai ids: %d of %d printings annotated (%d by an aligned number, %d base printings of a number that does not align)",
+		aligned+named, len(singles), aligned, named)
 
 	// The other direction, which nothing counted before: a Bandai printing
 	// whose collector number no card product carries is a card this
