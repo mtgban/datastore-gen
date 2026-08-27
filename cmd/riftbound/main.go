@@ -335,6 +335,13 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 			continue
 		}
 		ids := map[string]bool{}
+		// A set id is the gallery's own code and every printing names its
+		// set by it, so two sets wearing one id are one set to the loader:
+		// whichever it indexes last answers for both, and the other's name
+		// and release date are gone. The gallery cannot be asked to rename
+		// a set, so a collision - two catalog groups sharing an
+		// abbreviation - stops the publish rather than being repaired here.
+		setIDs := map[string]bool{}
 		for _, set := range blade.Sets.Items {
 			if set.ID == "" || set.Name == "" || set.ReleaseDate == "" {
 				return 0, 0, 0, 0, fmt.Errorf("set %q (%s) missing identity or date", set.Name, set.ID)
@@ -342,6 +349,10 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 			if !codeShape.MatchString(set.ID) {
 				return 0, 0, 0, 0, fmt.Errorf("set code %q holds what a query cannot carry", set.ID)
 			}
+			if setIDs[set.ID] {
+				return 0, 0, 0, 0, fmt.Errorf("duplicate set id %s", set.ID)
+			}
+			setIDs[set.ID] = true
 		}
 		carried := map[int]bool{}
 		for _, card := range blade.Cards.Items {

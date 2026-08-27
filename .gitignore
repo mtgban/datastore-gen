@@ -1,0 +1,9 @@
+# Datastores the builders write, and the catalog dumps they read
+/riftbound.json
+/lorcana.json
+/onepiece.json
+/yugioh.json
+/fleshandblood.json
+/pokemon.json
+*.json.xz
+/tcgplayer-catalog.json
