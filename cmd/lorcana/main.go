@@ -17,7 +17,18 @@
 //     resolves to the card instead of being dropped;
 //   - it exports the TCGplayer printing names each card is sold under
 //     (Normal, Holofoil, Cold Foil), beside LorcanaJSON's own richer foil
-//     sub-types, and reports where the two sources disagree.
+//     sub-types, and lets the catalog settle which of them exist.
+//
+// The catalog decides which finishes a card has; upstream decides what the
+// foils are called. A printing TCGplayer prices a sku for is one that
+// exists - it is selling it - and upstream saying otherwise cost the card
+// its uuid, the loader building them from foilTypes: a card upstream calls
+// foil-only got no nonfoil uuid, so every nonfoil listing of it resolved to
+// nothing while the shop sold it. Upstream keeps naming the foils, because
+// its sub-types ("Silver", "Tempest", "RainbowPillars") are what
+// mtgmatcher/lorcana's selectFinish resolves storefront wording against and
+// TCGplayer, knowing only Normal, Holofoil and Cold Foil, can reproduce
+// none of them.
 //
 // The promotional printings TCGplayer files in their own groups (DLPC, D23,
 // D100) are matched onto upstream's own cards wherever the id fill above
@@ -668,6 +679,16 @@ func main() {
 		sort.Strings(names)
 		c.links["tcgPrintings"] = names
 
+		// The catalog decides which finishes exist; upstream decides what
+		// the foils are called. A printing TCGplayer prices a sku for is
+		// one that exists - it is selling it - and upstream saying
+		// otherwise was costing the card its uuid: the loader builds them
+		// from foilTypes, so a card upstream calls foil-only gets no
+		// nonfoil uuid and every nonfoil listing of it resolves to
+		// nothing. Upstream keeps naming the foils, because its sub-types
+		// (Silver, Tempest, RainbowPillars) are what the matcher resolves
+		// storefront wording against and TCGplayer knows only Normal,
+		// Holofoil and Cold Foil, which can reproduce none of them.
 		var ljNonfoil, ljFoil bool
 		for _, t := range c.foilTypes {
 			if strings.EqualFold(t, "none") {
@@ -681,16 +702,43 @@ func main() {
 		}
 		tcgNonfoil := sliceContains(names, "Normal")
 		tcgFoil := len(names) > 1 || !tcgNonfoil
-		if ljNonfoil != tcgNonfoil || ljFoil != tcgFoil {
-			disagreements++
-			if disagreements <= 5 {
-				log.Printf("finish disagreement: %s (%s %s) upstream %v vs catalog %v",
-					c.fullName, c.setCode, c.number, c.foilTypes, names)
+
+		if ljNonfoil == tcgNonfoil && ljFoil == tcgFoil {
+			continue
+		}
+		reconciled := []string{}
+		if tcgNonfoil {
+			reconciled = append(reconciled, "None")
+		}
+		if tcgFoil {
+			for _, t := range c.foilTypes {
+				if !strings.EqualFold(t, "none") {
+					reconciled = append(reconciled, t)
+				}
+			}
+			// Upstream names no foil for a card the catalog sells one of,
+			// so the catalog's own printing name is all there is to call it.
+			if len(reconciled) == 0 || (tcgNonfoil && len(reconciled) == 1) {
+				for _, n := range names {
+					if n != "Normal" {
+						reconciled = append(reconciled, n)
+					}
+				}
 			}
 		}
+		if len(reconciled) == 0 {
+			// The catalog prices no sku at all for this card, so it says
+			// nothing about the finishes and upstream's stand.
+			continue
+		}
+		log.Printf("finish corrected: %s (%s %s) upstream %v, catalog sells %v, filed as %v",
+			c.fullName, c.setCode, c.number, c.foilTypes, names, reconciled)
+		c.raw["foilTypes"] = reconciled
+		c.foilTypes = reconciled
+		disagreements++
 	}
 	if disagreements > 0 {
-		log.Printf("finish disagreements: %d cards (upstream stays authoritative)", disagreements)
+		log.Printf("finishes corrected from the catalog: %d cards", disagreements)
 	}
 
 	// Mint a card for every single the catalog carries that no card

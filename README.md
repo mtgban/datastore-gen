@@ -96,6 +96,20 @@ fraction of a percent while emptying a set completely. Every other per-set
 drop is logged rather than refused, because a product delisted here and
 there is ordinary and a check that cried wolf would be turned off.
 
+### The catalog decides the finishes
+
+A printing TCGplayer prices a sku for is one that exists, so the catalog
+settles which finishes a card has, in every game. Four of the builders get
+this for free: onepiece, yugioh, fleshandblood and pokemon emit one entry
+per catalog sku printing, so no upstream dataset has any say. cmd/riftbound
+takes them from the catalog too and says so out loud on the only case that
+could fall back to the gallery's own. cmd/lorcana is the one that had to be
+taught: it builds on LorcanaJSON, whose foilTypes drive the loader's uuids,
+so a card upstream called foil-only got no nonfoil uuid and every nonfoil
+listing of it resolved to nothing while TCGplayer sold one. The catalog now
+settles which finishes exist and upstream still names the foils, its
+sub-types being what storefront wording resolves against.
+
 ### The baseline only moves forward
 
 The baseline is its own object, `<game>/<game>.baseline.json.xz`, and not

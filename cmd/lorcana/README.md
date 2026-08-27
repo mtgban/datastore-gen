@@ -17,8 +17,10 @@ does not:
   a separate product (`tcgPlayerExtraIds`);
 - the TCGplayer printing names each card is sold under
   (`tcgPrintings`: Normal, Holofoil, Cold Foil), beside LorcanaJSON's own
-  richer foil sub-types, with disagreements between the two reported at
-  build time;
+  richer foil sub-types — and the catalog settles which of them exist, a
+  printing TCGplayer prices a sku for being one that exists, while upstream
+  keeps naming the foils, since its sub-types are what storefront wording
+  resolves against;
 - every sealed product the catalog carries, in a top-level `sealed` array a
   stock LorcanaJSON reader ignores, with a set entry minted for the groups
   LorcanaJSON has no set for.
