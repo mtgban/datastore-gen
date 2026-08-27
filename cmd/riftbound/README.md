@@ -43,9 +43,9 @@ anyone is selling it today.
 
 The output is the gallery payload itself with the extra data merged into the
 gallery blade, so the loader reads it unchanged. Before writing anything the
-result is re-read, structurally verified, and checked against a minimum
-printing count (`-min-cards`, default 1000), so a broken upstream payload can
-never be published.
+result is re-read and structurally verified, and compared against the last
+build (see the [repository README](../../README.md)), so a broken upstream
+payload can never be published.
 
 This builder is deliberately standalone: it produces JSON and depends on
 nothing but the catalog reader, so a datastore change never waits on a
@@ -61,7 +61,8 @@ go run . -tcg-catalog tcgplayer-catalog.json -o riftbound.json
 - `-tcg-catalog` (required) — a tcgdumper dump of TCGplayer category 89
 - `-gallery` — a saved card-gallery payload (the live gallery by default)
 - `-o` — output file (stdout by default)
-- `-min-cards` — refuse to emit a datastore with fewer printings (default 1000)
+- `-against` — the baseline to compare this build against, with
+  `-against-tolerance` and `-baseline-fit`
 
 ## License
 

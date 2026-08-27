@@ -76,12 +76,11 @@ refuse to publish a set count that does not match the group count.
 
 ## Refusing a build that lost something
 
-`-min-cards` is a floor invented once and never revisited, sitting far
-below what these datastores actually hold, so a build could lose a third of
-itself and still publish. `-against <previous datastore>` is the check that
-keeps itself current: it compares this build against the datastore it is
-about to replace, which the publish workflow downloads from the bucket
-before building.
+There used to be a `-min-cards` floor per game, a number invented once and
+never revisited, sitting so far below what the datastores actually hold
+that a build could lose a third of itself and still publish. It is gone.
+What replaces it is `-against <baseline>`, which compares this build
+against the last one and needs no number maintained by anyone.
 
 Only shrinkage is suspicious - these datastores grow every week - and only
 three shapes of it are refused:
@@ -97,14 +96,32 @@ fraction of a percent while emptying a set completely. Every other per-set
 drop is logged rather than refused, because a product delisted here and
 there is ordinary and a check that cried wolf would be turned off.
 
-A game with nothing published yet has no baseline, and the workflow builds
-without one that first time rather than failing.
+### The baseline only moves forward
+
+The baseline is its own object, `<game>/<game>.baseline.json.xz`, and not
+simply the datastore the run is about to replace. A build that comes in a
+little smaller still publishes, but does not become the baseline: were it
+to, a run of individually tolerated drops would ratchet the baseline down a
+step a night, and the whole loss would never be large enough for any single
+run to see. Measuring from the high-water mark instead means the drift has
+to stay under the tolerance in total, not per night.
+
+`-baseline-fit <path>` is how the builder says so: it writes that file only
+when the build holds at least as much as the baseline it was measured
+against, and the workflow promotes the build to the baseline only when the
+file is there.
+
+A game whose baseline has not been written yet is seeded from the published
+datastore. A game with nothing published at all has neither, and builds
+without a baseline that first time rather than failing. A baseline left
+standing above a genuine, lasting shrinkage is reset by running the publish
+workflow with `rebaseline` set, which ignores it for that run and promotes
+whatever the build holds.
 
 ## Usage
 
 Every builder takes the catalog dump with `-tcg-catalog` and writes to
-`-o` (stdout by default), and refuses to emit a datastore with fewer card
-entries than `-min-cards`. The upstream source defaults to its public
+`-o` (stdout by default). The upstream source defaults to its public
 location and can be overridden with a path or URL:
 
 ```sh
@@ -121,7 +138,7 @@ public URLs. `cmd/pokemon` additionally takes `-tcgdex-sets` and
 `-tcgdex-cards` to read saved GraphQL responses instead of querying the
 live API, `cmd/fleshandblood` takes `-fab-cards` and `-fab-sets`, and
 `cmd/riftbound` takes `-gallery` to read a saved card-gallery payload.
-Every builder takes `-against` and `-against-tolerance`.
+Every builder takes `-against`, `-against-tolerance` and `-baseline-fit`.
 
 The dump itself is written by tcgdumper
 (github.com/mtgban/go-tcgplayer/cmd/tcgdumper) and published nightly beside

@@ -5,6 +5,10 @@ run-name: publish (${{ inputs.game || 'all' }})
 on:
   workflow_dispatch:
     inputs:
+      rebaseline:
+        description: Ignore the baseline for this run and reset it to what the build holds
+        type: boolean
+        default: false
       game:
         description: Which datastore to publish
         type: choice
@@ -81,17 +85,31 @@ jobs:
             tcgplayer-catalog.json.xz
           xz -d tcgplayer-catalog.json.xz
 
-          # The datastore this run is about to replace, which the build
-          # compares itself against so a run that lost a large share of it
-          # stops here instead of publishing. A game with nothing published
-          # yet has none, and that is not an error: the build runs without a
-          # baseline the one time there is none to have.
+          # The baseline the build measures itself against, so a run that
+          # lost a large share of it stops here instead of publishing. It is
+          # its own object rather than the published datastore because it
+          # only ever moves forward: a build that legitimately came in a
+          # little smaller still publishes, but does not become the thing
+          # the next run is measured against, or a run of individually
+          # tolerated drops would ratchet the baseline down a step a night
+          # and the whole loss would never be large enough for any single
+          # run to see.
+          #
+          # A game whose baseline has not been written yet falls back to the
+          # published datastore, which seeds it; a game with nothing
+          # published at all has neither, and that is not an error - it
+          # builds without a baseline the one time there is none to have.
           if b2 file download --no-progress \
-            b2://mtgban-datastore/${{ matrix.game }}/${{ matrix.game }}.json.xz \
+            b2://mtgban-datastore/${{ matrix.game }}/${{ matrix.game }}.baseline.json.xz \
             previous.json.xz; then
             xz -d previous.json.xz
+          elif b2 file download --no-progress \
+            b2://mtgban-datastore/${{ matrix.game }}/${{ matrix.game }}.json.xz \
+            previous.json.xz; then
+            echo "no baseline for ${{ matrix.game }} yet; seeding from the published datastore"
+            xz -d previous.json.xz
           else
-            echo "no datastore published yet for ${{ matrix.game }}; building without a baseline"
+            echo "nothing published yet for ${{ matrix.game }}; building without a baseline"
           fi
 
       - name: Build the datastore
@@ -105,11 +123,14 @@ jobs:
           if [ "${{ matrix.game }}" = lorcana ]; then
             args="-lorcana ${DATASTORE_LORCANA:-https://lorcanajson.org/files/current/en/allCards.json}"
           fi
-          if [ -f previous.json ]; then
+          # A rebaseline run ignores the baseline and resets it to whatever
+          # this build holds, the way out of a baseline left standing above
+          # a genuine, lasting shrinkage.
+          if [ -f previous.json ] && [ "${{ inputs.rebaseline }}" != "true" ]; then
             args="$args -against previous.json"
           fi
           go run ./cmd/${{ matrix.game }} -tcg-catalog tcgplayer-catalog.json \
-            $args -o ${{ matrix.game }}.json
+            $args -baseline-fit baseline.fit -o ${{ matrix.game }}.json
           # Consumers decompress by suffix (simplecloud.InitReader), so the
           # published object keeps the .xz extension.
           xz -9 ${{ matrix.game }}.json
@@ -129,3 +150,16 @@ jobs:
         run: |
           b2 file upload --no-progress mtgban-datastore \
             ${{ matrix.game }}.json.xz ${{ matrix.game }}/${{ matrix.game }}.json.xz
+
+          # The build writes baseline.fit only when it holds at least as
+          # much as the baseline it was measured against, so the object the
+          # next run compares itself to never moves backwards. Same bytes,
+          # a second name.
+          if [ -f baseline.fit ]; then
+            echo "promoting this build to the baseline: $(cat baseline.fit)"
+            b2 file upload --no-progress mtgban-datastore \
+              ${{ matrix.game }}.json.xz \
+              ${{ matrix.game }}/${{ matrix.game }}.baseline.json.xz
+          else
+            echo "baseline left where it was; this build holds less than it does"
+          fi

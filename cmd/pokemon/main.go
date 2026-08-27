@@ -697,12 +697,12 @@ func regression(previous, current datastoreCounts, tolerance float64) error {
 
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
-	minCards := flag.Int("min-cards", 30000, "refuse to emit a datastore with fewer card entries")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 3 (required)")
 	tcgdexSets := flag.String("tcgdex-sets", "", "tcgdex sets GraphQL response file (default: query the live API)")
 	tcgdexCards := flag.String("tcgdex-cards", "", "tcgdex cards GraphQL response file (default: query the live API)")
-	against := flag.String("against", "", "previous datastore to compare against; refuses a build that lost a large share of it")
+	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.02, "the share of its cards or sealed products a build may lose")
+	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
 	flag.Parse()
 
 	if *catalogPath == "" {
@@ -1443,31 +1443,49 @@ func main() {
 		log.Fatalf("%d sealed products emitted but the catalog types %d as something other than a card; refusing to publish",
 			counted.sealed, wantSealed)
 	}
-	if counted.cards < *minCards {
-		log.Fatalf("only %d cards (minimum %d); refusing to publish", counted.cards, *minCards)
-	}
 
-	// Compare against the datastore this build is about to replace, when
-	// the publish handed one over. It is the only baseline that keeps
-	// itself current, and the one thing an edit in here cannot move.
-	if *against != "" {
-		previousData, err := os.ReadFile(*against)
-		if err != nil {
-			log.Fatalln("against:", err)
-		}
-		previous, err := countDatastore(previousData)
-		if err != nil {
-			log.Fatalln("against:", err)
-		}
+	// Compare against the baseline, when the publish handed one over, and
+	// say whether this build is fit to become the next one.
+	fit := true
+	if *against != "" || *baselineFit != "" {
 		current, err := countDatastore(buf.Bytes())
 		if err != nil {
 			log.Fatalln("against:", err)
 		}
-		log.Printf("against %s: %d cards (was %d), %d sealed (was %d), %d sets (was %d)",
-			*against, current.cards, previous.cards, current.sealed, previous.sealed,
-			len(current.bySet), len(previous.bySet))
-		if err := regression(previous, current, *againstTolerance); err != nil {
-			log.Fatalln("against: refusing to publish:", err)
+		if *against != "" {
+			previousData, err := os.ReadFile(*against)
+			if err != nil {
+				log.Fatalln("against:", err)
+			}
+			previous, err := countDatastore(previousData)
+			if err != nil {
+				log.Fatalln("against:", err)
+			}
+			log.Printf("against %s: %d cards (was %d), %d sealed (was %d), %d sets (was %d)",
+				*against, current.cards, previous.cards, current.sealed, previous.sealed,
+				len(current.bySet), len(previous.bySet))
+			if err := regression(previous, current, *againstTolerance); err != nil {
+				log.Fatalln("against: refusing to publish:", err)
+			}
+			// The baseline only ever moves forward. A build smaller than
+			// it - legitimately, within the tolerance - must not become
+			// the thing the next build is measured against, or a run of
+			// tolerated drops ratchets it down one step at a time and the
+			// whole loss is never large enough for any single run to see.
+			// Measuring from the high-water mark instead means the drift
+			// has to stay under the tolerance in total, not per night.
+			fit = current.cards >= previous.cards && current.sealed >= previous.sealed
+		}
+		if *baselineFit != "" {
+			if !fit {
+				log.Printf("baseline: unchanged, this build holds less than it does")
+			} else {
+				note := fmt.Sprintf("cards=%d sealed=%d\n", current.cards, current.sealed)
+				if err := os.WriteFile(*baselineFit, []byte(note), 0o644); err != nil {
+					log.Fatalln("baseline:", err)
+				}
+				log.Printf("baseline: this build becomes the one the next is measured against")
+			}
 		}
 	}
 

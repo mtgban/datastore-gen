@@ -47,9 +47,10 @@ so two groups can never fold onto one set.
 
 The output is the LorcanaJSON payload itself with the extra data merged in,
 so the loader reads it unchanged and a stock LorcanaJSON reader still parses
-it. Before writing anything the result is re-read, structurally verified,
-and checked against a minimum card count (`-min-cards`, default 3000), so a
-broken upstream payload can never be published.
+it. Before writing anything the result is re-read and structurally verified,
+and compared against the last build (see the [repository
+README](../../README.md)), so a broken upstream payload can never be
+published.
 
 This builder is deliberately standalone: it produces JSON and depends on
 nothing but the catalog reader, so a datastore change never waits on a
@@ -68,4 +69,5 @@ go run . -tcg-catalog tcgplayer-catalog.json \
   published nightly at `b2://mtgban-datastore/lorcana/tcgplayer-catalog.json.xz`
 - `-lorcana` (required) — the LorcanaJSON allCards file, as a path or URL
 - `-o` — output file (stdout by default)
-- `-min-cards` — refuse to emit a datastore with fewer cards (default 3000)
+- `-against` — the baseline to compare this build against, with
+  `-against-tolerance` and `-baseline-fit`
