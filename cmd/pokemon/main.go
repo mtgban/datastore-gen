@@ -105,8 +105,9 @@ const (
 	tcgdexCardsQuery = "{ cards { id localId name rarity category image variants { normal reverse holo firstEdition } set { id } } }"
 )
 
-// tcgSingles are the product types single cards are filed under; the
-// only other type in this category is Sealed Products.
+// tcgSingles are the product types single cards are filed under, as the
+// catalog names them for this game; the only other type in this category
+// is Sealed Products.
 var tcgSingles = tcgplayer.SinglesProductTypes(pokemonCategory)
 
 // finishSuffix maps each sku printing name to the suffix its entry's id

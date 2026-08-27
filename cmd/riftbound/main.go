@@ -55,11 +55,11 @@ const (
 	riftboundCategory = 89
 )
 
-// tcgSingles are the product types single cards are filed under.
-// Everything else the catalog carries is a sealed product: the
-// comparison is against the singles type rather than a list of sealed
-// ones, so a type TCGplayer adds later lands on the sealed side where
-// it is noticed instead of silently passing as a single.
+// tcgSingles are the product types single cards are filed under, as the
+// catalog names them for this game. Everything else the catalog carries is
+// a sealed product: the comparison is against the singles types rather
+// than a list of sealed ones, so a type TCGplayer adds later lands on the
+// sealed side where it is noticed instead of silently passing as a single.
 var tcgSingles = tcgplayer.SinglesProductTypes(riftboundCategory)
 
 var buildIdRe = regexp.MustCompile(`"buildId":"([^"]+)"`)
