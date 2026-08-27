@@ -81,6 +81,19 @@ jobs:
             tcgplayer-catalog.json.xz
           xz -d tcgplayer-catalog.json.xz
 
+          # The datastore this run is about to replace, which the build
+          # compares itself against so a run that lost a large share of it
+          # stops here instead of publishing. A game with nothing published
+          # yet has none, and that is not an error: the build runs without a
+          # baseline the one time there is none to have.
+          if b2 file download --no-progress \
+            b2://mtgban-datastore/${{ matrix.game }}/${{ matrix.game }}.json.xz \
+            previous.json.xz; then
+            xz -d previous.json.xz
+          else
+            echo "no datastore published yet for ${{ matrix.game }}; building without a baseline"
+          fi
+
       - name: Build the datastore
         env:
           # Overrides the upstream LorcanaJSON location when set (it lives
@@ -91,6 +104,9 @@ jobs:
           args=""
           if [ "${{ matrix.game }}" = lorcana ]; then
             args="-lorcana ${DATASTORE_LORCANA:-https://lorcanajson.org/files/current/en/allCards.json}"
+          fi
+          if [ -f previous.json ]; then
+            args="$args -against previous.json"
           fi
           go run ./cmd/${{ matrix.game }} -tcg-catalog tcgplayer-catalog.json \
             $args -o ${{ matrix.game }}.json
