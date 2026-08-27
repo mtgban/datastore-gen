@@ -82,17 +82,17 @@ const (
 	// dump is expected to carry.
 	lorcanaCategory = 71
 
-	// tcgSingles is the product type single cards are filed under.
-	// Everything else the catalog carries is a sealed product: the
-	// comparison is against the singles type rather than a list of sealed
-	// ones, so a type TCGplayer adds later lands on the sealed side where
-	// it is noticed instead of silently passing as a single.
-	tcgSingles = "Cards"
-
 	// englishLanguage is the catalog's language id for English, the one a
 	// product needs a sku in to be part of the English program.
 	englishLanguage = 1
 )
+
+// tcgSingles are the product types single cards are filed under.
+// Everything else the catalog carries is a sealed product: the
+// comparison is against the singles type rather than a list of sealed
+// ones, so a type TCGplayer adds later lands on the sealed side where
+// it is noticed instead of silently passing as a single.
+var tcgSingles = tcgplayer.SinglesProductTypes(lorcanaCategory)
 
 // releaseDate reduces a group's publishedOn timestamp to the bare day
 // LorcanaJSON dates carry ("2023-08-18T00:00:00" -> "2023-08-18").
@@ -353,7 +353,7 @@ func main() {
 	cardProducts := map[int]bool{}
 	for _, product := range catalog.Products {
 		productByID[product.ProductID] = product
-		if product.ProductType == tcgSingles {
+		if slices.Contains(tcgSingles, product.ProductType) {
 			cardProducts[product.ProductID] = true
 		}
 	}
@@ -449,7 +449,7 @@ func main() {
 	// that need the most help.
 	unclaimed := map[string][]tcgplayer.Product{}
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles || claimed[product.ProductID] {
+		if !slices.Contains(tcgSingles, product.ProductType) || claimed[product.ProductID] {
 			continue
 		}
 		num := product.Extended("Number")
@@ -588,7 +588,7 @@ func main() {
 	}
 	var mintable []tcgplayer.Product
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles {
+		if !slices.Contains(tcgSingles, product.ProductType) {
 			continue
 		}
 		if claimed[product.ProductID] || matched[product.ProductID] {
@@ -668,7 +668,7 @@ func main() {
 	for _, group := range groups {
 		var count int
 		for _, product := range productsByGroup[group.GroupID] {
-			if product.ProductType == tcgSingles {
+			if slices.Contains(tcgSingles, product.ProductType) {
 				continue
 			}
 			sealedItems = append(sealedItems, map[string]any{

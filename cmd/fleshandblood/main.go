@@ -74,16 +74,16 @@ import (
 const (
 	fabCategory = 62
 
-	// tcgSingles is the product type single cards are filed under;
-	// everything else is sealed by exclusion.
-	tcgSingles = "Cards"
-
 	// englishLanguage is the catalog's language id for English, the one a
 	// product needs a sku in to be part of the English program.
 	englishLanguage = 1
 
 	fabCardsURL = "https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card-flattened.json"
 )
+
+// tcgSingles are the product types single cards are filed under;
+// everything else is sealed by exclusion.
+var tcgSingles = tcgplayer.SinglesProductTypes(fabCategory)
 
 // finishSuffix maps each sku printing name to the suffix its entry's id
 // carries: the edition prefix (1e, unl, or none) glued to the treatment
@@ -341,7 +341,7 @@ func promoGroups(catalog tcgplayer.CatalogDump) map[int]bool {
 	cards := map[int]int{}
 	promos := map[int]int{}
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles {
+		if !slices.Contains(tcgSingles, product.ProductType) {
 			continue
 		}
 		cards[product.GroupID]++
@@ -499,7 +499,7 @@ func main() {
 	var sealedProducts []tcgplayer.Product
 	var unnumbered int
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles {
+		if !slices.Contains(tcgSingles, product.ProductType) {
 			sealedProducts = append(sealedProducts, product)
 			continue
 		}
@@ -683,7 +683,7 @@ func main() {
 	// instead of quietly leaving the datastore.
 	catalogFinishes := map[int][]string{}
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles {
+		if !slices.Contains(tcgSingles, product.ProductType) {
 			continue
 		}
 		catalogFinishes[product.ProductID] = printings[product.ProductID]

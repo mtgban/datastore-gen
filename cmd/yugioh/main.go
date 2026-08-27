@@ -60,6 +60,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,12 +69,12 @@ import (
 const (
 	yugiohCategory = 2
 
-	// tcgSingles is the product type single cards are filed under;
-	// everything else is sealed by exclusion.
-	tcgSingles = "Cards"
-
 	ygoprodeckSetsURL = "https://db.ygoprodeck.com/api/v7/cardsets.php"
 )
+
+// tcgSingles are the product types single cards are filed under;
+// everything else is sealed by exclusion.
+var tcgSingles = tcgplayer.SinglesProductTypes(yugiohCategory)
 
 // finishSuffix maps each sku printing name to the suffix its entry's id
 // carries. Any other printing name is a hard failure, because a suffix
@@ -445,7 +446,7 @@ func main() {
 	var sealedProducts []tcgplayer.Product
 	var unnumbered int
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles {
+		if !slices.Contains(tcgSingles, product.ProductType) {
 			sealedProducts = append(sealedProducts, product)
 			continue
 		}
@@ -575,7 +576,7 @@ func main() {
 	// instead of quietly leaving the datastore.
 	catalogFinishes := map[int][]string{}
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles {
+		if !slices.Contains(tcgSingles, product.ProductType) {
 			continue
 		}
 		catalogFinishes[product.ProductID] = printings[product.ProductID]
