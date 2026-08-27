@@ -69,6 +69,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,10 +77,6 @@ import (
 
 const (
 	pokemonCategory = 3
-
-	// tcgSingles is the product type single cards are filed under; the
-	// only other type in this category is Sealed Products.
-	tcgSingles = "Cards"
 
 	// codeCardRarity marks the digital code cards, counted apart because
 	// they are the one population here that is not a playable card.
@@ -93,6 +90,10 @@ const (
 	tcgdexSetsQuery  = "{ sets { id name releaseDate serie { id } } }"
 	tcgdexCardsQuery = "{ cards { id localId image variants { normal reverse holo firstEdition } set { id } } }"
 )
+
+// tcgSingles are the product types single cards are filed under; the
+// only other type in this category is Sealed Products.
+var tcgSingles = tcgplayer.SinglesProductTypes(pokemonCategory)
 
 // finishSuffix maps each sku printing name to the suffix its entry's id
 // carries; Normal is the bare id. Any other printing name is a hard failure,
@@ -435,7 +436,7 @@ func promoGroups(catalog tcgplayer.CatalogDump) map[int]bool {
 	cards := map[int]int{}
 	promos := map[int]int{}
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles {
+		if !slices.Contains(tcgSingles, product.ProductType) {
 			continue
 		}
 		cards[product.GroupID]++
@@ -735,7 +736,7 @@ func main() {
 	var sealedProducts []tcgplayer.Product
 	var codeCards, unnumbered int
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles {
+		if !slices.Contains(tcgSingles, product.ProductType) {
 			sealedProducts = append(sealedProducts, product)
 			continue
 		}
@@ -1029,7 +1030,7 @@ func main() {
 	// instead of quietly leaving the datastore.
 	catalogFinishes := map[int][]string{}
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles {
+		if !slices.Contains(tcgSingles, product.ProductType) {
 			continue
 		}
 		catalogFinishes[product.ProductID] = printings[product.ProductID]

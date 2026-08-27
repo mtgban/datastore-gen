@@ -56,16 +56,13 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
 
 const (
 	onepieceCategory = 68
-
-	// tcgSingles is the product type single cards are filed under;
-	// everything else is sealed by exclusion.
-	tcgSingles = "Cards"
 
 	// donCardType is the card type the catalog gives every DON!! card. The
 	// rarity does not answer for them - TCGplayer files the event ones as
@@ -79,6 +76,10 @@ const (
 
 	punkCardsURL = "https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json"
 )
+
+// tcgSingles are the product types single cards are filed under;
+// everything else is sealed by exclusion.
+var tcgSingles = tcgplayer.SinglesProductTypes(onepieceCategory)
 
 // finishSuffix maps each sku printing name to the suffix its entry's id
 // carries; Normal is the bare id. Any other printing name is a hard
@@ -310,7 +311,7 @@ func main() {
 	var sealedProducts []tcgplayer.Product
 	var unnumbered int
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles {
+		if !slices.Contains(tcgSingles, product.ProductType) {
 			sealedProducts = append(sealedProducts, product)
 			continue
 		}
@@ -450,7 +451,7 @@ func main() {
 	// instead of quietly leaving the datastore.
 	catalogFinishes := map[int][]string{}
 	for _, product := range catalog.Products {
-		if product.ProductType != tcgSingles {
+		if !slices.Contains(tcgSingles, product.ProductType) {
 			continue
 		}
 		catalogFinishes[product.ProductID] = printings[product.ProductID]

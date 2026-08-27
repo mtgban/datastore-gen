@@ -40,6 +40,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -52,14 +53,14 @@ const (
 	// riftboundCategory is Riftbound's TCGplayer category, the one the
 	// catalog dump is expected to carry.
 	riftboundCategory = 89
-
-	// tcgSingles is the product type single cards are filed under.
-	// Everything else the catalog carries is a sealed product: the
-	// comparison is against the singles type rather than a list of sealed
-	// ones, so a type TCGplayer adds later lands on the sealed side where
-	// it is noticed instead of silently passing as a single.
-	tcgSingles = "Cards"
 )
+
+// tcgSingles are the product types single cards are filed under.
+// Everything else the catalog carries is a sealed product: the
+// comparison is against the singles type rather than a list of sealed
+// ones, so a type TCGplayer adds later lands on the sealed side where
+// it is noticed instead of silently passing as a single.
+var tcgSingles = tcgplayer.SinglesProductTypes(riftboundCategory)
 
 var buildIdRe = regexp.MustCompile(`"buildId":"([^"]+)"`)
 
@@ -421,7 +422,7 @@ func main() {
 	cardProducts := map[int]bool{}
 	for _, product := range catalog.Products {
 		productsByGroup[product.GroupID] = append(productsByGroup[product.GroupID], product)
-		if product.ProductType == tcgSingles {
+		if slices.Contains(tcgSingles, product.ProductType) {
 			cardProducts[product.ProductID] = true
 		}
 	}
@@ -515,7 +516,7 @@ func main() {
 			stampedBy := map[string]int{}
 			var stamped, adopted int
 			for _, product := range products {
-				if product.ProductType != tcgSingles {
+				if !slices.Contains(tcgSingles, product.ProductType) {
 					continue
 				}
 				number := numberFor(product)
@@ -550,7 +551,7 @@ func main() {
 		// catalog's alone, so they are minted here and the set with them.
 		var added, maxNum int
 		for _, product := range products {
-			if product.ProductType != tcgSingles {
+			if !slices.Contains(tcgSingles, product.ProductType) {
 				continue
 			}
 			number := numberFor(product)
@@ -627,7 +628,7 @@ func main() {
 	var sealedItems []any
 	for _, group := range groups {
 		for _, product := range productsByGroup[group.GroupID] {
-			if product.ProductType == tcgSingles {
+			if slices.Contains(tcgSingles, product.ProductType) {
 				continue
 			}
 			sealedItems = append(sealedItems, map[string]any{
