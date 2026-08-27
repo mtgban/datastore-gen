@@ -33,7 +33,9 @@
 // later however far its numbering runs — which is what kept these products
 // out before — and the product a card was minted from reads straight off
 // its id. Everything else a minted card carries is the catalog's own word:
-// the product name, the group's abbreviation as the set code, the collector
+// the product name, the group's set code — its abbreviation, or the
+// abbreviation with the group id suffixed where an earlier group already
+// claimed it, so two groups can never fold onto one set — the collector
 // number where there is one and 0 where there is none, the rarity, the
 // printings as foil types, and the language for a printing sold in no
 // English sku. The day upstream publishes the real card, its own entry
@@ -165,6 +167,36 @@ func number(code string) string {
 		return "0"
 	}
 	return trimmed
+}
+
+// setCodes assigns every catalog group the set code its minted cards and
+// sealed products are filed under: its own abbreviation, which is what
+// LorcanaJSON calls the set where upstream carries one, and the
+// abbreviation with the group id suffixed where an earlier group already
+// claimed it. Abbreviations repeat across groups in every other category,
+// and a second group filed under a code the first already holds had its
+// name, its date and its whole identity folded onto that first group's set
+// - silently, because the code still resolved for every card naming it.
+// Codes are claimed in group-id order, so the group that claimed one keeps
+// it bare and only the later arrival is marked.
+func setCodes(groups []tcgplayer.Group) map[int]string {
+	ordered := append([]tcgplayer.Group(nil), groups...)
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].GroupID < ordered[j].GroupID
+	})
+	codes := map[int]string{}
+	used := map[string]bool{}
+	for _, group := range ordered {
+		code := group.Abbreviation
+		if used[code] {
+			code = fmt.Sprintf("%s-%d", code, group.GroupID)
+			log.Printf("%s: abbreviation %s already taken, set code %s minted",
+				group.Name, group.Abbreviation, code)
+		}
+		used[code] = true
+		codes[group.GroupID] = code
+	}
+	return codes
 }
 
 // mintedID is the card id given to a printing upstream does not carry: the
@@ -599,6 +631,7 @@ func main() {
 	sort.Slice(mintable, func(i, j int) bool {
 		return mintable[i].ProductID < mintable[j].ProductID
 	})
+	codes := setCodes(catalog.Groups)
 	mintedByGroup := map[string]int{}
 	for _, product := range mintable {
 		group := groupByID[product.GroupID]
@@ -611,7 +644,7 @@ func main() {
 			"id":        mintedID(product.ProductID),
 			"fullName":  product.Name,
 			"name":      product.Name,
-			"setCode":   group.Abbreviation,
+			"setCode":   codes[group.GroupID],
 			"number":    num,
 			"rarity":    product.Extended("Rarity"),
 			"foilTypes": foilTypes(printings[product.ProductID]),
@@ -635,7 +668,7 @@ func main() {
 			item["language"] = language
 		}
 		items = append(items, item)
-		mintedByGroup[group.Abbreviation]++
+		mintedByGroup[codes[group.GroupID]]++
 	}
 	doc["cards"] = items
 	log.Printf("minted: %d cards for products upstream does not carry, by group %v",
@@ -672,9 +705,9 @@ func main() {
 				continue
 			}
 			sealedItems = append(sealedItems, map[string]any{
-				"id":          fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
+				"id":          fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
 				"name":        product.Name,
-				"setCode":     group.Abbreviation,
+				"setCode":     codes[group.GroupID],
 				"releaseDate": group.ReleaseDate(),
 				"image":       imageURL(product.ImageURL),
 				"externalLinks": map[string]any{
@@ -683,17 +716,18 @@ func main() {
 			})
 			count++
 		}
-		count += mintedByGroup[group.Abbreviation]
+		code := codes[group.GroupID]
+		count += mintedByGroup[code]
 		if count == 0 {
 			continue
 		}
-		if _, found := sets[group.Abbreviation]; !found {
-			sets[group.Abbreviation] = map[string]any{
+		if _, found := sets[code]; !found {
+			sets[code] = map[string]any{
 				"name":        group.Name,
 				"releaseDate": group.ReleaseDate(),
 				"type":        "promo",
 			}
-			log.Printf("%s (%s): set minted for %d products", group.Name, group.Abbreviation, count)
+			log.Printf("%s (%s): set minted for %d products", group.Name, code, count)
 		}
 	}
 	if len(sealedItems) > 0 {
