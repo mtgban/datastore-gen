@@ -74,6 +74,32 @@ the datastore. Set codes are checked the same way - a code claimed twice
 would fold two groups onto one set, so the builders mint unique codes and
 refuse to publish a set count that does not match the group count.
 
+## Refusing a build that lost something
+
+`-min-cards` is a floor invented once and never revisited, sitting far
+below what these datastores actually hold, so a build could lose a third of
+itself and still publish. `-against <previous datastore>` is the check that
+keeps itself current: it compares this build against the datastore it is
+about to replace, which the publish workflow downloads from the bucket
+before building.
+
+Only shrinkage is suspicious - these datastores grow every week - and only
+three shapes of it are refused:
+
+- a card or sealed total that fell by more than `-against-tolerance`
+  (2% by default);
+- a set that holds no card at all any more;
+- a set that lost more than half of what it held.
+
+The last two are what a whole-file count cannot see. One set folding onto
+another - the bug the unique set codes now prevent - moves the total by a
+fraction of a percent while emptying a set completely. Every other per-set
+drop is logged rather than refused, because a product delisted here and
+there is ordinary and a check that cried wolf would be turned off.
+
+A game with nothing published yet has no baseline, and the workflow builds
+without one that first time rather than failing.
+
 ## Usage
 
 Every builder takes the catalog dump with `-tcg-catalog` and writes to
@@ -95,6 +121,7 @@ public URLs. `cmd/pokemon` additionally takes `-tcgdex-sets` and
 `-tcgdex-cards` to read saved GraphQL responses instead of querying the
 live API, `cmd/fleshandblood` takes `-fab-cards` and `-fab-sets`, and
 `cmd/riftbound` takes `-gallery` to read a saved card-gallery payload.
+Every builder takes `-against` and `-against-tolerance`.
 
 The dump itself is written by tcgdumper
 (github.com/mtgban/go-tcgplayer/cmd/tcgdumper) and published nightly beside

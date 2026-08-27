@@ -403,11 +403,121 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 	return 0, 0, 0, 0, fmt.Errorf("no card gallery blade in the output")
 }
 
+// datastoreCounts is what a datastore holds: the two totals, and the printing
+// count per set. It is read off an encoded datastore - this build's own, or
+// the one it is about to replace - so both sides are counted the same way
+// by the same code.
+type datastoreCounts struct {
+	cards, sealed int
+	bySet         map[string]int
+}
+
+func countDatastore(data []byte) (datastoreCounts, error) {
+	var doc struct {
+		PageProps struct {
+			Page struct {
+				Blades []struct {
+					Type  string `json:"type"`
+					Cards struct {
+						Items []struct {
+							Set struct {
+								Value struct {
+									ID string `json:"id"`
+								} `json:"value"`
+							} `json:"set"`
+						} `json:"items"`
+					} `json:"cards"`
+					Sealed struct {
+						Items []json.RawMessage `json:"items"`
+					} `json:"sealed"`
+				} `json:"blades"`
+			} `json:"page"`
+		} `json:"pageProps"`
+	}
+	out := datastoreCounts{bySet: map[string]int{}}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return out, err
+	}
+	for _, blade := range doc.PageProps.Page.Blades {
+		if blade.Type != "riftboundCardGallery" {
+			continue
+		}
+		out.cards = len(blade.Cards.Items)
+		out.sealed = len(blade.Sealed.Items)
+		for _, card := range blade.Cards.Items {
+			out.bySet[card.Set.Value.ID]++
+		}
+		return out, nil
+	}
+	return out, fmt.Errorf("no card gallery blade")
+}
+
+// regression compares this build against the datastore it is about to
+// replace and refuses to publish one that lost a meaningful share of it.
+// The minimum card count this used to be checked against was a number
+// invented once and never revisited, far below what the datastore actually
+// holds, so a build could lose a third of itself and still publish. The
+// previous datastore is the number that keeps itself up to date.
+//
+// Only shrinkage is suspicious - these datastores grow every week - and
+// only three shapes of it are refused: a total that fell by more than the
+// tolerance, a set that holds no card at all any more, and a set that lost
+// more than half of what it held. The last two are what a whole-file count
+// cannot see: one set folding onto another moves the total by a fraction
+// of a percent while emptying a set completely. Every other per-set drop is
+// logged rather than refused, because a product delisted here and there is
+// ordinary and a build that cried wolf would be turned off.
+func regression(previous, current datastoreCounts, tolerance float64) error {
+	if previous.cards == 0 {
+		return nil
+	}
+	lost := func(was, now int) bool {
+		return now < was && float64(was-now)/float64(was) > tolerance
+	}
+	if lost(previous.cards, current.cards) {
+		return fmt.Errorf("%d cards, down from %d, more than the %.1f%% a build may lose",
+			current.cards, previous.cards, tolerance*100)
+	}
+	if lost(previous.sealed, current.sealed) {
+		return fmt.Errorf("%d sealed products, down from %d, more than the %.1f%% a build may lose",
+			current.sealed, previous.sealed, tolerance*100)
+	}
+	var vanished, collapsed, shrank []string
+	for code, was := range previous.bySet {
+		now := current.bySet[code]
+		switch {
+		case now == 0:
+			vanished = append(vanished, code)
+		case now*2 < was:
+			collapsed = append(collapsed, fmt.Sprintf("%s %d->%d", code, was, now))
+		case now < was:
+			shrank = append(shrank, fmt.Sprintf("%s %d->%d", code, was, now))
+		}
+	}
+	sort.Strings(vanished)
+	sort.Strings(collapsed)
+	sort.Strings(shrank)
+	for _, s := range shrank {
+		log.Printf("against: set %s", s)
+	}
+	if len(vanished) > 0 {
+		return fmt.Errorf("%d sets hold no card any more: %s",
+			len(vanished), strings.Join(vanished, " "))
+	}
+	if len(collapsed) > 0 {
+		return fmt.Errorf("%d sets lost more than half of what they held: %s",
+			len(collapsed), strings.Join(collapsed, " "))
+	}
+	return nil
+}
+
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	minCards := flag.Int("min-cards", 1000, "refuse to emit a datastore with fewer card printings")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 89 (required)")
 	galleryPath := flag.String("gallery", "", "card-gallery payload file (default: fetch the live gallery)")
+	against := flag.String("against", "", "previous datastore to compare against; refuses a build that lost a large share of it")
+	againstTolerance := flag.Float64("against-tolerance", 0.02, "the share of its cards or sealed products a build may lose")
 	flag.Parse()
 
 	if *catalogPath == "" {
@@ -704,6 +814,30 @@ func main() {
 	}
 	if cards2 < *minCards {
 		log.Fatalf("only %d printings (minimum %d); refusing to publish", cards2, *minCards)
+	}
+
+	// Compare against the datastore this build is about to replace, when
+	// the publish handed one over. It is the only baseline that keeps
+	// itself current, and the one thing an edit in here cannot move.
+	if *against != "" {
+		previousData, err := os.ReadFile(*against)
+		if err != nil {
+			log.Fatalln("against:", err)
+		}
+		previous, err := countDatastore(previousData)
+		if err != nil {
+			log.Fatalln("against:", err)
+		}
+		current, err := countDatastore(buf.Bytes())
+		if err != nil {
+			log.Fatalln("against:", err)
+		}
+		log.Printf("against %s: %d printings (was %d), %d sealed (was %d), %d sets (was %d)",
+			*against, current.cards, previous.cards, current.sealed, previous.sealed,
+			len(current.bySet), len(previous.bySet))
+		if err := regression(previous, current, *againstTolerance); err != nil {
+			log.Fatalln("against: refusing to publish:", err)
+		}
 	}
 
 	out := os.Stdout
