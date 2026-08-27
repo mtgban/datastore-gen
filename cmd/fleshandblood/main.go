@@ -34,6 +34,21 @@
 // ids landing on one product is expected — treatments share products —
 // and annotates nothing. Annotation never changes identity.
 //
+// The dataset also holds printings whose collector number the catalog has
+// no product for at all — the tokens above all, which the game prints and
+// TCGplayer does not sell as singles. Those are minted here, so the
+// datastore is the sum of both sources rather than the catalog alone: a
+// card the game prints is a card that exists, and leaving it out leaves
+// every listing of it unresolvable. A minted entry names no product
+// because there is none, and the loader groups an entry without a product
+// id by its own id with the finish suffix stripped, which is how these are
+// built. Its set is the group's where the catalog has one and the
+// dataset's own code, name and earliest release date where it does not.
+// The finishes are the ones the dataset's edition and foiling name; a pair
+// TCGplayer has no printing for — the Gold Cold Foils, the Alpha edition —
+// mints no entry of its own, and a card whose every row wears one still
+// gets its plain entry so the card exists.
+//
 // Every product the catalog types as a card becomes an entry, and validate
 // refuses a build that left one out: a shape nobody has seen yet stops the
 // publish instead of vanishing from the datastore. The products the game
@@ -79,6 +94,7 @@ const (
 	englishLanguage = 1
 
 	fabCardsURL = "https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card-flattened.json"
+	fabSetsURL  = "https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/set.json"
 )
 
 // tcgSingles are the product types single cards are filed under;
@@ -130,10 +146,77 @@ func sliceContains(haystack []string, needle string) bool {
 }
 
 // fabRow is the slice of a the-fab-cube printing this build reads: the
-// game's own printing id and the TCGplayer product the row maps it to.
+// game's own printing id, the TCGplayer product the row maps it to, and
+// the card's own particulars, which are what a printing the catalog has no
+// product for is minted from.
 type fabRow struct {
 	ID        string `json:"id"`
+	SetID     string `json:"set_id"`
 	ProductID string `json:"tcgplayer_product_id"`
+	Name      string `json:"name"`
+	Rarity    string `json:"rarity"`
+	Foiling   string `json:"foiling"`
+	Edition   string `json:"edition"`
+	ImageURL  string `json:"image_url"`
+}
+
+// fabSet is the slice of a the-fab-cube set this build reads, the name and
+// date a minted set is filed under.
+type fabSet struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Printings []struct {
+		InitialReleaseDate string `json:"initial_release_date"`
+	} `json:"printings"`
+}
+
+// releaseDate is the earliest date any printing of the set was released,
+// reduced to the bare day the datastore carries.
+func (s fabSet) releaseDate() string {
+	var earliest string
+	for _, printing := range s.Printings {
+		date, _, _ := strings.Cut(printing.InitialReleaseDate, "T")
+		if date == "" {
+			continue
+		}
+		if earliest == "" || date < earliest {
+			earliest = date
+		}
+	}
+	return earliest
+}
+
+// fabRarity spells the dataset's one-letter rarity the way the catalog
+// spells the same rarity, so a minted card is filed under the vocabulary
+// every other card in the datastore uses.
+var fabRarity = map[string]string{
+	"C": "Common",
+	"R": "Rare",
+	"S": "Super Rare",
+	"M": "Majestic",
+	"L": "Legendary",
+	"F": "Fabled",
+	"T": "Token",
+	"B": "Basic",
+	"V": "Marvel",
+	"P": "Promo",
+}
+
+// fabFinish maps a dataset row's edition and foiling to the printing name
+// TCGplayer would sell it under, which is the finish vocabulary this
+// datastore's ids are suffixed from. The pairs it does not name are the
+// ones TCGplayer has no printing for - the Gold Cold Foils, the Alpha
+// edition - and a row wearing one is not a price point this scheme can
+// spell, so it mints no entry of its own.
+var fabFinish = map[string]string{
+	"N|S": "Normal",
+	"N|R": "Rainbow Foil",
+	"N|C": "Cold Foil",
+	"F|S": "1st Edition Normal",
+	"F|R": "1st Edition Rainbow Foil",
+	"F|C": "1st Edition Cold Foil",
+	"U|S": "Unlimited Edition Normal",
+	"U|R": "Unlimited Edition Rainbow Foil",
 }
 
 // imageURL upgrades a catalog image link to the 400-wide rendition; the
@@ -152,6 +235,15 @@ func imageURL(url string) string {
 // only the spaces around them go.
 func numberOf(number string) string {
 	return strings.Join(strings.Fields(number), "")
+}
+
+// mintedIDBase is idBase for a printing that names no product: the
+// sanitized collector number alone. A catalog id always carries "_<product
+// id>" before its finish suffix and a minted one never does, so the two
+// namespaces cannot meet.
+func mintedIDBase(num string) string {
+	num = nonCodeRe.ReplaceAllString(num, "-")
+	return strings.ToLower(strings.Trim(num, "-"))
 }
 
 func idBase(num string, productID int) string {
@@ -457,6 +549,7 @@ func main() {
 	minCards := flag.Int("min-cards", 15000, "refuse to emit a datastore with fewer card entries")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 62 (required)")
 	fabCards := flag.String("fab-cards", fabCardsURL, "the-fab-cube card-flattened file, path or URL")
+	fabSets := flag.String("fab-sets", fabSetsURL, "the-fab-cube set file, path or URL")
 	flag.Parse()
 
 	if *catalogPath == "" {
@@ -478,6 +571,18 @@ func main() {
 	fabData, err := fetch(*fabCards)
 	if err != nil {
 		log.Fatalln("fab dataset:", err)
+	}
+	setsData, err := fetch(*fabSets)
+	if err != nil {
+		log.Fatalln("fab sets:", err)
+	}
+	var fabSetRows []fabSet
+	if err := json.Unmarshal(setsData, &fabSetRows); err != nil {
+		log.Fatalln("fab sets:", err)
+	}
+	fabSetByID := map[string]fabSet{}
+	for _, set := range fabSetRows {
+		fabSetByID[strings.ToUpper(set.ID)] = set
 	}
 	var fabRows []fabRow
 	if err := json.Unmarshal(fabData, &fabRows); err != nil {
@@ -654,6 +759,42 @@ func main() {
 		log.Printf("uncovered printings by set: %v", uncoveredBySet)
 	}
 
+	// The other direction, which nothing counted before: a dataset row
+	// whose collector number no card product carries is a card the catalog
+	// does not sell. The counts above measure only how much of the catalog
+	// the dataset could annotate, so a card the game prints and TCGplayer
+	// does not sell as a single - the tokens above all - was invisible,
+	// annotating nothing and showing up as no gap. These are what the
+	// minting below adds, so the datastore holds both sources rather than
+	// the catalog alone.
+	catalogNumbers := map[string]bool{}
+	for _, s := range singles {
+		if s.number != "" {
+			catalogNumbers[strings.ToUpper(numberOf(s.number))] = true
+		}
+	}
+	mintable := map[string][]fabRow{}
+	var mintableOrder []string
+	for _, row := range fabRows {
+		number := strings.ToUpper(numberOf(row.ID))
+		if number == "" || catalogNumbers[number] {
+			continue
+		}
+		if _, seen := mintable[number]; !seen {
+			mintableOrder = append(mintableOrder, number)
+		}
+		mintable[number] = append(mintable[number], row)
+	}
+	sort.Strings(mintableOrder)
+	var mintableRows int
+	mintableBySet := map[string]int{}
+	for _, number := range mintableOrder {
+		mintableRows += len(mintable[number])
+		mintableBySet[mintable[number][0].SetID]++
+	}
+	log.Printf("dataset printings the catalog has no product for: %d rows over %d collector numbers in %d sets",
+		mintableRows, len(mintableOrder), len(mintableBySet))
+
 	// Emit. Sets are the catalog groups under their repaired codes; ids
 	// embed the product id so they survive any upstream renumbering.
 	sets := map[string]any{}
@@ -673,6 +814,67 @@ func main() {
 		sets[codes[group.GroupID]] = set
 	}
 	log.Printf("promotional sets: %d of %d", promoSets, len(catalog.Groups))
+
+	// The sets a minted card is filed under. A dataset set the catalog has
+	// a group for is that group's set, under the code the group already
+	// claimed, so a minted card lands beside the printings TCGplayer does
+	// sell. A set the catalog has no group for at all - and every set the
+	// mintable rows sit in is one today - is minted from the dataset's own
+	// code, name and earliest release date, deduplicated against the codes
+	// the catalog groups already hold so nothing can fold onto them.
+	codeByAbbreviation := map[string]string{}
+	for _, group := range catalog.Groups {
+		abbreviation := strings.ToUpper(setCodeOf(group.Abbreviation))
+		if abbreviation == "" {
+			continue
+		}
+		if _, taken := codeByAbbreviation[abbreviation]; !taken {
+			codeByAbbreviation[abbreviation] = codes[group.GroupID]
+		}
+	}
+	takenCodes := map[string]bool{}
+	for _, code := range codes {
+		takenCodes[code] = true
+	}
+	mintedSetCode := map[string]string{}
+	var mintedSets int
+	for _, number := range mintableOrder {
+		setID := strings.ToUpper(setCodeOf(mintable[number][0].SetID))
+		if setID == "" {
+			log.Fatalf("dataset row %q names no set", mintable[number][0].ID)
+		}
+		if _, decided := mintedSetCode[setID]; decided {
+			continue
+		}
+		if code, found := codeByAbbreviation[setID]; found {
+			mintedSetCode[setID] = code
+			continue
+		}
+		code := setID
+		if takenCodes[code] {
+			code = code + "-fab"
+			log.Printf("dataset set %s: code already taken, minted set code %s", setID, code)
+		}
+		if takenCodes[code] {
+			log.Fatalf("minted set code %s still not unique; refusing to guess further", code)
+		}
+		takenCodes[code] = true
+		mintedSetCode[setID] = code
+		upstream := fabSetByID[setID]
+		name := upstream.Name
+		if name == "" {
+			name = setID
+		}
+		set := map[string]any{
+			"name":        name,
+			"releaseDate": upstream.releaseDate(),
+		}
+		sets[code] = set
+		mintedSets++
+	}
+	if mintedSets > 0 {
+		log.Printf("sets minted for dataset sets the catalog has no group for: %d", mintedSets)
+	}
 
 	sort.Slice(singles, func(i, j int) bool {
 		return singles[i].product.ProductID < singles[j].product.ProductID
@@ -738,6 +940,65 @@ func main() {
 			}
 			cards = append(cards, entry)
 		}
+	}
+
+	// Mint the printings the catalog has no product for. The game prints
+	// them and TCGplayer does not sell them as singles - the tokens above
+	// all - and a datastore leaving them out leaves every listing of one
+	// unresolvable, so the datastore carries the sum of both sources
+	// rather than the catalog alone. A minted entry names no product,
+	// because there is none: nothing prices it, and the loader groups an
+	// entry without a product id by its own id with the finish suffix
+	// stripped, which is exactly how these are built. The finishes are the
+	// ones the dataset's edition and foiling name, and a card whose every
+	// row wears a pair TCGplayer has no printing for still gets its plain
+	// entry, so the card exists even where its treatments cannot be spelled.
+	var mintedCards, unspellable int
+	for _, number := range mintableOrder {
+		rows := mintable[number]
+		row := rows[0]
+		code := mintedSetCode[strings.ToUpper(setCodeOf(row.SetID))]
+		rarity := fabRarity[row.Rarity]
+		if rarity == "" && row.Rarity != "" {
+			log.Printf("dataset rarity %q on %s is not one this datastore spells", row.Rarity, row.ID)
+		}
+
+		var finishes []string
+		for _, r := range rows {
+			finish, known := fabFinish[r.Edition+"|"+r.Foiling]
+			if !known {
+				unspellable++
+				continue
+			}
+			if !sliceContains(finishes, finish) {
+				finishes = append(finishes, finish)
+			}
+		}
+		if len(finishes) == 0 {
+			finishes = []string{"Normal"}
+		}
+		sort.Slice(finishes, func(i, j int) bool {
+			return slices.Index(finishOrder, finishes[i]) < slices.Index(finishOrder, finishes[j])
+		})
+
+		for _, finish := range finishes {
+			entry := map[string]any{
+				"id":      mintedIDBase(number) + finishSuffix[finish],
+				"name":    row.Name,
+				"number":  numberOf(row.ID),
+				"setCode": code,
+				"rarity":  rarity,
+				"finish":  finish,
+				"image":   row.ImageURL,
+				"fabId":   row.ID,
+			}
+			cards = append(cards, entry)
+			mintedCards++
+		}
+	}
+	if mintedCards > 0 {
+		log.Printf("minted: %d entries over %d collector numbers the catalog has no product for (%d rows wear a finish this scheme cannot spell)",
+			mintedCards, len(mintableOrder), unspellable)
 	}
 
 	sort.Slice(sealedProducts, func(i, j int) bool {
@@ -907,11 +1168,15 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	// while two different products never do — keying on the finish instead
 	// would wave through exactly the pair this is meant to catch, since the
 	// promos that collide carry a single printing each.
-	identities := map[string]int{}
+	// The discriminator two entries wearing one identity are told apart by:
+	// the product for an entry that names one, and the card key for a
+	// minted entry, which names no product because none exists. A minted
+	// card's own finishes share that key and pass, exactly as a product's
+	// sibling printings do.
+	identities := map[string]string{}
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
-		if card.ID == "" || card.Name == "" ||
-			card.Finish == "" || card.ExternalLinks.TcgPlayerId == 0 {
+		if card.ID == "" || card.Name == "" || card.Finish == "" {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
 		}
 		if !idShape.MatchString(card.ID) {
@@ -932,16 +1197,26 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// printing of a card is not the English one wearing its name.
 		identity := strings.Join([]string{
 			card.Name, card.Number, card.SetCode, card.Variant, card.Language}, "|")
-		other, seen := identities[identity]
-		if seen && other != card.ExternalLinks.TcgPlayerId {
-			return out, fmt.Errorf("products %d and %d wear one identity: %s",
-				other, card.ExternalLinks.TcgPlayerId, identity)
+		productID := card.ExternalLinks.TcgPlayerId
+		discriminator := fmt.Sprint(productID)
+		if productID == 0 {
+			discriminator = "minted:" + card.SetCode + "|" + card.Number
 		}
-		identities[identity] = card.ExternalLinks.TcgPlayerId
+		other, seen := identities[identity]
+		if seen && other != discriminator {
+			return out, fmt.Errorf("%s and %s wear one identity: %s",
+				other, discriminator, identity)
+		}
+		identities[identity] = discriminator
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
-		productID := card.ExternalLinks.TcgPlayerId
+		// A minted entry counts for no product, so the coverage check below
+		// still compares exactly the catalog's card products against the
+		// entries that name one.
+		if productID == 0 {
+			continue
+		}
 		if sliceContains(gotFinishes[productID], card.Finish) {
 			return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 		}
