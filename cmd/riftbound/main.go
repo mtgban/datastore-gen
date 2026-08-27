@@ -689,6 +689,19 @@ func main() {
 		log.Fatalf("emitted %d sets, %d printings, %d sealed but read back %d, %d, %d; refusing to publish",
 			len(setItems), len(cardItems), len(sealedItems), sets2, cards2, sealed2)
 	}
+	// The coverage contract for the sealed side. Sealed is everything the
+	// catalog does not type as a card, so it is exhaustive by construction
+	// and cannot lose a product to a rule that did not know what to do with
+	// it - the printing side's whole failure mode. What it can lose a
+	// product to is an edit: one `continue` on the sealed path and the
+	// products would leave the datastore with nothing to say so, the
+	// printing side's invariant being blind to them. Counting the emitted
+	// products back against the catalog total is what says so.
+	wantSealed := len(catalog.Products) - singles
+	if sealed2 != wantSealed {
+		log.Fatalf("%d sealed products emitted but the catalog types %d as something other than a card; refusing to publish",
+			sealed2, wantSealed)
+	}
 	if cards2 < *minCards {
 		log.Fatalf("only %d printings (minimum %d); refusing to publish", cards2, *minCards)
 	}
