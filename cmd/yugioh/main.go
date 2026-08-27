@@ -174,6 +174,17 @@ var rarityShorthand = map[string]string{
 	"ESR": "Emblazoned Secret Rare",
 }
 
+// rarityOf is the rarity a product is filed under, with the padding
+// TCGplayer's own data entry leaves on it taken off. The category's rarity
+// table spells one of them "Prismatic Collector's Rare " with a trailing
+// space while the products carry it without, and the two have to agree:
+// the rarity is part of the identity a query resolves a Yu-Gi-Oh card by -
+// the axis this game varies on - so a padded one is a card nothing can ask
+// for and, worse, a second identity for a card that already has one.
+func rarityOf(product tcgplayer.Product) string {
+	return strings.TrimSpace(product.Extended("Rarity"))
+}
+
 // normRarity folds the case, spacing and apostrophe variants two
 // spellings of the same rarity differ by.
 func normRarity(s string) string {
@@ -230,7 +241,7 @@ type single struct {
 func decompose(p tcgplayer.Product, num string) single {
 	name := p.Name
 	name = strings.ReplaceAll(name, " - "+num, "")
-	rarity := p.Extended("Rarity")
+	rarity := rarityOf(p)
 
 	var quals []string
 	name = parenRe.ReplaceAllStringFunc(name, func(m string) string {
@@ -599,7 +610,7 @@ func main() {
 				"id":        idBase(s.number, productID) + suffix,
 				"name":      s.baseName,
 				"setCode":   setCodes[s.product.GroupID],
-				"rarity":    s.product.Extended("Rarity"),
+				"rarity":    rarityOf(s.product),
 				"attribute": s.product.Extended("Attribute"),
 				"type":      cardType,
 				"finish":    finish,
