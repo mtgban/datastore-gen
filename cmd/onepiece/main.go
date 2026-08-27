@@ -40,6 +40,28 @@
 // to the set and the variant label, which the catalog spells out per
 // product and no two of them share.
 //
+// The official card list also holds printings whose collector number the
+// catalog has no product for, and those would have to be minted for this
+// datastore to be the sum of both sources rather than the catalog alone.
+// Today there are none — every number Bandai publishes has a product, the
+// catalog carrying half again as many printings as the list does — so
+// nothing is minted here and the count is reported at build time instead.
+// The day it stops being zero the log names it, and the set a minted card
+// would be filed under can be worked out against real cases: the list says
+// which set a card belongs to only through the prefix of its number, and
+// only 16 of the 60 prefixes match a catalog abbreviation, so a mapping
+// guessed now against no case at all would mint duplicate sets for sets
+// the catalog already carries.
+//
+// Sets are the catalog groups. Abbreviations repeat across groups, so codes
+// are claimed in group-id order: the first group to claim an abbreviation
+// keeps it bare, a later one carries its own group id as a suffix, and a
+// blank abbreviation is minted from the group id. A set code so decided
+// depends on the groups that came before it and never on the ones that come
+// after, so an existing set keeps its code the day TCGplayer files a new
+// group under an abbreviation it already uses, and the build refuses to
+// publish unless it emitted one set per group.
+//
 // Sealed products are everything the catalog files outside the singles
 // type, same as the other games: by exclusion, so a product type TCGplayer
 // adds later lands on the sealed side where it is noticed.
@@ -90,18 +112,14 @@ var finishSuffix = map[string]string{
 	"Foil":   "_foil",
 }
 
-// finishOrder fixes the order a product's entries are emitted in.
-var finishOrder = []string{
-	"Normal",
-	"Foil",
-}
-
 // tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
 // for a category, published next to the datastore it describes.
-
-// printingNames maps each product to the distinct printing names its skus
-// carry, in finishOrder; a printing the catalog does not list for a product
-// is one that does not exist.
+//
+// The printing names come from the dump's own CatalogDump.PrintingNames,
+// which orders them as the category lists its printings. Nothing downstream
+// reads that order — the loader tells a product's finishes apart by the
+// "_foil" suffix on the id, which derives from the printing name alone — so
+// the order is the dump's to choose.
 
 // punkCard is the slice of a punk-records printing this build reads: the
 // _pN-suffixed card id is Bandai's own printing identity, mirrored from
@@ -256,6 +274,50 @@ func setCodeOf(abbreviation string) string {
 	return strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-")
 }
 
+// setCodes assigns every group a unique, non-empty set code. Abbreviations
+// repeat across groups in this category the way they do in every other one
+// — a set beside the promo group that hands its cards out, a reissue beside
+// the original — and a map keyed on the bare abbreviation silently folded
+// the later group onto the earlier, dropping its name and release date and
+// filing both groups' cards under one set. Codes are claimed in group-id
+// order, so the group that claimed one keeps it bare and only the later
+// arrival is marked: a set code then depends on the groups that came before
+// it and never on the ones that come after, and an existing set keeps its
+// code the day TCGplayer files a new group under an abbreviation it already
+// uses. A blank abbreviation gets a code minted from the group id. Every
+// repair is logged, because none of it is the catalog's own identity.
+func setCodes(groups []tcgplayer.Group) map[int]string {
+	ordered := append([]tcgplayer.Group(nil), groups...)
+	sort.Slice(ordered, func(i, j int) bool {
+		return ordered[i].GroupID < ordered[j].GroupID
+	})
+
+	codes := map[int]string{}
+	used := map[string]bool{}
+	var minted, suffixed int
+	for _, group := range ordered {
+		code := setCodeOf(group.Abbreviation)
+		if code == "" {
+			code = fmt.Sprintf("G%d", group.GroupID)
+			minted++
+			log.Printf("%s: no abbreviation, set code %s minted", group.Name, code)
+		}
+		if used[code] {
+			code = fmt.Sprintf("%s-%d", code, group.GroupID)
+			suffixed++
+			log.Printf("%s: abbreviation %s already taken, set code %s minted",
+				group.Name, group.Abbreviation, code)
+		}
+		if used[code] {
+			log.Fatalf("set code %s still not unique; refusing to guess further", code)
+		}
+		used[code] = true
+		codes[group.GroupID] = code
+	}
+	log.Printf("set codes: %d minted for blank abbreviations, %d deduplicated", minted, suffixed)
+	return codes
+}
+
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	minCards := flag.Int("min-cards", 6000, "refuse to emit a datastore with fewer card entries")
@@ -287,9 +349,17 @@ func main() {
 	if err := json.Unmarshal(punkData, &punk); err != nil {
 		log.Fatalln("punk-records:", err)
 	}
+	// Bandai hangs two kinds of printing suffix off a collector number:
+	// "_pN" for the parallel arts and "_rN" for the reprints. Cutting only
+	// at "_p" left every reprint keyed under a number of its own, where it
+	// matched no catalog product and, worse, went missing from the count
+	// its real number is aligned by - so a number printed both ways lost
+	// the annotation for all of its printings. A One Piece collector number
+	// holds no underscore of its own, so the first one always starts the
+	// suffix.
 	punkByNumber := map[string][]string{}
 	for id := range punk {
-		base := strings.SplitN(id, "_p", 2)[0]
+		base, _, _ := strings.Cut(id, "_")
 		punkByNumber[base] = append(punkByNumber[base], id)
 	}
 	for _, ids := range punkByNumber {
@@ -302,6 +372,7 @@ func main() {
 	for _, group := range catalog.Groups {
 		groupByID[group.GroupID] = group
 	}
+	codes := setCodes(catalog.Groups)
 
 	printings := catalog.PrintingNames()
 
@@ -432,14 +503,48 @@ func main() {
 	}
 	log.Printf("bandai ids: %d of %d printings annotated", annotated, len(singles))
 
+	// The other direction, which nothing counted before: a Bandai printing
+	// whose collector number no card product carries is a card this
+	// datastore does not hold at all. The annotation rate above measures
+	// only how much of the catalog the official list could name, so a card
+	// the game prints and TCGplayer does not sell was invisible - it
+	// annotated nothing and showed up as no gap.
+	uncarried := map[string]int{}
+	var uncarriedPrintings int
+	for num, ids := range punkByNumber {
+		if len(byNumber[num]) > 0 {
+			continue
+		}
+		uncarried[num] = len(ids)
+		uncarriedPrintings += len(ids)
+	}
+	if len(uncarried) > 0 {
+		var numbers []string
+		for num := range uncarried {
+			numbers = append(numbers, num)
+		}
+		sort.Strings(numbers)
+		log.Printf("punk-records printings this datastore does not carry: %d over %d collector numbers, first is %s",
+			uncarriedPrintings, len(numbers), numbers[0])
+	} else {
+		log.Printf("punk-records printings this datastore does not carry: none")
+	}
+
 	// Emit. Sets are the catalog groups; ids embed the product id so they
 	// survive any upstream renumbering.
 	sets := map[string]any{}
 	for _, group := range catalog.Groups {
-		sets[setCodeOf(group.Abbreviation)] = map[string]any{
+		sets[codes[group.GroupID]] = map[string]any{
 			"name":        group.Name,
 			"releaseDate": group.ReleaseDate(),
 		}
+	}
+	// The recount: one set per group. A code claimed twice would fold two
+	// groups onto one entry, and validate cannot see it — the code still
+	// resolves for every card naming it, it just names the wrong set.
+	if len(sets) != len(catalog.Groups) {
+		log.Fatalf("emitted %d sets for %d catalog groups; refusing to publish",
+			len(sets), len(catalog.Groups))
 	}
 
 	sort.Slice(singles, func(i, j int) bool {
@@ -475,7 +580,7 @@ func main() {
 				"id":      fmt.Sprintf("%s_%d%s", idStem(s.number), productID, suffix),
 				"name":    s.baseName,
 				"number":  s.number,
-				"setCode": setCodeOf(group.Abbreviation),
+				"setCode": codes[group.GroupID],
 				"rarity":  s.product.Extended("Rarity"),
 				"color":   s.product.Extended("Color"),
 				"type":    s.product.Extended("CardType"),
@@ -505,9 +610,9 @@ func main() {
 	for _, product := range sealedProducts {
 		group := groupByID[product.GroupID]
 		sealed = append(sealed, map[string]any{
-			"id":          fmt.Sprintf("%s-%d", strings.ToLower(setCodeOf(group.Abbreviation)), product.ProductID),
+			"id":          fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
 			"name":        product.Name,
-			"setCode":     setCodeOf(group.Abbreviation),
+			"setCode":     codes[group.GroupID],
 			"releaseDate": group.ReleaseDate(),
 			"image":       imageURL(product.ImageURL),
 			"externalLinks": map[string]any{
