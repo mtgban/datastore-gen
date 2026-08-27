@@ -1,8 +1,9 @@
-# lorcana-datastore
+# cmd/lorcana
 
 Builds the Lorcana datastore file consumed by
 [go-mtgban](https://github.com/mtgban/go-mtgban)'s `mtgmatcher/lorcana`
-loader, and publishes it to B2 for the workers to pull.
+loader. See the [repository README](../../README.md) for how the builders
+are run and published.
 
 The datastore is the [LorcanaJSON](https://lorcanajson.org) allCards payload,
 enriched with what our TCGplayer catalog dump for category 71 knows and it
@@ -22,11 +23,27 @@ does not:
   stock LorcanaJSON reader ignores, with a set entry minted for the groups
   LorcanaJSON has no set for.
 
+The promotional printings TCGplayer files in their own groups (DLPC, D23,
+D100) are matched onto upstream's own cards wherever the id fill can do it
+by name and number, because upstream files them under the set they belong
+to and its card is the better one. What no card claims or matches is minted
+here rather than dropped: a product TCGplayer sells is a printing that
+exists, and a datastore leaving it out leaves every listing of it
+unresolvable. A minted card is filed under the negated product id, so it
+cannot collide with an id upstream publishes later, and the day upstream
+publishes the real card its own entry claims the product and the minted one
+stops being minted.
+
+The result is the union of both sources: every card LorcanaJSON publishes,
+and every product the catalog types as a card. `validate` re-reads the
+encoded output and refuses to publish if any catalog card product carries
+no card.
+
 Card identity is left entirely to LorcanaJSON: its integer card ids are the
 matcher's uuids, and its foil sub-type names are what storefront wording
-resolves against. The promotional printings TCGplayer files in their own
-groups are mapped onto the LorcanaJSON printings they decorate by name and
-number, never minted as new cards.
+resolves against. Set codes are LorcanaJSON's too; a catalog group whose
+abbreviation another group already claimed gets its own group id suffixed,
+so two groups can never fold onto one set.
 
 The output is the LorcanaJSON payload itself with the extra data merged in,
 so the loader reads it unchanged and a stock LorcanaJSON reader still parses
@@ -34,9 +51,10 @@ it. Before writing anything the result is re-read, structurally verified,
 and checked against a minimum card count (`-min-cards`, default 3000), so a
 broken upstream payload can never be published.
 
-This repository is deliberately standalone: it produces JSON and depends on
-nothing, so a datastore change never waits on a go-mtgban release. The few
-helpers the loader also has are duplicated here instead of imported.
+This builder is deliberately standalone: it produces JSON and depends on
+nothing but the catalog reader, so a datastore change never waits on a
+go-mtgban release. The few helpers the loader also has are duplicated here
+instead of imported.
 
 ## Usage
 
@@ -51,9 +69,3 @@ go run . -tcg-catalog tcgplayer-catalog.json \
 - `-lorcana` (required) — the LorcanaJSON allCards file, as a path or URL
 - `-o` — output file (stdout by default)
 - `-min-cards` — refuse to emit a datastore with fewer cards (default 3000)
-
-## Publishing
-
-The `publish` workflow builds and uploads
-`b2://mtgban-datastore/lorcana/lorcana.json.xz` daily. Consumers should
-point their `LORCANA_PATH` at that object.
