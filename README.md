@@ -57,7 +57,16 @@ hold. Current counts:
 | lorcana | 203 catalog products upstream has no card for | 0 |
 | fleshandblood | 466 entries over 418 collector numbers | 36 |
 | pokemon | 909 entries over 883 tcgdex cards | 39 |
-| onepiece | none — the catalog carries every number Bandai publishes | 0 |
+| onepiece | 18 pre-errata printings, hand-carried | 0 |
+
+One Piece mints from neither source: the catalog carries every number
+Bandai publishes, and Bandai files an errata as a correction to a card
+rather than as a new printing, so neither knows the pre-errata print runs
+that collectors and marketplaces price separately. Those 18 are carried by
+hand in `cmd/onepiece`, keyed on CardTrader's blueprint id and reading
+finish, artwork and rarity from the printing each is an errata of. A row
+stands down the day any source carries its identity, so the hand-carried
+entry never becomes a second card wearing a name a product already holds.
 
 Yu-Gi-Oh is the exception: it has no card-level upstream source at all.
 YGOPRODeck's cardinfo.php is deliberately not fetched - their terms forbid

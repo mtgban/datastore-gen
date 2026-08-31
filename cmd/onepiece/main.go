@@ -301,6 +301,69 @@ func decompose(p tcgplayer.Product, num string) single {
 	}
 }
 
+// preErrata is a printing CardTrader models and neither of this build's own
+// sources does: an early print run whose rules text was corrected later, and
+// which collectors and marketplaces treat as its own object. The catalog
+// does not sell it, so it has no product id and no price on TCGplayer, and
+// Bandai's list does not distinguish it either - an errata is a correction
+// to a card, not a new printing, so punk-records files OP01-049 once.
+//
+// It is therefore hand-carried, the way the release dates neither source
+// can answer for are. The entry is the base printing's in every respect but
+// three: the errata generation as its variant label, the Cardmarket product
+// where there is one, and an id minted from CardTrader's blueprint, which
+// is what names the printing. The collector number stays the card's own -
+// CardTrader spells the generation into the number ("OP01-049α") and this
+// datastore spells it into the variant, which is where a printing's
+// distinctions live here.
+//
+// Only the printings whose number carries no such entry already are listed:
+// the pre-errata reprints TCGplayer does sell under the base number are the
+// catalog's to name, and four rows of CardTrader's own list collide with a
+// number the catalog already fills.
+type preErrata struct {
+	// number is the card's collector number.
+	number string
+	// parent is the variant label of the printing this is an errata of,
+	// empty for the plain one, and is what the entry reads its finish,
+	// artwork and rarity from. CardTrader calls the alternate art
+	// "Alternate Art" where this category's catalog calls it "Parallel",
+	// and the printing wears its own artwork and finish, so an errata
+	// filed against the base printing would carry the wrong picture.
+	parent string
+	// errata is the generation, which joins the parent label to make the
+	// variant a query carries: the pre-errata of a parallel printing is
+	// a "Parallel Alpha Pre-Errata".
+	errata string
+	// cardmarket is the product Cardmarket sells it as, 0 where it sells
+	// none: with no TCGplayer id, this is the only id it can be priced by.
+	cardmarket int
+	// blueprint is CardTrader's own id for the printing, which the entry's
+	// uuid is minted from so it cannot collide with a product id.
+	blueprint int
+}
+
+var preErrataPrintings = []preErrata{
+	{"OP01-002", "", "Alpha Pre-Errata", 0, 277476},
+	{"OP01-002", "Parallel", "Alpha Pre-Errata", 755413, 277478},
+	{"OP01-002", "", "Beta Pre-Errata", 0, 277470},
+	{"OP01-016", "", "Alpha Pre-Errata", 768142, 277561},
+	{"OP01-016", "Parallel", "Alpha Pre-Errata", 755416, 277442},
+	{"OP01-025", "", "Pre-Errata", 865609, 366332},
+	{"OP01-047", "", "Alpha Pre-Errata", 755417, 277454},
+	{"OP01-047", "Parallel", "Alpha Pre-Errata", 755418, 277403},
+	{"OP01-047", "", "Beta Pre-Errata", 0, 277455},
+	{"OP01-047", "Parallel", "Beta Pre-Errata", 0, 277451},
+	{"OP01-049", "", "Alpha Pre-Errata", 0, 277562},
+	{"OP01-049", "", "Beta Pre-Errata", 0, 277563},
+	{"OP01-051", "", "Pre-Errata", 0, 244690},
+	{"OP01-070", "", "Pre-Errata", 755422, 244688},
+	{"OP01-093", "Parallel", "Pre-Errata", 755423, 277545},
+	{"OP01-093", "", "Pre-Errata", 768185, 277566},
+	{"OP03-054", "", "Pre-Errata", 0, 272147},
+	{"OP13-119", "", "Pre-Errata", 857345, 354999},
+}
+
 // nonCodeRe matches the runs a set code cannot carry.
 var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
@@ -872,6 +935,99 @@ func main() {
 		}
 	}
 
+	// The hand-carried pre-errata printings, each read off the base
+	// printing its number names.
+	//
+	// A printing is minted only where nothing already carries its
+	// identity. The day a source sells one - TCGplayer has begun
+	// modelling these elsewhere - the entry built from that product names
+	// the printing, prices through it, and this one would be a second
+	// card wearing the same name, number, set and label. So the test is
+	// the identity itself and not the number: what the build already
+	// names, it leaves alone, and the hand-carried row stands down.
+	//
+	// The set is read off the base printing rather than the number's
+	// prefix, because a set code is claimed in group-id order and the
+	// group holding a number need not wear its abbreviation bare.
+	carried := map[string]bool{}
+	// A printing is looked up by the number, set and variant that name
+	// it, which is the same key a query resolves a card by.
+	printed := map[string][]map[string]any{}
+	printingKey := func(number, setCode, variant string) string {
+		return number + "|" + setCode + "|" + variant
+	}
+	for _, entry := range cards {
+		e := entry.(map[string]any)
+		variant, _ := e["variant"].(string)
+		number, _ := e["number"].(string)
+		setCode := fmt.Sprint(e["setCode"])
+		carried[fmt.Sprintf("%v|%s|%s|%s", e["name"], number, setCode, variant)] = true
+		if _, translated := e["language"]; !translated {
+			key := printingKey(number, setCode, variant)
+			printed[key] = append(printed[key], e)
+		}
+	}
+	var errata, stoodDown int
+	for _, printing := range preErrataPrintings {
+		// A number is carried by its own set and by every later one
+		// reissuing it - a promo group, a starter deck, an anniversary
+		// box. An errata corrects the text the printing carried first,
+		// so the parent is the one in the set the number is named for;
+		// the reissues came after the correction and were never
+		// pre-errata.
+		own := setCodeOf(strings.SplitN(printing.number, "-", 2)[0])
+		variant := strings.TrimSpace(printing.parent + " " + printing.errata)
+		candidates := printed[printingKey(printing.number, own, printing.parent)]
+		if len(candidates) == 0 {
+			log.Printf("pre-errata: %s carries no %q printing in %s; %q not carried",
+				printing.number, printing.parent, own, variant)
+			stoodDown++
+			continue
+		}
+		// One printing, but possibly both its finishes: take the lowest
+		// id so the choice does not move between runs.
+		sort.Slice(candidates, func(i, j int) bool {
+			return fmt.Sprint(candidates[i]["id"]) < fmt.Sprint(candidates[j]["id"])
+		})
+		src := candidates[0]
+		key := fmt.Sprintf("%v|%s|%s|%s", src["name"], printing.number, own, variant)
+		if carried[key] {
+			log.Printf("pre-errata: %s %q is sold as a product now; the hand-carried one stands down",
+				printing.number, variant)
+			stoodDown++
+			continue
+		}
+		carried[key] = true
+
+		// A catalog id carries "_<product id>" before its finish suffix,
+		// so "_ct<blueprint id>" cannot meet one however the numbers
+		// fall, and the suffix stays last the way every other id here
+		// spells it.
+		finish := fmt.Sprint(src["finish"])
+		entry := map[string]any{
+			"id": fmt.Sprintf("%s_ct%d%s", idStem(printing.number),
+				printing.blueprint, finishSuffix[finish]),
+			"name":    src["name"],
+			"number":  printing.number,
+			"setCode": own,
+			"rarity":  src["rarity"],
+			"color":   src["color"],
+			"type":    src["type"],
+			"finish":  finish,
+			"image":   src["image"],
+			"variant": variant,
+		}
+		// No TCGplayer product sells it, so the Cardmarket one is the only
+		// id it can be priced by; a printing Cardmarket does not sell
+		// either carries none, and is carried for resolution alone.
+		if printing.cardmarket != 0 {
+			entry["externalLinks"] = map[string]any{"cardmarketId": printing.cardmarket}
+		}
+		cards = append(cards, entry)
+		errata++
+	}
+	log.Printf("pre-errata printings: %d carried, %d stood down", errata, stoodDown)
+
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
@@ -1097,11 +1253,13 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	// catch, since most DON!! products carry a single finish. This is what
 	// holds the DON!! cards' constant number up: the day a set labels two
 	// of them alike, the build says so instead of publishing the pair.
-	identities := map[string]int{}
+	identities := map[string]string{}
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
-		if card.ID == "" || card.Name == "" || card.Number == "" ||
-			card.Finish == "" || card.ExternalLinks.TcgPlayerId == 0 {
+		// A hand-carried printing has no TCGplayer product to name it -
+		// that is why it is hand-carried - so the product id is required
+		// of everything the catalog does sell and of nothing else.
+		if card.ID == "" || card.Name == "" || card.Number == "" || card.Finish == "" {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
 		}
 		if !idShape.MatchString(card.ID) {
@@ -1122,19 +1280,34 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// printing of a card is not the English one wearing its name.
 		identity := strings.Join([]string{
 			card.Name, card.Number, card.SetCode, card.Variant, card.Language}, "|")
-		if other, seen := identities[identity]; seen && other != card.ExternalLinks.TcgPlayerId {
-			return out, fmt.Errorf("products %d and %d wear one identity: %s",
-				other, card.ExternalLinks.TcgPlayerId, identity)
+		// A product's own Normal and Foil entries share its id and so are
+		// one card twice; anything else wearing the identity is a second
+		// card. A hand-carried printing sells as no product, so it stands
+		// for itself under its own uuid - keying those on the absent
+		// product id would make every one of them the same card and wave
+		// through exactly the collision this catches.
+		bearer := fmt.Sprintf("product %d", card.ExternalLinks.TcgPlayerId)
+		if card.ExternalLinks.TcgPlayerId == 0 {
+			bearer = "card " + card.ID
 		}
-		identities[identity] = card.ExternalLinks.TcgPlayerId
+		if other, seen := identities[identity]; seen && other != bearer {
+			return out, fmt.Errorf("%s and %s wear one identity: %s",
+				other, bearer, identity)
+		}
+		identities[identity] = bearer
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
-		productID := card.ExternalLinks.TcgPlayerId
-		if sliceContains(gotFinishes[productID], card.Finish) {
-			return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
+		// Only products are counted against the catalog's skus. A
+		// hand-carried printing answers to no product and would otherwise
+		// pile every one of its finishes under product 0, which the
+		// coverage check would then have to explain.
+		if productID := card.ExternalLinks.TcgPlayerId; productID != 0 {
+			if sliceContains(gotFinishes[productID], card.Finish) {
+				return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
+			}
+			gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 		}
-		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 	}
 	err := coverage(gotFinishes, wantFinishes)
 	if err != nil {
