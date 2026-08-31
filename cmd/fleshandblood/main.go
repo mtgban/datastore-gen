@@ -461,6 +461,19 @@ const promoRarity = "Promo"
 // nonCodeRe matches the runs a set code cannot carry.
 var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
+// normalizeSetName reduces a set name to what the two sources spell alike:
+// the dataset writes "Armory Deck - Azalea" where the catalog writes
+// "Armory Deck: Azalea", and only the punctuation between them differs.
+func normalizeSetName(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // setCodeOf reduces a catalog abbreviation to what a search query can carry.
 // A set code is typed after "is:", and a query is split on whitespace before
 // a filter ever sees it and on the colon that names the filter, so a code
@@ -926,13 +939,29 @@ func main() {
 	// mintable rows sit in is one today - is minted from the dataset's own
 	// code, name and earliest release date, deduplicated against the codes
 	// the catalog groups already hold so nothing can fold onto them.
+	// The catalog group a dataset set belongs to, found two ways. Its
+	// abbreviation is the obvious one and the one that fails most often:
+	// the dataset codes a set "AAZ" where TCGplayer abbreviates the same
+	// set "ADA", or does not abbreviate it at all and takes a code
+	// derived from its name. The name is what the two sources really
+	// agree on - "Armory Deck - Azalea" against "Armory Deck: Azalea",
+	// differing by the punctuation the normalization drops - so it is
+	// tried second, and it is what keeps a minted card in the set holding
+	// the printings TCGplayer does sell rather than in a second set of
+	// the same name.
 	codeByAbbreviation := map[string]string{}
+	codeByName := map[string]string{}
 	for _, group := range catalog.Groups {
 		// A minted card must land in a set that exists, and an empty
 		// group's set was skipped above: its abbreviation falls through
 		// to the minted-set path instead of naming a set nothing emitted.
 		if productsIn[group.GroupID] == 0 {
 			continue
+		}
+		if name := normalizeSetName(group.Name); name != "" {
+			if _, taken := codeByName[name]; !taken {
+				codeByName[name] = codes[group.GroupID]
+			}
 		}
 		abbreviation := strings.ToUpper(setCodeOf(group.Abbreviation))
 		if abbreviation == "" {
@@ -958,6 +987,12 @@ func main() {
 		}
 		if code, found := codeByAbbreviation[setID]; found {
 			mintedSetCode[setID] = code
+			continue
+		}
+		if code, found := codeByName[normalizeSetName(fabSetByID[setID].Name)]; found {
+			mintedSetCode[setID] = code
+			log.Printf("dataset set %s joins catalog set %s by name (%q)",
+				setID, code, fabSetByID[setID].Name)
 			continue
 		}
 		code := setID
