@@ -450,6 +450,22 @@ func numberOf(number string) string {
 	return strings.Join(strings.Fields(number), "")
 }
 
+// emitNumber writes a collector number onto an entry with the card's part
+// and the set total apart: the "082/167" a card face prints is the card's
+// own "082" plus the set's size, and the size is the set's fact rather
+// than part of the card's identity. The cut is at the first slash, which
+// keeps a lettered subset's own part whole ("TG01/TG30" is card TG01) and
+// leaves a face without a total untouched. Nothing is checked against the
+// set's real size on purpose: the secret rares are numbered past it
+// ("168/167") and that is what the face says.
+func emitNumber(entry map[string]any, number string) {
+	own, total, _ := strings.Cut(number, "/")
+	entry["number"] = own
+	if total != "" {
+		entry["total"] = total
+	}
+}
+
 // mintedIDBase is the id stem of an entry that names no product: the
 // upstream id reduced to the alphabet a uuid travels through. A catalog id
 // always carries "_<product id>" before its finish suffix and a minted one
@@ -1431,7 +1447,7 @@ func main() {
 				},
 			}
 			if s.number != "" {
-				entry["number"] = numberOf(s.number)
+				emitNumber(entry, numberOf(s.number))
 			}
 			cardType := s.product.Extended("Card Type")
 			if cardType != "" {
@@ -1502,7 +1518,7 @@ func main() {
 				"tcgdexId": card.ID,
 			}
 			if card.LocalID != "" {
-				entry["number"] = numberOf(card.LocalID)
+				emitNumber(entry, numberOf(card.LocalID))
 			}
 			if card.Category != "" {
 				entry["type"] = card.Category
@@ -1708,6 +1724,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			ID            string `json:"id"`
 			Name          string `json:"name"`
 			Number        string `json:"number"`
+			Total         string `json:"total"`
 			SetCode       string `json:"setCode"`
 			Variant       string `json:"variant"`
 			Rarity        string `json:"rarity"`
@@ -1778,6 +1795,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		if !idShape.MatchString(card.ID) {
 			return out, fmt.Errorf("card %q has a uuid nothing can carry: %q", card.Name, card.ID)
 		}
+		if strings.Contains(card.Number, "/") {
+			return out, fmt.Errorf("card %q (%s) carries the set total inside its number: %q", card.Name, card.ID, card.Number)
+		}
 		if strings.ContainsAny(card.Number, " \t") {
 			return out, fmt.Errorf("card %q (%s) has a collector number a query cannot carry: %q", card.Name, card.ID, card.Number)
 		}
@@ -1788,8 +1808,12 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			return out, fmt.Errorf("duplicate card id %s", card.ID)
 		}
 		cardIDs[card.ID] = true
+		// The total joins the identity because it is at times the only
+		// thing telling two promos apart: the 1840 group sells the Cracked
+		// Ice Kyogre of the 160-card set beside the 236-card set's, both
+		// "053", and only the set size on the face says which is which.
 		identity := strings.Join([]string{
-			card.Name, card.Number, card.SetCode, card.Variant, card.Rarity}, "|")
+			card.Name, card.Number, card.Total, card.SetCode, card.Variant, card.Rarity}, "|")
 		productID := card.ExternalLinks.TcgPlayerId
 		discriminator := fmt.Sprint(productID)
 		if productID == 0 {
