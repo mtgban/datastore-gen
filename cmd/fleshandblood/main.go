@@ -650,7 +650,7 @@ func main() {
 	fabCards := flag.String("fab-cards", fabCardsURL, "the-fab-cube card-flattened file, path or URL")
 	fabSets := flag.String("fab-sets", fabSetsURL, "the-fab-cube set file, path or URL")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
-	againstTolerance := flag.Float64("against-tolerance", 0.02, "the share of its cards or sealed products a build may lose")
+	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
 	flag.Parse()
 

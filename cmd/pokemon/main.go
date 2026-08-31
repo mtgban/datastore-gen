@@ -833,7 +833,7 @@ func main() {
 	tcgdexCards := flag.String("tcgdex-cards", "", "tcgdex cards GraphQL response file (default: query the live API)")
 	tcgdexCache := flag.String("tcgdex-cache", "", "directory holding the last good tcgdex responses, refreshed on a live fetch and read back when the live API is unreachable")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
-	againstTolerance := flag.Float64("against-tolerance", 0.02, "the share of its cards or sealed products a build may lose")
+	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
 	flag.Parse()
 

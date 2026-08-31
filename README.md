@@ -86,7 +86,7 @@ Only shrinkage is suspicious - these datastores grow every week - and only
 three shapes of it are refused:
 
 - a card or sealed total that fell by more than `-against-tolerance`
-  (2% by default);
+  (1% by default);
 - a set that holds no card at all any more;
 - a set that lost more than half of what it held.
 

@@ -455,7 +455,7 @@ func main() {
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 71 (required)")
 	source := flag.String("lorcana", "", "LorcanaJSON allCards file, path or URL (required)")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
-	againstTolerance := flag.Float64("against-tolerance", 0.02, "the share of its cards or sealed products a build may lose")
+	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
 	flag.Parse()
 
