@@ -640,11 +640,90 @@ func main() {
 	sort.Slice(groups, func(i, j int) bool {
 		return groups[i].GroupID < groups[j].GroupID
 	})
+	// A group holding nothing at all emits no set, so it takes no code
+	// either. It used to take one on the way past and then leave, on the
+	// reasoning that a code held is a code that will not move the day
+	// TCGplayer files a product there - but an empty group is a set no
+	// consumer can see, and holding a code for it costs a set that is
+	// there: an empty group abbreviated 5DS1 sent the real 5D's starter
+	// deck to "5DS1-139", where its own cards' numbers cannot reach it.
+	// A set nobody can see does not get to name one that everybody can.
+	//
+	// The test is any product, not any card: a group of nothing but
+	// sealed emits a set too, and a set is not published without a code.
+	carded := map[int]bool{}
+	for _, product := range catalog.Products {
+		carded[product.GroupID] = true
+	}
+
+	// The prefix a group's cards' own numbers open with. A collector
+	// number opens with its set's code - LOB-EN001 is LOB - and a
+	// storefront filing a shelf under one catch-all edition leaves that
+	// prefix as the only thing saying which set a listing belongs to. So
+	// where a group's cards agree on a prefix, and no other group's cards
+	// use it, the prefix is what the set is called, whatever the catalog
+	// abbreviated it as.
+	prefixes := map[int]map[string]bool{}
+	owners := map[string]map[int]bool{}
+	for _, product := range catalog.Products {
+		if !slices.Contains(tcgSingles, product.ProductType) {
+			continue
+		}
+		prefix, _, found := strings.Cut(strings.ToUpper(product.Extended("Number")), "-")
+		if !found || prefix == "" {
+			continue
+		}
+		if prefixes[product.GroupID] == nil {
+			prefixes[product.GroupID] = map[string]bool{}
+		}
+		prefixes[product.GroupID][prefix] = true
+		if owners[prefix] == nil {
+			owners[prefix] = map[int]bool{}
+		}
+		owners[prefix][product.GroupID] = true
+	}
+	// The one prefix a group speaks with, empty where it speaks with
+	// several or shares one. Two editions of a set print one number space
+	// - Metal Raiders beside its 25th Anniversary reissue - and neither
+	// may take the space's name from the other.
+	soleprefix := func(groupID int) string {
+		if len(prefixes[groupID]) != 1 {
+			return ""
+		}
+		var prefix string
+		for p := range prefixes[groupID] {
+			prefix = p
+		}
+		if len(owners[prefix]) != 1 {
+			return ""
+		}
+		return prefix
+	}
+
 	setCodes := map[int]string{}
 	usedCodes := map[string]bool{}
-	var minted, suffixed int
+	var minted, suffixed, renamed int
+	// The abbreviations first, so a prefix is only adopted where it is
+	// not already some set's name.
 	for _, group := range groups {
+		if carded[group.GroupID] {
+			usedCodes[strings.ToUpper(setCodeOf(group.Abbreviation))] = true
+		}
+	}
+	claimed := usedCodes
+	usedCodes = map[string]bool{}
+	for _, group := range groups {
+		if !carded[group.GroupID] {
+			continue
+		}
 		code := setCodeOf(group.Abbreviation)
+		if prefix := soleprefix(group.GroupID); prefix != "" &&
+			!strings.EqualFold(prefix, code) && !claimed[prefix] {
+			log.Printf("%s: abbreviated %q, but every card is numbered %s-; set code %s",
+				group.Name, group.Abbreviation, prefix, prefix)
+			code = prefix
+			renamed++
+		}
 		if code == "" {
 			code = fmt.Sprintf("G%d", group.GroupID)
 			minted++
@@ -662,7 +741,8 @@ func main() {
 		usedCodes[code] = true
 		setCodes[group.GroupID] = code
 	}
-	log.Printf("set codes: %d minted for blank abbreviations, %d deduplicated", minted, suffixed)
+	log.Printf("set codes: %d taken from the cards' own numbers, %d minted for blank abbreviations, %d deduplicated",
+		renamed, minted, suffixed)
 
 	// Resolve every group's release date: publishedOn is authoritative
 	// when real, the unambiguous YGOPRODeck date fills the placeholders,
@@ -841,9 +921,7 @@ func main() {
 
 	// Emit. Sets are the catalog groups that hold anything; ids embed the
 	// product id so they survive any upstream renumbering. An empty group
-	// is skipped, its code left claimed so nothing renames while it is
-	// empty and the set appears already-coded the day TCGplayer files a
-	// product there.
+	// is skipped and, as above, holds no code while it is empty.
 	sets := map[string]any{}
 	var promoSets, skippedEmpty int
 	for _, group := range groups {
