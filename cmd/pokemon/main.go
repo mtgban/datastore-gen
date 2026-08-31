@@ -616,6 +616,25 @@ type single struct {
 	dropped  []qual
 }
 
+// treatmentQual matches the qualifiers that name how a printing was made
+// rather than which card it is.
+var treatmentQual = regexp.MustCompile(`(?i)\b(?:holo|holofoil|foil|pattern)\b`)
+
+// isTreatment says whether a qualifier names a treatment rather than the
+// card. A treatment is never part of a name: every printing of
+// "Meowscarada (Cosmos Holo)" is a Cosmos Holo, so the parenthetical says
+// nothing the finish does not, and it makes a name no storefront writes
+// and no query carries.
+//
+// The election below promotes a qualifier that every product of a bucket
+// carries into the name, reasoning that what tells none of them apart
+// belongs to the card. That holds for the qualifiers naming an event or an
+// occasion and not for the ones naming a surface, which is why the pattern
+// spent 437 names claiming to be part of the card.
+func isTreatment(qualifier string) bool {
+	return treatmentQual.MatchString(qualifier)
+}
+
 // cosmosSpelling matches the holo pattern the catalog names five ways.
 var cosmosSpelling = regexp.MustCompile(`(?i)\bCosmos?[ ]+(?:Holofoil|Holo|Foil)\b`)
 
@@ -1108,7 +1127,7 @@ func main() {
 			}
 		}
 		for q, n := range common {
-			if n == len(bucket) {
+			if n == len(bucket) && !isTreatment(q) {
 				nameParens[q] = true
 			}
 		}
@@ -1148,7 +1167,9 @@ func main() {
 			}
 		}
 		for _, s := range bucket {
-			assemble(s, func(q string) bool { return common[q] == len(bucket) })
+			assemble(s, func(q string) bool {
+				return common[q] == len(bucket) && !isTreatment(q)
+			})
 		}
 	}
 	for i := range singles {
