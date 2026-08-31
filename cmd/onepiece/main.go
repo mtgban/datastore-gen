@@ -780,21 +780,40 @@ func main() {
 		log.Printf("punk-records printings this datastore does not carry: none")
 	}
 
-	// Emit. Sets are the catalog groups; ids embed the product id so they
-	// survive any upstream renumbering.
+	// Emit. Sets are the catalog groups that hold anything; ids embed the
+	// product id so they survive any upstream renumbering. A group with no
+	// product is a legacy husk TCGplayer keeps around, and a set nothing
+	// references is dead weight in every consumer - it is skipped, not
+	// carried. Its code stays claimed above, so no existing set's code
+	// moves while it is empty, and the set appears already-coded the day
+	// TCGplayer files a product there.
+	productsIn := map[int]int{}
+	for _, product := range catalog.Products {
+		productsIn[product.GroupID]++
+	}
 	sets := map[string]any{}
+	var populated, skippedEmpty int
 	for _, group := range catalog.Groups {
+		if productsIn[group.GroupID] == 0 {
+			skippedEmpty++
+			continue
+		}
+		populated++
 		sets[codes[group.GroupID]] = map[string]any{
 			"name":        group.Name,
 			"releaseDate": group.ReleaseDate(),
 		}
 	}
-	// The recount: one set per group. A code claimed twice would fold two
-	// groups onto one entry, and validate cannot see it — the code still
-	// resolves for every card naming it, it just names the wrong set.
-	if len(sets) != len(catalog.Groups) {
-		log.Fatalf("emitted %d sets for %d catalog groups; refusing to publish",
-			len(sets), len(catalog.Groups))
+	if skippedEmpty > 0 {
+		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
+	}
+	// The recount: one set per group that holds anything. A code claimed
+	// twice would fold two groups onto one entry, and validate cannot see
+	// it — the code still resolves for every card naming it, it just
+	// names the wrong set.
+	if len(sets) != populated {
+		log.Fatalf("emitted %d sets for %d populated catalog groups; refusing to publish",
+			len(sets), populated)
 	}
 
 	sort.Slice(singles, func(i, j int) bool {

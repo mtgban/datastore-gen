@@ -254,7 +254,8 @@ var handDates = map[int]string{
 	// Jump Award (group 240) stays undated on purpose: it is empty, no
 	// source resolves what it ever named, and every plausible match (the
 	// Shonen Jump magazine promos, the SJC prize cards) already has a
-	// group of its own. A date here would be a guess wearing a citation.
+	// group of its own. A date here would be a guess wearing a citation -
+	// and while the group stays empty it emits no set anyway.
 }
 
 // isPromoGroup reports whether a catalog group hands out promotional
@@ -561,9 +562,21 @@ func main() {
 	// Resolve every group's release date: publishedOn is authoritative
 	// when real, the unambiguous YGOPRODeck date fills the placeholders,
 	// and what neither source can date stays empty rather than guessed.
+	// A group with no product is a legacy husk TCGplayer keeps around; it
+	// emits no set below, so it is not worth dating, joining, or being
+	// reported as undated - the empty groups were most of what the
+	// left-undated log named.
+	productsIn := map[int]int{}
+	for _, product := range catalog.Products {
+		productsIn[product.GroupID]++
+	}
+
 	releaseDates := map[int]string{}
 	var joinedByCode, joinedByName, placeholders, filled, unfilled int
 	for _, group := range groups {
+		if productsIn[group.GroupID] == 0 {
+			continue
+		}
 		dates, how := lookup(group)
 		switch how {
 		case "code":
@@ -721,11 +734,18 @@ func main() {
 		assemble(&singles[i], nameParens)
 	}
 
-	// Emit. Sets are the catalog groups; ids embed the product id so they
-	// survive any upstream renumbering.
+	// Emit. Sets are the catalog groups that hold anything; ids embed the
+	// product id so they survive any upstream renumbering. An empty group
+	// is skipped, its code left claimed so nothing renames while it is
+	// empty and the set appears already-coded the day TCGplayer files a
+	// product there.
 	sets := map[string]any{}
-	var promoSets int
+	var promoSets, skippedEmpty int
 	for _, group := range groups {
+		if productsIn[group.GroupID] == 0 {
+			skippedEmpty++
+			continue
+		}
 		set := map[string]any{
 			"name":        group.Name,
 			"releaseDate": releaseDates[group.GroupID],
@@ -736,7 +756,10 @@ func main() {
 		}
 		sets[setCodes[group.GroupID]] = set
 	}
-	log.Printf("promotional sets: %d of %d", promoSets, len(groups))
+	if skippedEmpty > 0 {
+		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
+	}
+	log.Printf("promotional sets: %d of %d", promoSets, len(sets))
 
 	sort.Slice(singles, func(i, j int) bool {
 		return singles[i].product.ProductID < singles[j].product.ProductID

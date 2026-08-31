@@ -889,7 +889,19 @@ func main() {
 	sets := map[string]any{}
 	promoted := promoGroups(catalog)
 	var promoSets int
+	// An empty group is skipped, its code left claimed so nothing renames
+	// while it is empty and the set appears already-coded the day
+	// TCGplayer files a product there.
+	productsIn := map[int]int{}
+	for _, product := range catalog.Products {
+		productsIn[product.GroupID]++
+	}
+	var skippedEmpty int
 	for _, group := range catalog.Groups {
+		if productsIn[group.GroupID] == 0 {
+			skippedEmpty++
+			continue
+		}
 		set := map[string]any{
 			"name":        group.Name,
 			"releaseDate": group.ReleaseDate(),
@@ -902,7 +914,10 @@ func main() {
 		}
 		sets[codes[group.GroupID]] = set
 	}
-	log.Printf("promotional sets: %d of %d", promoSets, len(catalog.Groups))
+	if skippedEmpty > 0 {
+		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
+	}
+	log.Printf("promotional sets: %d of %d", promoSets, len(sets))
 
 	// The sets a minted card is filed under. A dataset set the catalog has
 	// a group for is that group's set, under the code the group already
@@ -913,6 +928,12 @@ func main() {
 	// the catalog groups already hold so nothing can fold onto them.
 	codeByAbbreviation := map[string]string{}
 	for _, group := range catalog.Groups {
+		// A minted card must land in a set that exists, and an empty
+		// group's set was skipped above: its abbreviation falls through
+		// to the minted-set path instead of naming a set nothing emitted.
+		if productsIn[group.GroupID] == 0 {
+			continue
+		}
 		abbreviation := strings.ToUpper(setCodeOf(group.Abbreviation))
 		if abbreviation == "" {
 			continue

@@ -964,9 +964,20 @@ func main() {
 	// Resolve every group's release date: a real (midnight) publishedOn is
 	// authoritative, the joined tcgdex set fills the placeholders, and what
 	// neither source can date stays empty rather than guessed.
+	// A group with no product is a legacy husk TCGplayer keeps around; it
+	// emits no set below, so it is not worth dating, joining, or being
+	// reported as undated.
+	productsIn := map[int]int{}
+	for _, product := range catalog.Products {
+		productsIn[product.GroupID]++
+	}
+
 	releaseDates := map[int]string{}
 	var placeholders, filled int
 	for _, group := range groups {
+		if productsIn[group.GroupID] == 0 {
+			continue
+		}
 		if hasDate(group) {
 			releaseDates[group.GroupID] = group.ReleaseDate()
 			continue
@@ -1334,10 +1345,17 @@ func main() {
 	// Emit. Sets are the catalog groups; card ids embed the product id so
 	// they survive any upstream renumbering, and the finish suffix so each
 	// price point is its own entry.
+	// An empty group is skipped, its code left claimed so nothing renames
+	// while it is empty and the set appears already-coded the day
+	// TCGplayer files a product there.
 	sets := map[string]any{}
 	promoted := promoGroups(catalog)
-	var promoSets int
+	var promoSets, skippedEmpty int
 	for _, group := range groups {
+		if productsIn[group.GroupID] == 0 {
+			skippedEmpty++
+			continue
+		}
 		set := map[string]any{
 			"name":        group.Name,
 			"releaseDate": releaseDates[group.GroupID],
@@ -1352,6 +1370,9 @@ func main() {
 			promoSets++
 		}
 		sets[setCodes[group.GroupID]] = set
+	}
+	if skippedEmpty > 0 {
+		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
 	}
 	log.Printf("promotional sets: %d of %d", promoSets, len(groups))
 
