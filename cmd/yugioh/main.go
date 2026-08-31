@@ -258,6 +258,27 @@ var handDates = map[int]string{
 	// and while the group stays empty it emits no set anyway.
 }
 
+// treatments are the qualifiers that name how a printing was made rather
+// than which card it is, and so may never be elected into a name however
+// many printings of a number carry them.
+//
+// The election folds a qualifier every printing of a number carries into
+// the card's name, because it tells none of them apart - the rarity does.
+// That reads right for a number and wrong for a card: the seven printings
+// of RA04-EN024 are all "Alternate Art", so all seven were named "Aleister
+// the Invoker (Alternate Art)", which is a card no storefront sells and no
+// search for "Aleister the Invoker" finds. The deck letters and the monster
+// a Field Center Token shows are genuinely part of a name and stay elected;
+// a treatment becomes the variant label it always was, and the rarity goes
+// on telling the printings apart, which is what it was already doing.
+var treatments = map[string]bool{
+	"alternate art": true,
+}
+
+func isTreatment(qualifier string) bool {
+	return treatments[strings.ToLower(strings.TrimSpace(qualifier))]
+}
+
 // isPromoGroup reports whether a catalog group hands out promotional
 // printings. The group name is the only thing that says so in this
 // category: Yu-Gi-Oh rarities name the foil treatment ("Secret Rare",
@@ -686,7 +707,7 @@ func main() {
 			}
 		}
 		for q, n := range common {
-			if n == len(bucket) {
+			if n == len(bucket) && !isTreatment(q) {
 				nameParens[q] = true
 			}
 		}
@@ -720,7 +741,7 @@ func main() {
 				}
 			}
 			for q, n := range common {
-				isName[q] = n == len(bucket)
+				isName[q] = n == len(bucket) && !isTreatment(q)
 			}
 		}
 		for _, s := range bucket {
