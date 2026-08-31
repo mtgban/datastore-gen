@@ -112,6 +112,21 @@ jobs:
             echo "nothing published yet for ${{ matrix.game }}; building without a baseline"
           fi
 
+          # The runner's stub resolver has served tcgdex's address days
+          # after it moved - TTL-blind caching upstream of the runner - so
+          # the name is resolved against a public resolver each run and
+          # pinned for this job alone. Nothing is hardcoded: the answer is
+          # fresh every run, and when the lookup fails the system resolver
+          # stands as it was.
+          if [ "${{ matrix.game }}" = pokemon ]; then
+            ip=$(dig +short api.tcgdex.net A @1.1.1.1 | grep -E '^[0-9.]+$' | head -1)
+            if [ -n "$ip" ]; then
+              echo "$ip api.tcgdex.net" | sudo tee -a /etc/hosts
+            else
+              echo "public DNS gave no address for api.tcgdex.net; the system resolver stands"
+            fi
+          fi
+
           # The last tcgdex responses a build fetched live, kept beside the
           # datastore so a run that cannot reach the API builds on them
           # instead of publishing nothing. The builder asks the live API
