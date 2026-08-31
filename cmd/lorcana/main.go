@@ -873,6 +873,10 @@ func main() {
 	log.Printf("sealed: %d products", len(sealedItems))
 
 	var buf bytes.Buffer
+	// Spell the quotes the way a query does before anything reads the
+	// document, so the check below sees what will be published.
+	plainQuotes(doc)
+
 	if err := json.NewEncoder(&buf).Encode(doc); err != nil {
 		log.Fatalln(err)
 	}
@@ -1098,4 +1102,38 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 	out.cards = len(doc.Cards)
 	out.sealed = len(doc.Sealed)
 	return out, nil
+}
+
+// typographic is the quotes a catalog spells with and no consumer queries
+// with.
+var typographic = strings.NewReplacer(
+	"\u2018", "'", "\u2019", "'", "\u201c", `"`, "\u201d", `"`)
+
+// plainQuotes rewrites those quotes wherever the document carries them.
+// The catalogs are not consistent about it: TCGplayer sells "Rocket's
+// Hitmonchan" with a curly apostrophe beside hundreds of names holding a
+// plain one, files two Yu-Gi-Oh rarities as "Ultra Pharaoh's Rare" while
+// every other name uses ASCII, and spells one One Piece card
+// Eustass"Captain"Kid on the card and Eustass"Captain"Kid on the box it
+// comes in. A query carries one spelling, so the card filed under the
+// other cannot be found, and the two rarities cannot be asked for at all.
+//
+// The whole document is walked rather than the fields known to carry
+// them, because the field that starts carrying them tomorrow would
+// otherwise be missed, and it runs before the output is encoded so the
+// check that re-reads it sees exactly what will be published.
+func plainQuotes(v any) any {
+	switch t := v.(type) {
+	case string:
+		return typographic.Replace(t)
+	case map[string]any:
+		for k, e := range t {
+			t[k] = plainQuotes(e)
+		}
+	case []any:
+		for i, e := range t {
+			t[i] = plainQuotes(e)
+		}
+	}
+	return v
 }
