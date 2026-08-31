@@ -616,6 +616,24 @@ type single struct {
 	dropped  []qual
 }
 
+// cosmosSpelling matches the holo pattern the catalog names five ways.
+var cosmosSpelling = regexp.MustCompile(`(?i)\bCosmos?[ ]+(?:Holofoil|Holo|Foil)\b`)
+
+// oneCosmos spells that pattern the one way. The catalog files it as
+// "Cosmos Holo" 170 times, "Cosmo Holo" 17, "Cosmos Foil" 7, "Cosmo Foil"
+// 6 and "Cosmos Holofoil" 4: one printing wearing five labels, so a query
+// naming any of them misses the cards filed under the other four.
+//
+// Only the pattern's own words are rewritten. The qualifiers around it are
+// what tell real printings apart - a "Reverse Cosmos Holo" and a "Cosmos
+// Holo Costco Exclusive" are not the plain one - and they are left as they
+// are. No card carries two of the five spellings at one identity, so this
+// folds no two printings into one. The Pokemon named Cosmog is not
+// matched: the pattern needs a treatment word after the stem.
+func oneCosmos(qualifier string) string {
+	return cosmosSpelling.ReplaceAllString(qualifier, "Cosmos Holo")
+}
+
 // peelQuals peels the trailing parenthetical and bracket qualifiers off a
 // name, outermost last, preserving their order and dropping a repeat of a
 // qualifier the product already carries.
@@ -624,10 +642,10 @@ func peelQuals(name string) (string, []qual) {
 	for {
 		var q qual
 		if m := parenTailRe.FindStringSubmatch(name); m != nil {
-			q = qual{text: strings.TrimSpace(m[1])}
+			q = qual{text: oneCosmos(strings.TrimSpace(m[1]))}
 			name = strings.TrimSuffix(name, m[0])
 		} else if m := bracketTailRe.FindStringSubmatch(name); m != nil {
-			q = qual{text: strings.TrimSpace(m[1]), bracket: true}
+			q = qual{text: oneCosmos(strings.TrimSpace(m[1])), bracket: true}
 			name = strings.TrimSuffix(name, m[0])
 		} else {
 			break
