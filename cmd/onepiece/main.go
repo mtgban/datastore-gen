@@ -367,6 +367,13 @@ type handCarried struct {
 	// and the printing wears its own artwork and finish, so an errata
 	// filed against the base printing would carry the wrong picture.
 	parent string
+	// set is the set the printing is sold on, empty where that is the
+	// parent printing's own. A reissue is the parent's card printed onto
+	// another shelf: a Revision Pack card is an OP01 card sold in the
+	// revision pack, and the catalog gives that pack a set of its own.
+	// The parent is still read from the number's set, because that is
+	// where the printing being reissued lives.
+	set string
 	// label names what this printing is, and joins the parent label to
 	// make the variant a query carries: the pre-errata of a parallel
 	// printing is a "Parallel Alpha Pre-Errata".
@@ -385,55 +392,55 @@ type handCarried struct {
 }
 
 var handCarriedPrintings = []handCarried{
-	{"OP01-002", "", "Alpha Pre-Errata", "", 0, 277476},
-	{"OP01-002", "", "Beta Pre-Errata", "", 0, 277470},
-	{"OP01-002", "Parallel", "Alpha Pre-Errata", "", 755413, 277478},
-	{"OP01-002", "Parallel", "Beta Pre-Errata", "", 0, 277477},
-	{"OP01-003", "", "Pre-Errata", "", 755414, 277276},
-	{"OP01-003", "", "Pre-Errata Demo Deck", "", 873904, 374952},
-	{"OP01-005", "", "Revision Pack", "Normal", 719315, 260377},
-	{"OP01-006", "", "Pre-Errata", "", 755415, 277513},
-	{"OP01-013", "", "Revision Pack", "Normal", 719316, 260772},
-	{"OP01-016", "", "Alpha Pre-Errata", "", 768142, 277561},
-	{"OP01-016", "", "Revision Pack", "Normal", 719314, 260791},
-	{"OP01-016", "Parallel", "Alpha Pre-Errata", "", 755416, 277442},
-	{"OP01-016", "Parallel", "Beta Pre-Errata", "", 0, 277443},
-	{"OP01-025", "", "Pre-Errata", "", 865609, 366332},
-	{"OP01-026", "", "Pre-Errata", "", 768145, 319050},
-	{"OP01-040", "Parallel", "Pre-Errata", "", 768200, 319051},
-	{"OP01-047", "", "Alpha Pre-Errata", "", 755417, 277454},
-	{"OP01-047", "", "Beta Pre-Errata", "", 0, 277455},
-	{"OP01-047", "Parallel", "Alpha Pre-Errata", "", 755418, 277403},
-	{"OP01-047", "Parallel", "Beta Pre-Errata", "", 0, 277451},
-	{"OP01-049", "", "Alpha Pre-Errata", "", 0, 277562},
-	{"OP01-049", "", "Beta Pre-Errata", "", 0, 277563},
-	{"OP01-051", "", "Pre-Errata", "", 0, 244690},
-	{"OP01-051", "Parallel", "Pre-Errata", "", 0, 244691},
-	{"OP01-061", "", "Pre-Errata", "", 0, 277515},
-	{"OP01-061", "Parallel", "Pre-Errata", "", 755419, 277514},
-	{"OP01-064", "", "Pre-Errata", "", 0, 244443},
-	{"OP01-064", "Box Topper", "Pre-Errata", "", 755420, 244685},
-	{"OP01-069", "", "Pre-Errata", "", 0, 244686},
-	{"OP01-070", "", "Pre-Errata", "", 755422, 244688},
-	{"OP01-070", "Parallel", "Pre-Errata", "", 755421, 244687},
-	{"OP01-071", "", "Pre-Errata", "", 0, 244689},
-	{"OP01-087", "", "Alpha Pre-Errata", "", 0, 277564},
-	{"OP01-087", "", "Beta Pre-Errata", "", 0, 277565},
-	{"OP01-093", "", "Pre-Errata", "", 768185, 277566},
-	{"OP01-093", "Parallel", "Pre-Errata", "", 755423, 277545},
-	{"OP01-096", "", "Pre-Errata", "", 0, 277558},
-	{"OP01-096", "Parallel", "Pre-Errata", "", 755424, 277557},
-	{"OP01-097", "", "Pre-Errata", "", 0, 277560},
-	{"OP01-097", "Parallel", "Pre-Errata", "", 755425, 277559},
-	{"OP01-112", "", "Pre-Errata", "", 0, 255423},
-	{"OP01-119", "", "Pre-Errata", "", 768197, 323775},
-	{"OP03-047", "", "Pre-Errata", "", 898777, 272148},
-	{"OP03-054", "", "Pre-Errata", "", 0, 272147},
-	{"OP05-032", "", "Pre-Errata", "", 0, 272131},
-	{"OP06-023", "", "Reprint Spaced Text Boxes", "", 799353, 310301},
-	{"OP13-077", "", "Pre-Errata", "", 0, 354998},
-	{"OP13-119", "", "Pre-Errata", "", 857345, 354999},
-	{"ST03-009", "", "Alpha Pre-Errata", "", 0, 320712},
+	{"OP01-002", "", "", "Alpha Pre-Errata", "", 0, 277476},
+	{"OP01-002", "", "", "Beta Pre-Errata", "", 0, 277470},
+	{"OP01-002", "Parallel", "", "Alpha Pre-Errata", "", 755413, 277478},
+	{"OP01-002", "Parallel", "", "Beta Pre-Errata", "", 0, 277477},
+	{"OP01-003", "", "", "Pre-Errata", "", 755414, 277276},
+	{"OP01-003", "", "", "Pre-Errata Demo Deck", "", 873904, 374952},
+	{"OP01-005", "", "OP-RP", "", "Normal", 719315, 260377},
+	{"OP01-006", "", "", "Pre-Errata", "", 755415, 277513},
+	{"OP01-013", "", "OP-RP", "", "Normal", 719316, 260772},
+	{"OP01-016", "", "", "Alpha Pre-Errata", "", 768142, 277561},
+	{"OP01-016", "Parallel", "", "Alpha Pre-Errata", "", 755416, 277442},
+	{"OP01-016", "Parallel", "", "Beta Pre-Errata", "", 0, 277443},
+	{"OP01-016", "", "OP-RP", "", "Normal", 719314, 260791},
+	{"OP01-025", "", "", "Pre-Errata", "", 865609, 366332},
+	{"OP01-026", "", "", "Pre-Errata", "", 768145, 319050},
+	{"OP01-040", "Parallel", "", "Pre-Errata", "", 768200, 319051},
+	{"OP01-047", "", "", "Alpha Pre-Errata", "", 755417, 277454},
+	{"OP01-047", "", "", "Beta Pre-Errata", "", 0, 277455},
+	{"OP01-047", "Parallel", "", "Alpha Pre-Errata", "", 755418, 277403},
+	{"OP01-047", "Parallel", "", "Beta Pre-Errata", "", 0, 277451},
+	{"OP01-049", "", "", "Alpha Pre-Errata", "", 0, 277562},
+	{"OP01-049", "", "", "Beta Pre-Errata", "", 0, 277563},
+	{"OP01-051", "", "", "Pre-Errata", "", 0, 244690},
+	{"OP01-051", "Parallel", "", "Pre-Errata", "", 0, 244691},
+	{"OP01-061", "", "", "Pre-Errata", "", 0, 277515},
+	{"OP01-061", "Parallel", "", "Pre-Errata", "", 755419, 277514},
+	{"OP01-064", "", "", "Pre-Errata", "", 0, 244443},
+	{"OP01-064", "Box Topper", "", "Pre-Errata", "", 755420, 244685},
+	{"OP01-069", "", "", "Pre-Errata", "", 0, 244686},
+	{"OP01-070", "", "", "Pre-Errata", "", 755422, 244688},
+	{"OP01-070", "Parallel", "", "Pre-Errata", "", 755421, 244687},
+	{"OP01-071", "", "", "Pre-Errata", "", 0, 244689},
+	{"OP01-087", "", "", "Alpha Pre-Errata", "", 0, 277564},
+	{"OP01-087", "", "", "Beta Pre-Errata", "", 0, 277565},
+	{"OP01-093", "", "", "Pre-Errata", "", 768185, 277566},
+	{"OP01-093", "Parallel", "", "Pre-Errata", "", 755423, 277545},
+	{"OP01-096", "", "", "Pre-Errata", "", 0, 277558},
+	{"OP01-096", "Parallel", "", "Pre-Errata", "", 755424, 277557},
+	{"OP01-097", "", "", "Pre-Errata", "", 0, 277560},
+	{"OP01-097", "Parallel", "", "Pre-Errata", "", 755425, 277559},
+	{"OP01-112", "", "", "Pre-Errata", "", 0, 255423},
+	{"OP01-119", "", "", "Pre-Errata", "", 768197, 323775},
+	{"OP03-047", "", "", "Pre-Errata", "", 898777, 272148},
+	{"OP03-054", "", "", "Pre-Errata", "", 0, 272147},
+	{"OP05-032", "", "", "Pre-Errata", "", 0, 272131},
+	{"OP06-023", "", "PRB-01", "Reprint", "", 799353, 310301},
+	{"OP13-077", "", "", "Pre-Errata", "", 0, 354998},
+	{"OP13-119", "", "", "Pre-Errata", "", 857345, 354999},
+	{"ST03-009", "", "", "Alpha Pre-Errata", "", 0, 320712},
 }
 
 // nonCodeRe matches the runs a set code cannot carry.
@@ -1067,7 +1074,12 @@ func main() {
 			return fmt.Sprint(candidates[i]["id"]) < fmt.Sprint(candidates[j]["id"])
 		})
 		src := candidates[0]
+		// The parent says where the printing being reissued lives; a row
+		// naming its own set says where this one is sold.
 		setCode := fmt.Sprint(src["setCode"])
+		if printing.set != "" {
+			setCode = printing.set
+		}
 		key := fmt.Sprintf("%v|%s|%s|%s", src["name"], printing.number, setCode, variant)
 		if carried[key] {
 			log.Printf("hand-carried: %s %q is sold as a product now; the hand-carried one stands down",
@@ -1096,7 +1108,11 @@ func main() {
 			"type":    src["type"],
 			"finish":  finish,
 			"image":   src["image"],
-			"variant": variant,
+		}
+		// A reissue sold on a shelf that names it needs no label saying
+		// so: every card in the revision pack set is a revision pack card.
+		if variant != "" {
+			entry["variant"] = variant
 		}
 		// No TCGplayer product sells it, so the Cardmarket one is the only
 		// id it can be priced by; a printing Cardmarket does not sell
