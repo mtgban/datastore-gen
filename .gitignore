@@ -7,6 +7,13 @@
 /fleshandblood
 /pokemon
 
+# The published datastores, pulled back down beside the builders that
+# wrote them. go-mtgban's matcher suite reads each game from here through
+# the <GAME>_PATH variables in its .env, so this directory is refreshed
+# after every publish and holds ~46MB of JSON that belongs in the bucket
+# rather than in the history.
+/output/
+
 # Datastores the builders write, and the catalog dumps they read
 /riftbound.json
 /lorcana.json
