@@ -69,7 +69,8 @@ import (
 const (
 	yugiohCategory = 2
 
-	ygoprodeckSetsURL = "https://db.ygoprodeck.com/api/v7/cardsets.php"
+	ygoprodeckSetsURL  = "https://db.ygoprodeck.com/api/v7/cardsets.php"
+	ygoprodeckCardsURL = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
 )
 
 // tcgSingles are the product types single cards are filed under, as the
@@ -112,6 +113,68 @@ type ygoSet struct {
 	Name string `json:"set_name"`
 	Code string `json:"set_code"`
 	Date string `json:"tcg_date"`
+}
+
+// ygoCard is the slice of a YGOPRODeck card this build reads: Konami's own
+// passcode, and the printings it names by collector number. No image is
+// read or stored - YGOPRODeck's terms forbid hotlinking theirs, and the
+// catalog's own are what the datastore carries.
+type ygoCard struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Sets []struct {
+		Code   string `json:"set_code"`
+		Rarity string `json:"set_rarity"`
+	} `json:"card_sets"`
+}
+
+// konamiIDs maps a collector number to the passcode of the card printed
+// under it, and where a number names several cards - the same code reused
+// across a set's rarities is one card, but a handful of numbers upstream
+// spells two ways - to the passcode its rarity picks out.
+//
+// The passcode is Konami's own identifier for a card, the one every other
+// Yu-Gi-Oh source keys on, and the datastore carried nothing but a
+// TCGplayer product id until now: a listing naming a passcode had no way
+// in, and no printing could be checked against what upstream says is
+// printed under its number.
+func konamiIDs(cards []ygoCard) (map[string]int, map[string]int) {
+	byNumber := map[string]map[int]bool{}
+	byNumberRarity := map[string]map[int]bool{}
+	for _, card := range cards {
+		if card.ID == 0 {
+			continue
+		}
+		for _, set := range card.Sets {
+			code := strings.ToUpper(strings.TrimSpace(set.Code))
+			if code == "" {
+				continue
+			}
+			if byNumber[code] == nil {
+				byNumber[code] = map[int]bool{}
+			}
+			byNumber[code][card.ID] = true
+
+			key := code + "|" + normRarity(set.Rarity)
+			if byNumberRarity[key] == nil {
+				byNumberRarity[key] = map[int]bool{}
+			}
+			byNumberRarity[key][card.ID] = true
+		}
+	}
+	only := func(in map[string]map[int]bool) map[string]int {
+		out := map[string]int{}
+		for key, ids := range in {
+			if len(ids) != 1 {
+				continue
+			}
+			for id := range ids {
+				out[key] = id
+			}
+		}
+		return out
+	}
+	return only(byNumber), only(byNumberRarity)
 }
 
 // imageURL upgrades a catalog image link to the 400-wide rendition; the
@@ -477,6 +540,7 @@ func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 2 (required)")
 	ygoSets := flag.String("ygoprodeck-sets", ygoprodeckSetsURL, "YGOPRODeck cardsets file, path or URL")
+	ygoCards := flag.String("ygoprodeck-cards", ygoprodeckCardsURL, "YGOPRODeck cardinfo file, path or URL")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.02, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -527,6 +591,26 @@ func main() {
 	}
 	log.Printf("catalog: %d groups, %d products; ygoprodeck: %d sets over %d codes",
 		len(catalog.Groups), len(catalog.Products), len(ygo), len(datesByCode))
+
+	// Konami's passcodes, joined onto the printings by collector number.
+	// A source that will not answer costs the annotation and nothing else:
+	// the datastore is the catalog's, and the passcode rides along on it.
+	var passcodeByNumber, passcodeByNumberRarity map[string]int
+	cardsData, err := fetch(*ygoCards)
+	if err != nil {
+		log.Printf("ygoprodeck cards: %v (passcodes not annotated)", err)
+	} else {
+		var payload struct {
+			Data []ygoCard `json:"data"`
+		}
+		if err := json.Unmarshal(cardsData, &payload); err != nil {
+			log.Printf("ygoprodeck cards: %v (passcodes not annotated)", err)
+		} else {
+			passcodeByNumber, passcodeByNumberRarity = konamiIDs(payload.Data)
+			log.Printf("ygoprodeck cards: %d cards, %d collector numbers naming one passcode",
+				len(payload.Data), len(passcodeByNumber))
+		}
+	}
 
 	// lookup finds the YGOPRODeck dates for a group: abbreviation match
 	// first (whole, then the prefix ahead of the language tail "LOB-EN"
@@ -798,6 +882,7 @@ func main() {
 	}
 
 	var cards []any
+	var passcoded int
 	for _, s := range singles {
 		cardType := s.product.Extended("Card Type")
 		if cardType == "" {
@@ -810,6 +895,20 @@ func main() {
 				log.Fatalf("product %d carries printing %q, not one of the three this identity scheme knows",
 					productID, finish)
 			}
+			links := map[string]any{"tcgPlayerId": productID}
+			// The passcode the collector number names, and where the
+			// number names several cards, the one its rarity picks out.
+			if s.number != "" {
+				number := strings.ToUpper(s.number)
+				passcode, found := passcodeByNumber[number]
+				if !found {
+					passcode, found = passcodeByNumberRarity[number+"|"+normRarity(rarityOf(s.product))]
+				}
+				if found {
+					links["konamiId"] = passcode
+					passcoded++
+				}
+			}
 			entry := map[string]any{
 				"id":        idBase(s.number, productID) + suffix,
 				"name":      s.baseName,
@@ -819,9 +918,8 @@ func main() {
 				"type":      cardType,
 				"finish":    finish,
 				"image":     imageURL(s.product.ImageURL),
-				"externalLinks": map[string]any{
-					"tcgPlayerId": productID,
-				},
+
+				"externalLinks": links,
 			}
 			if s.number != "" {
 				entry["number"] = s.number
@@ -854,6 +952,7 @@ func main() {
 			},
 		})
 	}
+	log.Printf("konami passcodes: %d of %d entries annotated", passcoded, len(cards))
 	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
 		len(sets), len(cards), len(singles), len(sealed))
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
