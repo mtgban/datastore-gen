@@ -301,12 +301,17 @@ func decompose(p tcgplayer.Product, num string) single {
 	}
 }
 
-// preErrata is a printing CardTrader models and neither of this build's own
-// sources does: an early print run whose rules text was corrected later, and
-// which collectors and marketplaces treat as its own object. The catalog
-// does not sell it, so it has no product id and no price on TCGplayer, and
-// Bandai's list does not distinguish it either - an errata is a correction
-// to a card, not a new printing, so punk-records files OP01-049 once.
+// handCarried is a printing CardTrader models and neither of this build's
+// own sources does, which collectors and marketplaces treat as its own
+// object. The catalog does not sell it, so it has no product id and no
+// price on TCGplayer, and Bandai's list does not distinguish it either.
+//
+// Most are errata: an early print run whose rules text was corrected later.
+// An errata is a correction to a card and not a new printing, so
+// punk-records files OP01-049 once. The rest are the other ways a One Piece
+// card is reprinted without becoming a new card - a Revision Pack reissue,
+// which prints a foil card without its foil, and a reprint whose text boxes
+// sit apart from the original's.
 //
 // It is therefore hand-carried, the way the release dates neither source
 // can answer for are. The entry is the base printing's in every respect but
@@ -333,7 +338,7 @@ func decompose(p tcgplayer.Product, num string) single {
 // OP01-064e is the plain printing and OP01-064a the alternate art, while
 // OP01-070e is the alternate art and OP01-070ae the plain one. The wording
 // says "Alternate Art" or it does not.
-type preErrata struct {
+type handCarried struct {
 	// number is the card's collector number.
 	number string
 	// parent is the variant label of the printing this is an errata of,
@@ -343,10 +348,15 @@ type preErrata struct {
 	// and the printing wears its own artwork and finish, so an errata
 	// filed against the base printing would carry the wrong picture.
 	parent string
-	// errata is the generation, which joins the parent label to make the
-	// variant a query carries: the pre-errata of a parallel printing is
-	// a "Parallel Alpha Pre-Errata".
-	errata string
+	// label names what this printing is, and joins the parent label to
+	// make the variant a query carries: the pre-errata of a parallel
+	// printing is a "Parallel Alpha Pre-Errata".
+	label string
+	// finish overrides the parent printing's, empty where it is the
+	// parent's own. A Revision Pack reissue is the one thing here that is
+	// not the parent in every physical respect: it prints a foil card
+	// without the foil, which is the whole of what distinguishes it.
+	finish string
 	// cardmarket is the product Cardmarket sells it as, 0 where it sells
 	// none: with no TCGplayer id, this is the only id it can be priced by.
 	cardmarket int
@@ -355,52 +365,56 @@ type preErrata struct {
 	blueprint int
 }
 
-var preErrataPrintings = []preErrata{
-	{"OP01-002", "", "Alpha Pre-Errata", 0, 277476},
-	{"OP01-002", "", "Beta Pre-Errata", 0, 277470},
-	{"OP01-002", "Parallel", "Alpha Pre-Errata", 755413, 277478},
-	{"OP01-002", "Parallel", "Beta Pre-Errata", 0, 277477},
-	{"OP01-003", "", "Pre-Errata", 755414, 277276},
-	{"OP01-003", "", "Pre-Errata Demo Deck", 873904, 374952},
-	{"OP01-006", "", "Pre-Errata", 755415, 277513},
-	{"OP01-016", "", "Alpha Pre-Errata", 768142, 277561},
-	{"OP01-016", "Parallel", "Alpha Pre-Errata", 755416, 277442},
-	{"OP01-016", "Parallel", "Beta Pre-Errata", 0, 277443},
-	{"OP01-025", "", "Pre-Errata", 865609, 366332},
-	{"OP01-026", "", "Pre-Errata", 768145, 319050},
-	{"OP01-040", "Parallel", "Pre-Errata", 768200, 319051},
-	{"OP01-047", "", "Alpha Pre-Errata", 755417, 277454},
-	{"OP01-047", "", "Beta Pre-Errata", 0, 277455},
-	{"OP01-047", "Parallel", "Alpha Pre-Errata", 755418, 277403},
-	{"OP01-047", "Parallel", "Beta Pre-Errata", 0, 277451},
-	{"OP01-049", "", "Alpha Pre-Errata", 0, 277562},
-	{"OP01-049", "", "Beta Pre-Errata", 0, 277563},
-	{"OP01-051", "", "Pre-Errata", 0, 244690},
-	{"OP01-051", "Parallel", "Pre-Errata", 0, 244691},
-	{"OP01-061", "", "Pre-Errata", 0, 277515},
-	{"OP01-061", "Parallel", "Pre-Errata", 755419, 277514},
-	{"OP01-064", "", "Pre-Errata", 0, 244443},
-	{"OP01-064", "Box Topper", "Pre-Errata", 755420, 244685},
-	{"OP01-069", "", "Pre-Errata", 0, 244686},
-	{"OP01-070", "", "Pre-Errata", 755422, 244688},
-	{"OP01-070", "Parallel", "Pre-Errata", 755421, 244687},
-	{"OP01-071", "", "Pre-Errata", 0, 244689},
-	{"OP01-087", "", "Alpha Pre-Errata", 0, 277564},
-	{"OP01-087", "", "Beta Pre-Errata", 0, 277565},
-	{"OP01-093", "", "Pre-Errata", 768185, 277566},
-	{"OP01-093", "Parallel", "Pre-Errata", 755423, 277545},
-	{"OP01-096", "", "Pre-Errata", 0, 277558},
-	{"OP01-096", "Parallel", "Pre-Errata", 755424, 277557},
-	{"OP01-097", "", "Pre-Errata", 0, 277560},
-	{"OP01-097", "Parallel", "Pre-Errata", 755425, 277559},
-	{"OP01-112", "", "Pre-Errata", 0, 255423},
-	{"OP01-119", "", "Pre-Errata", 768197, 323775},
-	{"OP03-047", "", "Pre-Errata", 898777, 272148},
-	{"OP03-054", "", "Pre-Errata", 0, 272147},
-	{"OP05-032", "", "Pre-Errata", 0, 272131},
-	{"OP13-077", "", "Pre-Errata", 0, 354998},
-	{"OP13-119", "", "Pre-Errata", 857345, 354999},
-	{"ST03-009", "", "Alpha Pre-Errata", 0, 320712},
+var handCarriedPrintings = []handCarried{
+	{"OP01-002", "", "Alpha Pre-Errata", "", 0, 277476},
+	{"OP01-002", "", "Beta Pre-Errata", "", 0, 277470},
+	{"OP01-002", "Parallel", "Alpha Pre-Errata", "", 755413, 277478},
+	{"OP01-002", "Parallel", "Beta Pre-Errata", "", 0, 277477},
+	{"OP01-003", "", "Pre-Errata", "", 755414, 277276},
+	{"OP01-003", "", "Pre-Errata Demo Deck", "", 873904, 374952},
+	{"OP01-005", "", "Revision Pack", "Normal", 719315, 260377},
+	{"OP01-006", "", "Pre-Errata", "", 755415, 277513},
+	{"OP01-013", "", "Revision Pack", "Normal", 719316, 260772},
+	{"OP01-016", "", "Alpha Pre-Errata", "", 768142, 277561},
+	{"OP01-016", "", "Revision Pack", "Normal", 719314, 260791},
+	{"OP01-016", "Parallel", "Alpha Pre-Errata", "", 755416, 277442},
+	{"OP01-016", "Parallel", "Beta Pre-Errata", "", 0, 277443},
+	{"OP01-025", "", "Pre-Errata", "", 865609, 366332},
+	{"OP01-026", "", "Pre-Errata", "", 768145, 319050},
+	{"OP01-040", "Parallel", "Pre-Errata", "", 768200, 319051},
+	{"OP01-047", "", "Alpha Pre-Errata", "", 755417, 277454},
+	{"OP01-047", "", "Beta Pre-Errata", "", 0, 277455},
+	{"OP01-047", "Parallel", "Alpha Pre-Errata", "", 755418, 277403},
+	{"OP01-047", "Parallel", "Beta Pre-Errata", "", 0, 277451},
+	{"OP01-049", "", "Alpha Pre-Errata", "", 0, 277562},
+	{"OP01-049", "", "Beta Pre-Errata", "", 0, 277563},
+	{"OP01-051", "", "Pre-Errata", "", 0, 244690},
+	{"OP01-051", "Parallel", "Pre-Errata", "", 0, 244691},
+	{"OP01-061", "", "Pre-Errata", "", 0, 277515},
+	{"OP01-061", "Parallel", "Pre-Errata", "", 755419, 277514},
+	{"OP01-064", "", "Pre-Errata", "", 0, 244443},
+	{"OP01-064", "Box Topper", "Pre-Errata", "", 755420, 244685},
+	{"OP01-069", "", "Pre-Errata", "", 0, 244686},
+	{"OP01-070", "", "Pre-Errata", "", 755422, 244688},
+	{"OP01-070", "Parallel", "Pre-Errata", "", 755421, 244687},
+	{"OP01-071", "", "Pre-Errata", "", 0, 244689},
+	{"OP01-087", "", "Alpha Pre-Errata", "", 0, 277564},
+	{"OP01-087", "", "Beta Pre-Errata", "", 0, 277565},
+	{"OP01-093", "", "Pre-Errata", "", 768185, 277566},
+	{"OP01-093", "Parallel", "Pre-Errata", "", 755423, 277545},
+	{"OP01-096", "", "Pre-Errata", "", 0, 277558},
+	{"OP01-096", "Parallel", "Pre-Errata", "", 755424, 277557},
+	{"OP01-097", "", "Pre-Errata", "", 0, 277560},
+	{"OP01-097", "Parallel", "Pre-Errata", "", 755425, 277559},
+	{"OP01-112", "", "Pre-Errata", "", 0, 255423},
+	{"OP01-119", "", "Pre-Errata", "", 768197, 323775},
+	{"OP03-047", "", "Pre-Errata", "", 898777, 272148},
+	{"OP03-054", "", "Pre-Errata", "", 0, 272147},
+	{"OP05-032", "", "Pre-Errata", "", 0, 272131},
+	{"OP06-023", "", "Reprint Spaced Text Boxes", "", 799353, 310301},
+	{"OP13-077", "", "Pre-Errata", "", 0, 354998},
+	{"OP13-119", "", "Pre-Errata", "", 857345, 354999},
+	{"ST03-009", "", "Alpha Pre-Errata", "", 0, 320712},
 }
 
 // nonCodeRe matches the runs a set code cannot carry.
@@ -1002,8 +1016,8 @@ func main() {
 			printed[number+"|"+variant] = append(printed[number+"|"+variant], e)
 		}
 	}
-	var errata, stoodDown int
-	for _, printing := range preErrataPrintings {
+	var minted, stoodDown int
+	for _, printing := range handCarriedPrintings {
 		// A number is carried by its own set and by every later one
 		// reissuing it - a promo group, a starter deck, an anniversary
 		// box. An errata corrects the text the printing carried first,
@@ -1015,7 +1029,7 @@ func main() {
 		// the set the catalog abbreviates "ST-03" - so the two are
 		// compared the way a pack label and an abbreviation already are.
 		own := packKey(strings.SplitN(printing.number, "-", 2)[0])
-		variant := strings.TrimSpace(printing.parent + " " + printing.errata)
+		variant := strings.TrimSpace(printing.parent + " " + printing.label)
 		var candidates []map[string]any
 		for _, c := range printed[printing.number+"|"+printing.parent] {
 			if packKey(fmt.Sprint(c["setCode"])) == own {
@@ -1023,7 +1037,7 @@ func main() {
 			}
 		}
 		if len(candidates) == 0 {
-			log.Printf("pre-errata: %s carries no %q printing in %s; %q not carried",
+			log.Printf("hand-carried: %s carries no %q printing in %s; %q not carried",
 				printing.number, printing.parent, own, variant)
 			stoodDown++
 			continue
@@ -1037,7 +1051,7 @@ func main() {
 		setCode := fmt.Sprint(src["setCode"])
 		key := fmt.Sprintf("%v|%s|%s|%s", src["name"], printing.number, setCode, variant)
 		if carried[key] {
-			log.Printf("pre-errata: %s %q is sold as a product now; the hand-carried one stands down",
+			log.Printf("hand-carried: %s %q is sold as a product now; the hand-carried one stands down",
 				printing.number, variant)
 			stoodDown++
 			continue
@@ -1049,6 +1063,9 @@ func main() {
 		// fall, and the suffix stays last the way every other id here
 		// spells it.
 		finish := fmt.Sprint(src["finish"])
+		if printing.finish != "" {
+			finish = printing.finish
+		}
 		entry := map[string]any{
 			"id": fmt.Sprintf("%s_ct%d%s", idStem(printing.number),
 				printing.blueprint, finishSuffix[finish]),
@@ -1069,9 +1086,9 @@ func main() {
 			entry["externalLinks"] = map[string]any{"cardmarketId": printing.cardmarket}
 		}
 		cards = append(cards, entry)
-		errata++
+		minted++
 	}
-	log.Printf("pre-errata printings: %d carried, %d stood down", errata, stoodDown)
+	log.Printf("hand-carried printings: %d carried, %d stood down", minted, stoodDown)
 
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
