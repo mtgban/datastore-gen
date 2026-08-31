@@ -219,6 +219,10 @@ func fetch(location string) ([]byte, error) {
 }
 
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
+
+// bracketRe matches the bracketed tail this category writes a prize card's
+// placement in.
+var bracketRe = regexp.MustCompile(`\s*\[([^\]]+)\]`)
 var bareNumRe = regexp.MustCompile(`^\d{3}$`)
 
 // languageWords maps the word a product name calls a printing out with to
@@ -287,6 +291,21 @@ func decompose(p tcgplayer.Product, num string) single {
 	name = parenRe.ReplaceAllStringFunc(name, func(m string) string {
 		q := strings.TrimSpace(strings.Trim(strings.TrimSpace(m), "()"))
 		if bareNumRe.MatchString(q) || strings.EqualFold(q, num) {
+			return ""
+		}
+		quals = append(quals, q)
+		return ""
+	})
+	// The bracketed tail is the placement a prize card was handed out for
+	// - "[Winner]", "[Finalist]", "[Participant]" - and a placement is not
+	// part of a card's name: the card is Trafalgar Law however the player
+	// holding it finished. It is peeled after the parentheses so the label
+	// reads the way the event's own does, the event and then the placing
+	// ("Online Regional 2023 Finalist"), which is the shape the copies
+	// already carrying their placement as a variant wear.
+	name = bracketRe.ReplaceAllStringFunc(name, func(m string) string {
+		q := strings.TrimSpace(strings.Trim(strings.TrimSpace(m), "[]"))
+		if q == "" {
 			return ""
 		}
 		quals = append(quals, q)
