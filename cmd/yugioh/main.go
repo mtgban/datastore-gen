@@ -225,6 +225,36 @@ var handDates = map[int]string{
 	// (DDS), whose cards released March 19, 2002 in North America
 	// (Yugipedia, "Yu-Gi-Oh! Dark Duel Stories promotional cards").
 	1921: "2002-03-19",
+
+	// The six below are empty legacy groups - TCGplayer files no product
+	// under them today - but each names a real release, so they carry its
+	// day: the set sorts where it belongs, and the date is already right
+	// should TCGplayer ever file a product there. North American dates
+	// throughout, matching the English catalog the rest of the datastore
+	// is built from.
+	//
+	// The Duelist Genesis, released September 2, 2008 (Yugipedia).
+	181: "2008-09-02",
+	// Forbidden Legacy, the FL1 Special Edition blister of the game's
+	// first three booster sets, released October 1, 2005 (Yugipedia).
+	206: "2005-10-01",
+	// The Sacred Cards, whose TSC promos shipped with the game's North
+	// American release on November 4, 2003 (Yugipedia).
+	331: "2003-11-04",
+	// The 2009 Collectible Tins (the CT06 promos), wave 1 released
+	// August 18, 2009 (Yugipedia, "Collectible Tins 2009 Wave 1").
+	1301: "2009-08-18",
+	// Yu-Gi-Oh! 5D's Tag Force 4, whose promos shipped with the game's
+	// North American release on November 17, 2009 (Yugipedia).
+	1318: "2009-11-17",
+	// The Lost Millennium: Special Edition, released June 10, 2005
+	// (Yugipedia).
+	1342: "2005-06-10",
+
+	// Jump Award (group 240) stays undated on purpose: it is empty, no
+	// source resolves what it ever named, and every plausible match (the
+	// Shonen Jump magazine promos, the SJC prize cards) already has a
+	// group of its own. A date here would be a guess wearing a citation.
 }
 
 // isPromoGroup reports whether a catalog group hands out promotional
