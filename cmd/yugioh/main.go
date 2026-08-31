@@ -567,6 +567,16 @@ func main() {
 		singles = append(singles, decompose(product, num))
 	}
 	log.Printf("singles: %d kept (%d without a collector number)", len(singles), unnumbered)
+	var unrated int
+	for _, s := range singles {
+		if rarityOf(s.product) == "" {
+			unrated++
+			log.Printf("no rarity: %q (%d) carried without one", s.product.Name, s.product.ProductID)
+		}
+	}
+	if unrated > 0 {
+		log.Printf("no rarity: %d products, carried and logged rather than refused", unrated)
+	}
 	if len(singles) == 0 {
 		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
 	}
@@ -954,7 +964,13 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	identities := map[string]int{}
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
-		if card.ID == "" || card.Name == "" || card.Rarity == "" ||
+		// The rarity is this game's variant axis and part of the identity,
+		// but its presence is TCGplayer's to provide, not this build's to
+		// demand: a freshly listed product carries none for a day, and one
+		// card without a rarity is no reason to publish nothing at all.
+		// The identity check below still refuses two products that are
+		// indistinguishable without it.
+		if card.ID == "" || card.Name == "" ||
 			card.Finish == "" || card.ExternalLinks.TcgPlayerId == 0 {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
 		}

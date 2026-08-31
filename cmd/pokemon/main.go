@@ -82,11 +82,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -225,8 +227,17 @@ type tcgdexCard struct {
 	} `json:"set"`
 }
 
+// tcgdexClient bounds every tcgdex call: without a deadline a dead server
+// holds the build for the platform's dial timeout, and the nightly runner
+// spent three nights doing exactly that against a stale DNS record.
+var tcgdexClient = &http.Client{Timeout: 30 * time.Second}
+
 // loadTcgdex reads a raw GraphQL response envelope from a file when a path
-// is given, or POSTs the query to the live endpoint.
+// is given, or POSTs the query to the live endpoint. The request identifies
+// this builder the way tcgdex's own SDKs identify themselves - their one
+// header is the user agent - and a network error or server-side failure is
+// retried with backoff, because the API sits behind a single host whose
+// blips would otherwise cost the whole nightly.
 func loadTcgdex(path, query string) ([]byte, error) {
 	if path != "" {
 		return os.ReadFile(path)
@@ -235,15 +246,81 @@ func loadTcgdex(path, query string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.Post(tcgdexGraphQLURL, "application/json", bytes.NewReader(body))
-	if err != nil {
+	var lastErr error
+	for attempt, wait := 0, 2*time.Second; attempt < 4; attempt, wait = attempt+1, wait*2 {
+		if attempt > 0 {
+			log.Printf("tcgdex: %v; retrying in %v", lastErr, wait)
+			time.Sleep(wait)
+		}
+		req, err := http.NewRequest(http.MethodPost, tcgdexGraphQLURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", "datastore-gen/1.0 (+https://github.com/mtgban/datastore-gen)")
+		resp, err := tcgdexClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("%s: HTTP %d", tcgdexGraphQLURL, resp.StatusCode)
+			// A client-side status will not change on a retry.
+			if resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
+				return nil, lastErr
+			}
+			continue
+		}
+		return data, nil
+	}
+	return nil, lastErr
+}
+
+// loadTcgdexCached is loadTcgdex behind the last-good cache. An explicit
+// response file bypasses everything, as it always has. Otherwise the live
+// API is asked first and its answer refreshes the cache, so the cache is
+// always the newest response that ever arrived; when the API is
+// unreachable - it sits on one host, and a stale DNS record once kept the
+// nightly dialing a dead server for three days - the cached response
+// stands in, dated out loud, rather than the whole publish being lost.
+// Annotation a day old is strictly better than no datastore at all, and
+// the baseline the build is compared against does not move on a cached
+// run unless the build still grew.
+func loadTcgdexCached(path, cacheDir, cacheName, query string) ([]byte, error) {
+	if path != "" {
+		return os.ReadFile(path)
+	}
+	data, err := loadTcgdex("", query)
+	if err == nil {
+		if cacheDir != "" {
+			if werr := os.WriteFile(filepath.Join(cacheDir, cacheName), data, 0o644); werr != nil {
+				log.Printf("tcgdex cache: %v (the build continues on the live answer)", werr)
+			}
+		}
+		return data, nil
+	}
+	if cacheDir == "" {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", tcgdexGraphQLURL, resp.StatusCode)
+	cached := filepath.Join(cacheDir, cacheName)
+	info, serr := os.Stat(cached)
+	if serr != nil {
+		return nil, err
 	}
-	return io.ReadAll(resp.Body)
+	data, rerr := os.ReadFile(cached)
+	if rerr != nil {
+		return nil, err
+	}
+	log.Printf("tcgdex unreachable (%v); using the cached response from %s",
+		err, info.ModTime().UTC().Format("2006-01-02 15:04"))
+	return data, nil
 }
 
 // decodeEnvelope unwraps a GraphQL response: any errors key is a hard
@@ -700,6 +777,7 @@ func main() {
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 3 (required)")
 	tcgdexSets := flag.String("tcgdex-sets", "", "tcgdex sets GraphQL response file (default: query the live API)")
 	tcgdexCards := flag.String("tcgdex-cards", "", "tcgdex cards GraphQL response file (default: query the live API)")
+	tcgdexCache := flag.String("tcgdex-cache", "", "directory holding the last good tcgdex responses, refreshed on a live fetch and read back when the live API is unreachable")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.02, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -722,7 +800,7 @@ func main() {
 			catalog.Category.CategoryID, pokemonCategory)
 	}
 
-	setsData, err := loadTcgdex(*tcgdexSets, tcgdexSetsQuery)
+	setsData, err := loadTcgdexCached(*tcgdexSets, *tcgdexCache, "tcgdex-sets.json", tcgdexSetsQuery)
 	if err != nil {
 		log.Fatalln("tcgdex sets:", err)
 	}
@@ -733,7 +811,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("tcgdex sets:", err)
 	}
-	cardsData, err := loadTcgdex(*tcgdexCards, tcgdexCardsQuery)
+	cardsData, err := loadTcgdexCached(*tcgdexCards, *tcgdexCache, "tcgdex-cards.json", tcgdexCardsQuery)
 	if err != nil {
 		log.Fatalln("tcgdex cards:", err)
 	}
@@ -887,6 +965,16 @@ func main() {
 	}
 	log.Printf("singles: %d kept (%d unnumbered, %d code cards), %d sealed",
 		len(singles), unnumbered, codeCards, len(sealedProducts))
+	var unrated int
+	for _, s := range singles {
+		if s.product.Extended("Rarity") == "" {
+			unrated++
+			log.Printf("no rarity: %q (%d) carried without one", s.product.Name, s.product.ProductID)
+		}
+	}
+	if unrated > 0 {
+		log.Printf("no rarity: %d products, carried and logged rather than refused", unrated)
+	}
 	if len(singles) == 0 {
 		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
 	}
@@ -1626,7 +1714,13 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	identities := map[string]string{}
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
-		if card.ID == "" || card.Name == "" || card.SetCode == "" || card.Rarity == "" ||
+		// The rarity is part of the identity, but its presence is
+		// TCGplayer's to provide, not this build's to demand: a freshly
+		// listed product carries none for a day, and one card without a
+		// rarity is no reason to publish nothing at all. The identity
+		// check below still refuses two products indistinguishable
+		// without it.
+		if card.ID == "" || card.Name == "" || card.SetCode == "" ||
 			card.Finish == "" {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
 		}
