@@ -150,9 +150,14 @@ go run ./cmd/pokemon        -tcg-catalog tcgplayer-catalog.json -o pokemon.json
 `-lorcana` is the one required upstream flag; the others default to their
 public URLs. `cmd/pokemon` additionally takes `-tcgdex-sets` and
 `-tcgdex-cards` to read saved GraphQL responses instead of querying the
-live API, `cmd/fleshandblood` takes `-fab-cards` and `-fab-sets`, and
-`cmd/riftbound` takes `-gallery` to read a saved card-gallery payload.
-Every builder takes `-against`, `-against-tolerance` and `-baseline-fit`.
+live API, and `-tcgdex-cache <dir>` to keep the last good responses: the
+live API is asked first and refreshes the cache whenever it answers, and
+when it is unreachable the cached responses stand in, dated in the log,
+rather than the publish being lost — the workflow keeps that cache in the
+bucket beside the datastore. `cmd/fleshandblood` takes `-fab-cards` and
+`-fab-sets`, and `cmd/riftbound` takes `-gallery` to read a saved
+card-gallery payload. Every builder takes `-against`,
+`-against-tolerance` and `-baseline-fit`.
 
 The dump itself is written by tcgdumper
 (github.com/mtgban/go-tcgplayer/cmd/tcgdumper) and published nightly beside

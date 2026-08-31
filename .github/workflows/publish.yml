@@ -112,6 +112,21 @@ jobs:
             echo "nothing published yet for ${{ matrix.game }}; building without a baseline"
           fi
 
+          # The last tcgdex responses a build fetched live, kept beside the
+          # datastore so a run that cannot reach the API builds on them
+          # instead of publishing nothing. The builder asks the live API
+          # first and refreshes these whenever it answers.
+          if [ "${{ matrix.game }}" = pokemon ]; then
+            for f in tcgdex-sets tcgdex-cards; do
+              if b2 file download --no-progress \
+                b2://mtgban-datastore/pokemon/$f.json.xz $f.json.xz; then
+                xz -d $f.json.xz
+              else
+                echo "no cached $f yet; the live fetch has to answer"
+              fi
+            done
+          fi
+
       - name: Build the datastore
         env:
           # Overrides the upstream LorcanaJSON location when set (it lives
@@ -128,6 +143,9 @@ jobs:
           # a genuine, lasting shrinkage.
           if [ -f previous.json ] && [ "${{ inputs.rebaseline }}" != "true" ]; then
             args="$args -against previous.json"
+          fi
+          if [ "${{ matrix.game }}" = pokemon ]; then
+            args="$args -tcgdex-cache ."
           fi
           go run ./cmd/${{ matrix.game }} -tcg-catalog tcgplayer-catalog.json \
             $args -baseline-fit baseline.fit -o ${{ matrix.game }}.json
@@ -162,4 +180,17 @@ jobs:
               ${{ matrix.game }}/${{ matrix.game }}.baseline.json.xz
           else
             echo "baseline left where it was; this build holds less than it does"
+          fi
+
+          # Keep the tcgdex responses this build ran on, live-fetched or
+          # cached alike: what built a published datastore is always fit
+          # to be the fallback for the next run.
+          if [ "${{ matrix.game }}" = pokemon ]; then
+            for f in tcgdex-sets tcgdex-cards; do
+              if [ -f $f.json ]; then
+                xz -9 -f $f.json
+                b2 file upload --no-progress mtgban-datastore \
+                  $f.json.xz pokemon/$f.json.xz
+              fi
+            done
           fi
