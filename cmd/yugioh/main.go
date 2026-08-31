@@ -203,6 +203,30 @@ func restatesRarity(qual, rarity string) bool {
 	return q == r || q+" rare" == r || normRarity(rarityShorthand[qual]) == r
 }
 
+// handDates are release dates for the groups neither source can date: the
+// catalog stamps its request time on them and YGOPRODeck has no set to
+// join. Each is researched, not guessed, and keyed by the group id, which
+// the catalog never reuses. A group holding several years of one program
+// carries the day the program began, so it sorts where its oldest cards
+// belong.
+var handDates = map[int]string{
+	// Pharaoh Tour promotional cards: PT1 released December 17, 2005 in
+	// Europe (Yugipedia, "Pharaoh Tour 2005 promotional cards"); the
+	// group also holds the later PT02 and PT03 tours.
+	2215: "2005-12-17",
+	// The Lost Art Promotion opened with Monster Reborn in North America
+	// on February 1, 2018 (Yugipedia, "The Lost Art Promotion A").
+	2196: "2018-02-01",
+	// The World Championship Japanese Promotional Packs begin with the
+	// 2017-JPP cards handed out at Worlds 2017, held in Tokyo on August
+	// 12-13, 2017; the group also holds the 2018 and 2019 packs.
+	2353: "2017-08-12",
+	// The video-game promotional cards begin with Dark Duel Stories
+	// (DDS), whose cards released March 19, 2002 in North America
+	// (Yugipedia, "Yu-Gi-Oh! Dark Duel Stories promotional cards").
+	1921: "2002-03-19",
+}
+
 // isPromoGroup reports whether a catalog group hands out promotional
 // printings. The group name is the only thing that says so in this
 // category: Yu-Gi-Oh rarities name the foil treatment ("Secret Rare",
@@ -527,6 +551,13 @@ func main() {
 			filled++
 			log.Printf("%s (%s): release date %s filled from ygoprodeck by %s",
 				group.Name, setCodes[group.GroupID], dates[0], how)
+			continue
+		}
+		if date, found := handDates[group.GroupID]; found {
+			releaseDates[group.GroupID] = date
+			filled++
+			log.Printf("%s (%s): release date %s filled by hand",
+				group.Name, setCodes[group.GroupID], date)
 			continue
 		}
 		unfilled++

@@ -675,6 +675,44 @@ func electionKey(s *single) string {
 // nonCodeRe matches the runs a set code cannot carry.
 var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
+// handDates are release dates for the groups neither source can date: the
+// catalog stamps its request time on them and tcgdex has no set to join.
+// Each is researched, not guessed, and keyed by the group id, which the
+// catalog never reuses. A group holding one promotion carries that
+// promotion's release day; a drawer TCGplayer fills across eras carries
+// the earliest day its contents can have existed, so it sorts where its
+// oldest cards belong.
+var handDates = map[int]string{
+	// EX Trainer Kit released June 1, 2004 (Bulbapedia, "EX Trainer Kit").
+	1543: "2004-06-01",
+	// EX Trainer Kit 2 released March 1, 2006 (Bulbapedia, "EX Trainer
+	// Kit 2").
+	1542: "2006-03-01",
+	// The 2008 Burger King Kids Meal promotion ran July 7 to August 12,
+	// 2008 (Bulbapedia, "2008 Burger King promotional Pokémon toys"); the
+	// group also holds the later Platinum-stamped wave.
+	2175: "2008-07-07",
+	// The original Pikachu World Collection, sold at Pokémon Park 2000 in
+	// Sydney from September 12, 2000 (Bulbapedia, "Pikachu World
+	// Collection"); the group also holds the 2010 nine-language box.
+	2205: "2000-09-12",
+	// The First Partner Packs opened with the Galar pack on March 5, 2021
+	// and ran monthly through October.
+	2776: "2021-03-05",
+	// The alternate-art "a"-numbered promos begin with prints derived
+	// from XY Furious Fists (55a/111), released August 13, 2014.
+	1938: "2014-08-13",
+	// The cosmos-holo blister exclusives begin with prints of the XY base
+	// set (/146), released February 5, 2014.
+	2289: "2014-02-05",
+	// The professor-program cards begin with the 2004-2005 cycle, printed
+	// from EX FireRed & LeafGreen, released August 30, 2004.
+	2332: "2004-08-30",
+	// The miscellaneous drawer's oldest cards are stamped Base Set prints
+	// handed out through 1999; anchored at the game's English release.
+	2374: "1999-01-09",
+}
+
 // setCodeOf reduces a catalog abbreviation to what a search query can carry.
 // A set code is typed after "is:", and a query is split on whitespace before
 // a filter ever sees it and on the colon that names the filter, so a code
@@ -926,9 +964,16 @@ func main() {
 				group.Name, setCodes[group.GroupID], dex.ReleaseDate)
 			continue
 		}
+		if date, found := handDates[group.GroupID]; found {
+			releaseDates[group.GroupID] = date
+			filled++
+			log.Printf("%s (%s): release date %s filled by hand",
+				group.Name, setCodes[group.GroupID], date)
+			continue
+		}
 		log.Printf("%s (%s): no release date anywhere, left undated", group.Name, setCodes[group.GroupID])
 	}
-	log.Printf("release dates: %d placeholders, %d filled from tcgdex, %d left empty",
+	log.Printf("release dates: %d placeholders, %d filled, %d left empty",
 		placeholders, filled, placeholders-filled)
 
 	printings := printingNames(&catalog)
