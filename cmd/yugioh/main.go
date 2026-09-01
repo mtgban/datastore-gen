@@ -582,6 +582,21 @@ func main() {
 		}
 		index[key] = append(index[key], date)
 	}
+	// The name YGOPRODeck files a code under, for the sets this build has
+	// to name itself. A code several sets share names none of them, the
+	// way a shared date dates none of them.
+	namesByCode := map[string]string{}
+	ambiguous := map[string]bool{}
+	for _, set := range ygo {
+		code := strings.ToUpper(set.Code)
+		if have, seen := namesByCode[code]; seen && have != set.Name {
+			ambiguous[code] = true
+		}
+		namesByCode[code] = set.Name
+	}
+	for code := range ambiguous {
+		delete(namesByCode, code)
+	}
 	for _, set := range ygo {
 		if set.Date == "" {
 			continue
@@ -743,6 +758,74 @@ func main() {
 	}
 	log.Printf("set codes: %d taken from the cards' own numbers, %d minted for blank abbreviations, %d deduplicated",
 		renamed, minted, suffixed)
+
+	// A group whose cards speak with several prefixes is several sets the
+	// catalog files on one shelf. "Duelist League Promo" holds 732 cards
+	// numbered DL09-, DL11-, DL13- and six more: nine Duelist League
+	// seasons, each its own set everywhere but here, and none of them
+	// reachable by its number because the shelf is named for none of them.
+	//
+	// So the cards go to sets of their own, one per prefix. The same three
+	// tests the renaming above applies decide it - the prefix names no set
+	// already, and no other group's cards use it - because a split that
+	// took a name in use would be the collision the suffixing exists to
+	// avoid, in a new place.
+	//
+	// What is not numbered stays where it was. A shelf of tokens holds 90
+	// cards with no number beside 39 that have one, and the 90 have said
+	// nothing about where they belong; so does the sealed, which the
+	// catalog files by group and this build has no finer answer for.
+	splitCodes := map[int]map[string]string{}
+	claimedCode := map[string]bool{}
+	for _, code := range setCodes {
+		claimedCode[strings.ToUpper(code)] = true
+	}
+	var splitGroups, splitSets int
+	for _, group := range groups {
+		if len(prefixes[group.GroupID]) < 2 {
+			continue
+		}
+		free := true
+		for prefix := range prefixes[group.GroupID] {
+			if claimedCode[prefix] || len(owners[prefix]) != 1 {
+				free = false
+				break
+			}
+		}
+		if !free {
+			continue
+		}
+		split := map[string]string{}
+		var names []string
+		for prefix := range prefixes[group.GroupID] {
+			split[prefix] = prefix
+			claimedCode[prefix] = true
+			names = append(names, prefix)
+		}
+		sort.Strings(names)
+		splitCodes[group.GroupID] = split
+		splitGroups++
+		splitSets += len(split)
+		log.Printf("%s: its cards are numbered %s; filed as %d sets rather than one",
+			group.Name, strings.Join(names, ", "), len(split))
+	}
+	if splitGroups > 0 {
+		log.Printf("set splits: %d groups holding several sets' cards became %d sets",
+			splitGroups, splitSets)
+	}
+
+	// A card's set is its own number's, where the shelf it sits on holds
+	// several sets' worth.
+	cardSet := func(s single) string {
+		if split := splitCodes[s.product.GroupID]; split != nil {
+			if prefix, _, found := strings.Cut(strings.ToUpper(s.number), "-"); found {
+				if code, ok := split[prefix]; ok {
+					return code
+				}
+			}
+		}
+		return setCodes[s.product.GroupID]
+	}
 
 	// Resolve every group's release date: publishedOn is authoritative
 	// when real, the unambiguous YGOPRODeck date fills the placeholders,
@@ -922,22 +1005,60 @@ func main() {
 	// Emit. Sets are the catalog groups that hold anything; ids embed the
 	// product id so they survive any upstream renumbering. An empty group
 	// is skipped and, as above, holds no code while it is empty.
+	// What still answers to a code. A shelf whose cards went to sets of
+	// their own keeps its own set only for what did not move - its
+	// unnumbered cards and its sealed - and drops it where nothing did.
+	carried := map[string]bool{}
+	for _, s := range singles {
+		carried[cardSet(s)] = true
+	}
+	for _, product := range sealedProducts {
+		carried[setCodes[product.GroupID]] = true
+	}
 	sets := map[string]any{}
-	var promoSets, skippedEmpty int
+	var promoSets, skippedEmpty, splitNamed, splitUnnamed int
 	for _, group := range groups {
 		if productsIn[group.GroupID] == 0 {
 			skippedEmpty++
 			continue
 		}
-		set := map[string]any{
-			"name":        group.Name,
-			"releaseDate": releaseDates[group.GroupID],
+		add := func(code, name, date string) {
+			set := map[string]any{"name": name, "releaseDate": date}
+			if isPromoGroup(group) {
+				set["type"] = "promo"
+				promoSets++
+			}
+			sets[code] = set
 		}
-		if isPromoGroup(group) {
-			set["type"] = "promo"
-			promoSets++
+		if carried[setCodes[group.GroupID]] {
+			add(setCodes[group.GroupID], group.Name, releaseDates[group.GroupID])
 		}
-		sets[setCodes[group.GroupID]] = set
+		// A set split off the shelf is named and dated by its own code
+		// where YGOPRODeck knows it, which is what the shelf's one name
+		// and one date cannot do for nine Duelist League seasons. Where
+		// it does not, the shelf's name qualified by the code says as
+		// much as this build can honestly say.
+		for prefix, code := range splitCodes[group.GroupID] {
+			if !carried[code] {
+				continue
+			}
+			name, known := namesByCode[strings.ToUpper(prefix)]
+			if known {
+				splitNamed++
+			} else {
+				name = group.Name + " (" + prefix + ")"
+				splitUnnamed++
+			}
+			date := releaseDates[group.GroupID]
+			if own := datesByCode[strings.ToUpper(prefix)]; len(own) == 1 {
+				date = own[0]
+			}
+			add(code, name, date)
+		}
+	}
+	if splitNamed+splitUnnamed > 0 {
+		log.Printf("split sets: %d named by their own code, %d kept the shelf's name",
+			splitNamed, splitUnnamed)
 	}
 	if skippedEmpty > 0 {
 		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
@@ -990,7 +1111,7 @@ func main() {
 			entry := map[string]any{
 				"id":        idBase(s.number, productID) + suffix,
 				"name":      s.baseName,
-				"setCode":   setCodes[s.product.GroupID],
+				"setCode":   cardSet(s),
 				"rarity":    rarityOf(s.product),
 				"attribute": s.product.Extended("Attribute"),
 				"type":      cardType,
