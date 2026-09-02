@@ -73,6 +73,30 @@ YGOPRODeck's cardinfo.php is deliberately not fetched - their terms forbid
 hotlinking - so only set release dates are joined, and there is no second
 half to add.
 
+## What a datastore carries
+
+Cards, and the sealed product that holds cards. Not accessories: no coins,
+dice, pins, sleeves, playmats, binders, portfolios or deck boxes, and none
+of the empty boxes and tins sold once the cards are out of them. A thing
+holding no card is not this datastore's to price.
+
+That holds today without a rule enforcing it, and it holds structurally: the
+sealed side is whatever a game's own category dump does not type as a card,
+and TCGplayer files supplies under a category of their own, so they never
+reach a builder. All six games were checked in 2026-09: no accessory-only
+entry in any of them.
+
+It is worth saying anyway, because the obvious way to enforce it is wrong. A
+pattern matching accessory words against sealed names flags 130 entries and
+128 of them are genuine product - "Collector's Pin Three Pack Blisters
+(Chespin)" is three booster packs and a pin, and the pin is why the name
+says pin. The test that matters is whether the product holds cards, never
+what its name mentions.
+
+The vendors do sell accessories, and a coverage report comparing their
+shelves against this datastore will count them as things it lacks. It does
+not lack them.
+
 ## The zero-skip invariant
 
 Every builder re-reads its own encoded output and checks it before writing
