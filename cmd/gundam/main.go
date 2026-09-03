@@ -135,6 +135,39 @@ func imageURL(url string) string {
 
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
 
+// spelledNumberRe is a collector number of this game's shape written into a
+// product name: "EX Resource (EXR-003)", "Resource (RP-046)".
+var spelledNumberRe = regexp.MustCompile(`\(([A-Z]{1,5}-\d{1,4})\)`)
+
+// numberFor is the collector number a product carries. The catalog files it
+// in a field and, for the resource and token cards, spells it into the
+// product name as well; where the two disagree the name is taken, because
+// the name is what somebody reading the card wrote down and the field is
+// what somebody typing a row filled in.
+//
+// It disagrees twice in this catalog against 247 agreements, and both
+// disagreements are a field that repeats the row above it: "EX Resource
+// (EXR-003)" is filed under EXR-002, which two other products already
+// cover, and "Resource (RP-046)" under RP-045, in a run whose names read
+// 045, 046, 047, 048, 049. The upstream corroborates the first outright -
+// it puts EXR-002 in set ST09 and EXR-003 in ST10, and this product is in
+// ST10. Left alone, each mis-numbered product prices a card it is not and
+// the card it really is has no price at all: the number it belongs to gets
+// minted from the upstream instead, sold by nobody.
+func numberFor(p tcgplayer.Product) string {
+	number := p.Extended("Number")
+	if strings.EqualFold(number, "N/A") {
+		number = ""
+	}
+	spelled := spelledNumberRe.FindStringSubmatch(p.Name)
+	if spelled != nil && number != "" && spelled[1] != number {
+		log.Printf("number: %q (%d) is filed under %s and named %s; taking the name",
+			p.Name, p.ProductID, number, spelled[1])
+		return spelled[1]
+	}
+	return number
+}
+
 // single is a card product with its name taken apart: the base name, the
 // collector number, and the parentheticals the election below decides the
 // meaning of.
@@ -435,10 +468,7 @@ func main() {
 			log.Fatalf("no sku printing: %q (%d) has no entry to carry it",
 				product.Name, product.ProductID)
 		}
-		num := product.Extended("Number")
-		if strings.EqualFold(num, "N/A") {
-			num = ""
-		}
+		num := numberFor(product)
 		if num == "" {
 			unnumbered++
 		}
