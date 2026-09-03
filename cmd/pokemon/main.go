@@ -1548,7 +1548,13 @@ func main() {
 			{card.Variants.Normal, "Normal"},
 			{card.Variants.Holo, "Holofoil"},
 			{card.Variants.Reverse, "Reverse Holofoil"},
-			{card.Variants.FirstEdition, "1st Edition"},
+			// A plain "1st Edition" is the non-foil first printing, so it
+			// exists only where a non-foil printing does. tcgdex flags the
+			// two independently, and on a holo-only card the pair reads as
+			// a non-foil first edition nobody ever printed - Machamp 8/102,
+			// whose first edition is the holo the catalog already sells
+			// under Deck Exclusives.
+			{card.Variants.FirstEdition && card.Variants.Normal, "1st Edition"},
 		} {
 			if v.flag {
 				finishes = append(finishes, v.finish)
