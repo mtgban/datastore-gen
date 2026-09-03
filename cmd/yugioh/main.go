@@ -321,6 +321,29 @@ var handDates = map[int]string{
 	// and while the group stays empty it emits no set anyway.
 }
 
+// handNames correct the names the catalog transcribed short, keyed by the
+// product id, which the catalog never reuses. Only a character the catalog
+// could not carry belongs here - not a card Konami later renamed. The
+// catalog's "Red-Eyes B. Dragon" is what that card's early printings say
+// on them, and the datastore keeps it: a storefront selling one writes the
+// printed name, and the passcode already joins it to whatever Konami calls
+// the card today.
+//
+// The test that a name belongs here is a sibling printing of the same
+// passcode spelling it in full. 270 entries name their card differently
+// from YGOPRODeck and all but this one are that other thing - a rename, a
+// storefront's disambiguating suffix - so the table is one line rather
+// than a rule.
+var handNames = map[int]string{
+	// Kuwagata α, the only card in the game whose name carries a Greek
+	// letter. Tournament Pack 1 dropped it and left "Kuwagata"; OTS
+	// Tournament Pack 19 writes the same passcode (60802233) out as
+	// "Kuwagata Alpha", and that spelling is the one carried here - the
+	// letter itself normalizes to a third key nothing else in the
+	// datastore uses, and no other entry spells a Greek letter at all.
+	22721: "Kuwagata Alpha",
+}
+
 // treatments are the qualifiers that name how a printing was made rather
 // than which card it is, and so may never be elected into a name however
 // many printings of a number carry them.
@@ -1108,9 +1131,13 @@ func main() {
 					passcoded++
 				}
 			}
+			name := s.baseName
+			if corrected, hand := handNames[productID]; hand {
+				name = corrected
+			}
 			entry := map[string]any{
 				"id":        idBase(s.number, productID) + suffix,
-				"name":      s.baseName,
+				"name":      name,
 				"setCode":   cardSet(s),
 				"rarity":    rarityOf(s.product),
 				"attribute": s.product.Extended("Attribute"),
