@@ -139,38 +139,78 @@ var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
 // product name: "EX Resource (EXR-003)", "Resource (RP-046)".
 var spelledNumberRe = regexp.MustCompile(`\(([A-Z]{1,5}-\d{1,4})\)`)
 
-// numberFor is the collector number a product carries. The catalog files it
-// in a field and, for the resource and token cards, spells it into the
-// product name as well; where the two disagree the name is taken, because
-// the name is what somebody reading the card wrote down and the field is
-// what somebody typing a row filled in.
-//
-// It disagrees twice in this catalog against 247 agreements, and both
-// disagreements are a field that repeats the row above it: "EX Resource
-// (EXR-003)" is filed under EXR-002, which two other products already
-// cover, and "Resource (RP-046)" under RP-045, in a run whose names read
-// 045, 046, 047, 048, 049. The upstream corroborates the first outright -
-// it puts EXR-002 in set ST09 and EXR-003 in ST10, and this product is in
-// ST10. Left alone, each mis-numbered product prices a card it is not and
-// the card it really is has no price at all: the number it belongs to gets
-// minted from the upstream instead, sold by nobody.
+// numberFor is the collector number a product carries, as the catalog
+// files it.
 func numberFor(p tcgplayer.Product) string {
 	number := p.Extended("Number")
 	if strings.EqualFold(number, "N/A") {
 		number = ""
 	}
-	spelled := spelledNumberRe.FindStringSubmatch(p.Name)
-	if spelled != nil && number != "" && spelled[1] != number {
-		log.Printf("number: %q (%d) is filed under %s and named %s; taking the name",
-			p.Name, p.ProductID, number, spelled[1])
-		return spelled[1]
-	}
 	return number
 }
 
-// single is a card product with its name taken apart: the base name, the
-// collector number, and the parentheticals the election below decides the
-// meaning of.
+// renumberCollisions repairs the one way this catalog contradicts itself
+// about a collector number: two products of one group filed under the same
+// number while their names spell different ones. "Resource (RP-045)" and
+// "Resource (RP-046)" both sit at RP-045, in a run whose names read 045,
+// 046, 047, 048 and 049, so the field on the second is the row above it
+// repeated and the name is what the card says.
+//
+// Only a collision is repaired, never a lone disagreement, and that
+// restraint is the whole of the rule. The catalog also files "EX Resource
+// (EXR-003)" under EXR-002 with nothing else in its group at that number,
+// and there the field is right: these cards are reprinted deck after deck,
+// so a starter deck carrying EXR-002 again is ordinary, and the upstream
+// naming only one set per printing cannot say otherwise. A rule that
+// trusted the name outright got that second case wrong - it moved a priced
+// product off the number it belongs to and left the number it had invented
+// to be minted, unpriced and unillustrated.
+func renumberCollisions(singles []single) {
+	type slot struct {
+		group  int
+		number string
+	}
+	held := map[slot][]*single{}
+	for i := range singles {
+		if singles[i].number == "" {
+			continue
+		}
+		held[slot{singles[i].product.GroupID, singles[i].number}] = append(
+			held[slot{singles[i].product.GroupID, singles[i].number}], &singles[i])
+	}
+	var repaired int
+	for key, bucket := range held {
+		if len(bucket) < 2 {
+			continue
+		}
+		sort.Slice(bucket, func(i, j int) bool {
+			return bucket[i].product.ProductID < bucket[j].product.ProductID
+		})
+		for _, s := range bucket {
+			spelled := spelledNumberRe.FindStringSubmatch(s.product.Name)
+			if spelled == nil || spelled[1] == key.number {
+				continue
+			}
+			log.Printf("number: %q (%d) shares %s with another product and names %s; taking the name",
+				s.product.Name, s.product.ProductID, key.number, spelled[1])
+			s.number = spelled[1]
+			// The parenthetical now restates the number, which decompose
+			// strips wherever the two already agreed.
+			var kept []string
+			for _, q := range s.quals {
+				if !strings.EqualFold(q, s.number) {
+					kept = append(kept, q)
+				}
+			}
+			s.quals = kept
+			repaired++
+		}
+	}
+	if repaired > 0 {
+		log.Printf("number: %d products renumbered off a collision", repaired)
+	}
+}
+
 type single struct {
 	product  tcgplayer.Product
 	number   string
@@ -479,6 +519,7 @@ func main() {
 	}
 	log.Printf("singles: %d kept (%d without a collector number), %d sealed",
 		len(singles), unnumbered, len(sealedProducts))
+	renumberCollisions(singles)
 
 	// Drop the qualifiers that only echo a field the entry already
 	// carries, before the election reads them: a rarity shorthand is never
