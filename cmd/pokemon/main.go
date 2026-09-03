@@ -730,6 +730,46 @@ func electionKey(s *single) string {
 // nonCodeRe matches the runs a set code cannot carry.
 var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
+// handNames correct the names the catalog misspells, keyed by the product
+// id, which the catalog never reuses. Each one is the catalog contradicting
+// its own spelling elsewhere, which is what makes it a typo rather than a
+// naming convention: 59 products spell the Pokemon "Exeggutor" and one
+// spells it "Exeggcutor", 27 spell "Drowzee" and one "Drowsee", 28 spell
+// "Technical Machine" and one abbreviates it to "Technical Mach.".
+//
+// The bar is that high because a name spelled differently across printings
+// is usually the printings differing, not the catalog erring. Impostor
+// Professor Oak is the case that proves it: Wizards printed the Base Set
+// card "Impostor" and the Base Set 2 and Celebrations reprints "Imposter",
+// and the catalog has all three right. Only the Base Set product is wrong,
+// and only because the catalog's own Shadowless printing of that same card
+// spells it the other way. A rule that had corrected all the "Imposter"
+// products alike would have introduced two errors to fix one.
+//
+// A convention is not a typo either, and stays: the special energies
+// transcribe the symbol printed on the card as a letter ("Heat R Energy",
+// "Speed L Energy"), which the catalog does consistently.
+func handName(productID int, name string) string {
+	if corrected, hand := handNames[productID]; hand {
+		return corrected
+	}
+	return name
+}
+
+var handNames = map[int]string{
+	// Base Set #073/102. The catalog's own Shadowless printing of this
+	// card (107070) spells it Impostor, as do tcgdex and pokemontcg.io.
+	// The Base Set 2 and Celebrations reprints really are "Imposter" and
+	// are left alone.
+	86271: "Impostor Professor Oak",
+	// The Pokemon is Exeggutor, as this catalog's other 59 products say.
+	84593: "Dark Exeggutor",
+	// The Pokemon is Drowzee, as this catalog's other 27 products say.
+	84973: "Drowzee",
+	// Truncated rather than misspelled, but a name no query carries.
+	89808: "Team Galactic's Invention G-107 Technical Machine G",
+}
+
 // handDates are release dates for the groups neither source can date: the
 // catalog stamps its request time on them and tcgdex has no set to join.
 // Each is researched, not guessed, and keyed by the group id, which the
@@ -1499,7 +1539,7 @@ func main() {
 			}
 			entry := map[string]any{
 				"id":      idBase(s.number, productID) + suffix,
-				"name":    s.baseName,
+				"name":    handName(s.product.ProductID, s.baseName),
 				"setCode": setCodes[s.product.GroupID],
 				"rarity":  s.product.Extended("Rarity"),
 				"finish":  finish,
