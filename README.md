@@ -23,6 +23,8 @@ imported, so a datastore change never drags a library upgrade behind it.
 - cmd/pokemon - Pokemon, from the category 3 catalog dump annotated with
   the tcgdex card database
 - cmd/gundam - Gundam Card Game, from the category 86 catalog dump alone
+- cmd/palworld - Palworld OFFICIAL CARD GAME, from the category 91 catalog
+  dump alone
 
 ## Every datastore is the sum of both sources
 
@@ -36,7 +38,7 @@ listing of the missing printings unresolvable.
 The two halves are reached differently depending on which source carries
 identity.
 
-**The catalog is all there is** (gundam). No public dataset
+**The catalog is all there is** (gundam, palworld). No public dataset
 publishes these games yet, so there is no upstream half to join and every
 entry is a product TCGplayer sells. A card the game prints and TCGplayer
 does not list is a card the datastore does not hold - a gap to close the
