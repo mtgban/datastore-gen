@@ -218,3 +218,73 @@ jobs:
               fi
             done
           fi
+
+      # A published datastore reaches the site when the site is told to
+      # reload it. Until now nothing here said so, and a publish only went
+      # live when one of go-mtgban's scraper workflows next happened to ping
+      # the same endpoint for its own reasons - which for a quiet game is
+      # hours after the upload.
+      #
+      # Gated on the game, because publishing a datastore and serving one are
+      # separate things: a builder can land here before its site exists, and
+      # this step fails the job when the host does not answer. RELOAD_GAMES
+      # names the games whose site is ready to be told, so a new builder
+      # publishes quietly until it is added. The match is on whole words -
+      # a substring test would let "piece" stand for "onepiece".
+      - name: Tell the site to reload
+        env:
+          BAN_SECRET: "${{ secrets.BAN_SECRET }}"
+          RELOAD_GAMES: "${{ vars.RELOAD_GAMES }}"
+          GAME: ${{ matrix.game }}
+        run: |
+          case " ${RELOAD_GAMES:-} " in
+          *" $GAME "*) ;;
+          *)
+            echo "$GAME is not in RELOAD_GAMES (${RELOAD_GAMES:-unset}); published without asking the site to reload"
+            exit 0
+            ;;
+          esac
+          if [ -z "${BAN_SECRET:-}" ]; then
+            echo "::warning::BAN_SECRET is not set; published without asking $GAME.mtgban.com to reload"
+            exit 0
+          fi
+
+          # Each attempt signs a timestamp of its own: the signature covers
+          # the timestamp, so a retry reusing the first would be refused as
+          # a replay rather than served.
+          for attempt in 1 2 3; do
+            rm -f ping-response
+            ts=$(date -u +%s)
+            body=$(jq -n --arg ts "$ts" '{ts:($ts|tonumber)}')
+            sig=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$BAN_SECRET" -binary | base64)
+
+            code=$(curl -sS -L -X POST \
+                -H 'Content-Type: application/json' \
+                -H "X-Signature: $sig" \
+                -H "X-Timestamp: $ts" \
+                --data-raw "$body" \
+                --connect-timeout 30 --max-time 900 \
+                -o ping-response -w '%{http_code}' \
+                "https://$GAME.mtgban.com/api/load/datastore") || code=000
+
+            echo "attempt $attempt: HTTP $code"
+            head -c 2000 ping-response 2>/dev/null || true; echo
+
+            # Any 2xx is the request being taken. The reload runs on the
+            # server's own time and answers the moment it starts, so waiting
+            # here for a 200 waits for something that never comes.
+            case "$code" in
+            2*)
+              if jq -e 'select(.status=="ok")' ping-response > /dev/null 2>&1; then
+                exit 0
+              fi
+              ;;
+            esac
+
+            if [ "$attempt" != "3" ]; then
+              sleep 60
+            fi
+          done
+
+          echo "::error::$GAME.mtgban.com did not take the reload request after 3 attempts (last status ${code:-none}); the datastore is published, so re-run this job once the site is answering. Whether a reload it accepted then finished is on its admin page, not here."
+          exit 1
