@@ -1,13 +1,19 @@
 // Command gundam builds the Gundam Card Game datastore file, from the
 // TCGplayer catalog dump for category 86.
 //
-// Identity is the catalog's alone. No public card dataset publishes this
-// game yet, so unlike the other builders here there is no upstream half to
-// join: every entry is a product the catalog sells, and a card the game
-// prints that TCGplayer does not list is a card this datastore does not
-// hold. That is a gap to close the day a dataset exists, not a rule to
-// work around, and the coverage invariant below is about the catalog side
-// either way.
+// The datastore is the sum of both sources, the way every builder here is:
+// every product the catalog types as a card, and every card yzRobo's
+// gcg-api publishes, which mirrors Bandai's own card list weekly. The
+// catalog carries the identity for everything it sells - it is what the
+// prices are keyed to - and the upstream half is what the game prints and
+// TCGplayer does not list as a single: the EX Base, EX Resource and
+// Resource cards handed out with decks and boxes. Those are minted, naming
+// no product because none exists.
+//
+// No upstream image is stored and no rules text: the catalog's own images
+// are what the datastore carries, and gcg-api publishes under no clear
+// licence, so what is taken from it is the fact that a card exists and the
+// identity it exists under.
 //
 // One entry per product and sku printing. Rarity is the variant axis - the
 // same collector number appears under several rarities as separate
@@ -41,7 +47,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"regexp"
 	"slices"
@@ -51,7 +59,42 @@ import (
 	"github.com/mtgban/go-tcgplayer"
 )
 
-const gundamCategory = 86
+const (
+	gundamCategory = 86
+
+	// gcgCardsURL is yzRobo/gcg-api's weekly card dump, the closest thing
+	// this game has to an official list in machine-readable form.
+	gcgCardsURL = "https://raw.githubusercontent.com/yzRobo/gcg-api/main/data/cards.json"
+)
+
+// gcgCard is the slice of a gcg-api card this build reads: what a card is
+// and where it is filed, and nothing that would republish the upstream's
+// own work.
+type gcgCard struct {
+	Number   string `json:"card_number"`
+	Name     string `json:"name"`
+	SetCode  string `json:"set_code"`
+	Rarity   string `json:"rarity"`
+	CardType string `json:"card_type"`
+	Color    string `json:"color"`
+}
+
+// fetch reads a local path or an http location, so a build can be pinned to
+// a file and the default can be the live URL.
+func fetch(location string) ([]byte, error) {
+	if !strings.HasPrefix(location, "http://") && !strings.HasPrefix(location, "https://") {
+		return os.ReadFile(location)
+	}
+	resp, err := http.Get(location)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: %s", location, resp.Status)
+	}
+	return io.ReadAll(resp.Body)
+}
 
 // tcgSingles are the product types single cards are filed under, as the
 // catalog names them for this game; everything else is sealed by exclusion.
@@ -69,6 +112,19 @@ var finishSuffix = map[string]string{
 var finishOrder = []string{
 	"Normal",
 	"Holofoil",
+}
+
+// upstreamRarity spells gcg-api's one and two letter rarity codes the way
+// the catalog spells the same rarities, so a minted entry's rarity field
+// reads like every other entry's rather than in a second vocabulary. A code
+// this does not know is carried through as it stands and logged, because a
+// rarity guessed at would be worse than one spelled oddly.
+var upstreamRarity = map[string]string{
+	"C":  "Common",
+	"U":  "Uncommon",
+	"R":  "Rare",
+	"LR": "Legend Rare",
+	"P":  "Promo",
 }
 
 // imageURL asks the catalog's CDN for the larger rendition. The dump
@@ -332,6 +388,7 @@ func idBase(number string, productID int) string {
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 86 (required)")
+	gcgCards := flag.String("gcg-cards", gcgCardsURL, "gcg-api cards file, path or URL")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -552,6 +609,83 @@ func main() {
 			}
 		}
 	}
+
+	// The other half of the datastore: the cards the game prints that
+	// TCGplayer sells no single of. A minted entry names no product
+	// because there is none - nothing prices it - and it is carried so a
+	// listing of one resolves rather than falling through to whatever
+	// shares its number. Its id holds no product id at all, which is what
+	// keeps the two namespaces apart: a catalog id always carries
+	// "_<product id>" before its finish suffix and a minted one never can.
+	upstreamData, err := fetch(*gcgCards)
+	if err != nil {
+		log.Fatalln("gcg-api:", err)
+	}
+	var upstream []gcgCard
+	if err := json.Unmarshal(upstreamData, &upstream); err != nil {
+		log.Fatalln("gcg-api:", err)
+	}
+	carriedNumbers := map[string]bool{}
+	for _, s := range singles {
+		if s.number != "" {
+			carriedNumbers[s.number] = true
+		}
+	}
+	// Stable order, so unchanged data keeps producing byte-identical output.
+	sort.Slice(upstream, func(i, j int) bool {
+		return upstream[i].Number < upstream[j].Number
+	})
+	var minted, unplaced, unrated int
+	mintedIDs := map[string]bool{}
+	for _, u := range upstream {
+		if u.Number == "" || carriedNumbers[u.Number] {
+			continue
+		}
+		code := setCodeOf(u.SetCode)
+		if _, known := sets[code]; !known {
+			// A card whose set this datastore does not carry has nowhere
+			// to be filed, and a set invented for it would be a set no
+			// product references. Logged rather than dropped silently.
+			unplaced++
+			log.Printf("gcg-api: %s (%s) names set %q, which holds no product here; not minted",
+				u.Number, u.Name, u.SetCode)
+			continue
+		}
+		id := idStem(u.Number)
+		if id == "" || mintedIDs[id] {
+			unplaced++
+			log.Printf("gcg-api: %s (%s) mints no usable id; not minted", u.Number, u.Name)
+			continue
+		}
+		mintedIDs[id] = true
+		rarity := u.Rarity
+		if spelled, known := upstreamRarity[rarity]; known {
+			rarity = spelled
+		} else if rarity != "" {
+			unrated++
+		}
+		entry := map[string]any{
+			"id":      id,
+			"name":    u.Name,
+			"number":  u.Number,
+			"setCode": code,
+			"rarity":  rarity,
+			"finish":  "Normal",
+		}
+		if u.CardType != "" {
+			entry["type"] = u.CardType
+		}
+		if u.Color != "" {
+			entry["color"] = u.Color
+		}
+		cards = append(cards, entry)
+		minted++
+	}
+	// The direction nothing else counts: an upstream card this datastore
+	// does not hold would be invisible, since the coverage invariant only
+	// looks at the catalog side.
+	log.Printf("gcg-api: %d cards upstream, %d minted for printings TCGplayer sells no single of (%d unplaced, %d carrying a rarity code this build does not spell)",
+		len(upstream), minted, unplaced, unrated)
 
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
@@ -782,9 +916,6 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		if card.ID == "" || card.Name == "" || card.Finish == "" {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
 		}
-		if card.ExternalLinks.TcgPlayerId == 0 {
-			return out, fmt.Errorf("card %q (%s) names no product", card.Name, card.ID)
-		}
 		if !idShape.MatchString(card.ID) {
 			return out, fmt.Errorf("card %q has a uuid nothing can carry: %q", card.Name, card.ID)
 		}
@@ -801,7 +932,14 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		cardIDs[card.ID] = true
 		identity := strings.Join([]string{
 			card.Name, card.Number, card.SetCode, card.Rarity, card.Variant}, "|")
+		// A minted printing sells as no product, so it stands for itself
+		// under its own uuid; keying those on the absent product id would
+		// make every one of them the same card and wave through exactly
+		// the collision this catches.
 		bearer := fmt.Sprintf("product %d", card.ExternalLinks.TcgPlayerId)
+		if card.ExternalLinks.TcgPlayerId == 0 {
+			bearer = "card " + card.ID
+		}
 		if other, seen := identities[identity]; seen && other != bearer {
 			return out, fmt.Errorf("%s and %s wear one identity: %s", other, bearer, identity)
 		}
@@ -809,11 +947,16 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
-		productID := card.ExternalLinks.TcgPlayerId
-		if sliceContains(gotFinishes[productID], card.Finish) {
-			return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
+		// Only products are counted against the catalog's skus: a minted
+		// printing answers to no product and would otherwise pile its
+		// finish under product 0, which coverage would then have to
+		// explain.
+		if productID := card.ExternalLinks.TcgPlayerId; productID != 0 {
+			if sliceContains(gotFinishes[productID], card.Finish) {
+				return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
+			}
+			gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 		}
-		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 	}
 	if err := coverage(gotFinishes, wantFinishes); err != nil {
 		return out, err

@@ -22,9 +22,10 @@ imported, so a datastore change never drags a library upgrade behind it.
   annotated with the-fab-cube's card dataset
 - cmd/pokemon - Pokemon, from the category 3 catalog dump annotated with
   the tcgdex card database
-- cmd/gundam - Gundam Card Game, from the category 86 catalog dump alone
+- cmd/gundam - Gundam Card Game, from the category 86 catalog dump
+  annotated with yzRobo's gcg-api mirror of the Bandai card list
 - cmd/palworld - Palworld OFFICIAL CARD GAME, from the category 91 catalog
-  dump alone
+  dump annotated with palworldtcg.gg's card API
 
 ## Every datastore is the sum of both sources
 
@@ -38,20 +39,21 @@ listing of the missing printings unresolvable.
 The two halves are reached differently depending on which source carries
 identity.
 
-**The catalog is all there is, for now** (gundam, palworld). These two
-builders join no upstream: every entry is a product TCGplayer sells, so a
-card the game prints and TCGplayer does not list is a card the datastore
-does not hold. The zero-skip invariant still holds over the catalog side.
+**The catalog carries the identity** (gundam, palworld). Both join a
+community mirror of the publisher's card list - yzRobo/gcg-api for Gundam,
+palworldtcg.gg's public API for Palworld - and take from it only what the
+catalog cannot supply: the cards the game prints and TCGplayer sells no
+single of. Those are minted, naming no product because none exists, and
+they come to 10 entries for Gundam and one for Palworld, all of them the
+resource and token cards handed out with decks. No upstream image or rules
+text is stored: gcg-api publishes under no clear licence, so what is taken
+is the fact that a card exists and the identity it exists under.
 
-Datasets for both do exist and are not yet wired in, which is a gap to
-close rather than a property of these games: yzRobo/gcg-api publishes the
-Gundam card list weekly, and palworldtcg.gg serves the Palworld one from a
-public JSON API. Measured against them the missing half is small - 10
-collector numbers for Gundam, all of them token and resource promos, and
-one for Palworld - so what a join would mostly add is annotation the
-catalog does not carry: effect text, colour, cost, and the upstream's own
-images. Worth checking each source's terms before its data is published
-here; the Gundam one carries no clear licence today.
+Palworld's two sources number the same card differently, and the join sets
+the difference aside rather than picking a winner. Bushiroad's English site
+serves the card as EBP01-001 and its Japanese site as BP01-001, so the
+prefixed form is what is printed on the card TCGplayer sells; every number
+this datastore publishes wears it, minted rows included.
 
 **Upstream is the datastore** (riftbound, lorcana). The output is the
 upstream payload itself with the catalog's data merged in, so every
