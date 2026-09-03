@@ -22,6 +22,7 @@ imported, so a datastore change never drags a library upgrade behind it.
   annotated with the-fab-cube's card dataset
 - cmd/pokemon - Pokemon, from the category 3 catalog dump annotated with
   the tcgdex card database
+- cmd/gundam - Gundam Card Game, from the category 86 catalog dump alone
 
 ## Every datastore is the sum of both sources
 
@@ -34,6 +35,13 @@ listing of the missing printings unresolvable.
 
 The two halves are reached differently depending on which source carries
 identity.
+
+**The catalog is all there is** (gundam). No public dataset
+publishes these games yet, so there is no upstream half to join and every
+entry is a product TCGplayer sells. A card the game prints and TCGplayer
+does not list is a card the datastore does not hold - a gap to close the
+day a dataset exists, not a rule to work around. The zero-skip invariant
+still holds over the catalog side, which is the half that exists.
 
 **Upstream is the datastore** (riftbound, lorcana). The output is the
 upstream payload itself with the catalog's data merged in, so every
