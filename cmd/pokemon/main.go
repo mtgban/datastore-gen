@@ -378,7 +378,8 @@ func normalizeName(name string) string {
 
 // setAliases maps the group names whose tcgdex counterpart is spelled from
 // a different root no mechanical strip reaches — TCGplayer's promo sets
-// against tcgdex's "Black Star Promos" family, and the flagship base sets.
+// against tcgdex's "Black Star Promos" family, the flagship base sets, and
+// the sets TCGplayer names by their subtitle alone.
 // Values are tcgdex set names, normalized at join time like everything else.
 var setAliases = map[string]string{
 	"WoTC Promo":                       "Wizards Black Star Promos",
@@ -393,6 +394,7 @@ var setAliases = map[string]string{
 	"ME: Mega Evolution Promo":         "MEP Black Star Promos",
 	"SM Base Set":                      "Sun & Moon",
 	"SV: Scarlet & Violet 151":         "151",
+	"Rumble":                           "Pokémon Rumble",
 }
 
 // stripSetPrefix removes the leading short-code TCGplayer prefixes group
