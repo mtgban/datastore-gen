@@ -1540,7 +1540,51 @@ func main() {
 	// exactly how these are built. Each variant tcgdex flags becomes its
 	// own entry, as a product's sku printings do, and a card tcgdex flags
 	// nothing on still gets its plain one.
+	// A minted entry numbers itself from tcgdex's localId, which carries no
+	// denominator, so it emits no total at all - and the printed total is
+	// what tells "8" in Base Set apart from "8" in any other set. Where
+	// every catalog entry in the set agrees on one total, that total is the
+	// set's, and a card printed alongside them carries the same one. Sets
+	// whose entries disagree are left alone rather than guessed at: the
+	// promo shelves gather cards printed for several sets, and no single
+	// total is right for all of them.
+	//
+	// A number opening with a letter code is its own numbering series with
+	// its own denominator - Legendary Treasures' RC1 is printed "RC1/RC25"
+	// beside a main set of 113, and the H subsets of Aquapolis and Skyridge
+	// carry an H32 the catalog spells out. Those take the set's total only
+	// by coincidence, so only a number opening on a digit is filled. A
+	// trailing letter is a different thing: 75a is the set's own card 75 in
+	// alternate art and shares its denominator.
+	totalBySet := map[string]string{}
+	for code, totals := range func() map[string]map[string]bool {
+		seen := map[string]map[string]bool{}
+		for _, any_ := range cards {
+			entry, isMap := any_.(map[string]any)
+			if !isMap {
+				continue
+			}
+			code, _ := entry["setCode"].(string)
+			total, ok := entry["total"].(string)
+			if code == "" || !ok || total == "" {
+				continue
+			}
+			if seen[code] == nil {
+				seen[code] = map[string]bool{}
+			}
+			seen[code][total] = true
+		}
+		return seen
+	}() {
+		if len(totals) == 1 {
+			for total := range totals {
+				totalBySet[code] = total
+			}
+		}
+	}
+
 	var mintedCards, mintedWithoutArt int
+	var mintedTotals int
 	for _, card := range mintable {
 		var finishes []string
 		for _, v := range []struct {
@@ -1587,6 +1631,13 @@ func main() {
 			}
 			if card.LocalID != "" {
 				emitNumber(entry, numberOf(card.LocalID))
+				own, _ := entry["number"].(string)
+				if _, printed := entry["total"]; !printed && own != "" && own[0] >= '0' && own[0] <= '9' {
+					if total, sole := totalBySet[mintedSetCode[card.Set.ID]]; sole {
+						entry["total"] = total
+						mintedTotals++
+					}
+				}
 			}
 			if card.Category != "" {
 				entry["type"] = card.Category
@@ -1596,8 +1647,8 @@ func main() {
 		}
 	}
 	if mintedCards > 0 {
-		log.Printf("minted: %d entries over %d tcgdex cards the catalog has no product for (%d of those cards have no art upstream)",
-			mintedCards, len(mintable), mintedWithoutArt)
+		log.Printf("minted: %d entries over %d tcgdex cards the catalog has no product for (%d of those cards have no art upstream, %d took the set's own printed total)",
+			mintedCards, len(mintable), mintedWithoutArt, mintedTotals)
 	}
 
 	sort.Slice(sealedProducts, func(i, j int) bool {
