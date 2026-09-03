@@ -38,12 +38,20 @@ listing of the missing printings unresolvable.
 The two halves are reached differently depending on which source carries
 identity.
 
-**The catalog is all there is** (gundam, palworld). No public dataset
-publishes these games yet, so there is no upstream half to join and every
-entry is a product TCGplayer sells. A card the game prints and TCGplayer
-does not list is a card the datastore does not hold - a gap to close the
-day a dataset exists, not a rule to work around. The zero-skip invariant
-still holds over the catalog side, which is the half that exists.
+**The catalog is all there is, for now** (gundam, palworld). These two
+builders join no upstream: every entry is a product TCGplayer sells, so a
+card the game prints and TCGplayer does not list is a card the datastore
+does not hold. The zero-skip invariant still holds over the catalog side.
+
+Datasets for both do exist and are not yet wired in, which is a gap to
+close rather than a property of these games: yzRobo/gcg-api publishes the
+Gundam card list weekly, and palworldtcg.gg serves the Palworld one from a
+public JSON API. Measured against them the missing half is small - 10
+collector numbers for Gundam, all of them token and resource promos, and
+one for Palworld - so what a join would mostly add is annotation the
+catalog does not carry: effect text, colour, cost, and the upstream's own
+images. Worth checking each source's terms before its data is published
+here; the Gundam one carries no clear licence today.
 
 **Upstream is the datastore** (riftbound, lorcana). The output is the
 upstream payload itself with the catalog's data merged in, so every
