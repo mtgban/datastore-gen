@@ -24,8 +24,21 @@ on:
           - gundam
           - palworld
   schedule:
-    # Two hours after the catalog dump (05:00 UTC in go-tcgplayer)
-    - cron: "0 7 * * *"
+    # After the catalog dump, with margin for how late either of us runs.
+    #
+    # The dump is a scheduled workflow too, and both it and this one drifted
+    # hours later at the end of August: the dump finished at 05:30 UTC on
+    # the 26th and has landed between 09:15 and 11:31 every day since, while
+    # this workflow fired 30-55 minutes after its cron until the 27th and
+    # 5-12 hours after it since. So 07:00 was only ever safe by accident -
+    # a punctual run at 07:00 builds on the previous day's catalog, and it
+    # is the delay that has been hiding that.
+    #
+    # 12:37 clears the dump whether it lands at 05:30 or at 11:31, and the
+    # odd minute is deliberate: GitHub queues scheduled workflows and the
+    # top of the hour is the most contended slot on it, which is where the
+    # delay above is most likely coming from.
+    - cron: "37 12 * * *"
 
 permissions:
   contents: read
