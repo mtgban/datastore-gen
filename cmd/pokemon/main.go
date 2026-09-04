@@ -468,6 +468,40 @@ func emitNumber(entry map[string]any, number string) {
 	}
 }
 
+// totalsBySet is the set total each set's cards agree on, for the sets that
+// agree on one. A pooled set agrees on none - World Championship Decks and
+// the promo pools hold cards that keep the total of wherever they were
+// first printed, so 44/130 and 87/101 sit side by side - and those sets are
+// absent rather than guessed at, because there is no one size to report.
+func totalsBySet(cards []any) map[string]string {
+	seen := map[string]map[string]bool{}
+	for _, any_ := range cards {
+		entry, isMap := any_.(map[string]any)
+		if !isMap {
+			continue
+		}
+		code, _ := entry["setCode"].(string)
+		total, ok := entry["total"].(string)
+		if code == "" || !ok || total == "" {
+			continue
+		}
+		if seen[code] == nil {
+			seen[code] = map[string]bool{}
+		}
+		seen[code][total] = true
+	}
+	out := map[string]string{}
+	for code, totals := range seen {
+		if len(totals) != 1 {
+			continue
+		}
+		for total := range totals {
+			out[code] = total
+		}
+	}
+	return out
+}
+
 // mintedIDBase is the id stem of an entry that names no product: the
 // upstream id reduced to the alphabet a uuid travels through. A catalog id
 // always carries "_<product id>" before its finish suffix and a minted one
@@ -1596,32 +1630,7 @@ func main() {
 	// by coincidence, so only a number opening on a digit is filled. A
 	// trailing letter is a different thing: 75a is the set's own card 75 in
 	// alternate art and shares its denominator.
-	totalBySet := map[string]string{}
-	for code, totals := range func() map[string]map[string]bool {
-		seen := map[string]map[string]bool{}
-		for _, any_ := range cards {
-			entry, isMap := any_.(map[string]any)
-			if !isMap {
-				continue
-			}
-			code, _ := entry["setCode"].(string)
-			total, ok := entry["total"].(string)
-			if code == "" || !ok || total == "" {
-				continue
-			}
-			if seen[code] == nil {
-				seen[code] = map[string]bool{}
-			}
-			seen[code][total] = true
-		}
-		return seen
-	}() {
-		if len(totals) == 1 {
-			for total := range totals {
-				totalBySet[code] = total
-			}
-		}
-	}
+	totalBySet := totalsBySet(cards)
 
 	var mintedCards, mintedWithoutArt int
 	var mintedTotals int
@@ -1708,8 +1717,25 @@ func main() {
 			},
 		})
 	}
-	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
-		len(sets), len(cards), len(singles), len(sealed))
+	// The set's own size, which is the total its cards print beside their
+	// number. It is read back off the finished cards rather than from the
+	// catalog, which publishes no size, so the minted entries count too;
+	// a set whose cards name no single total carries none.
+	var sized int
+	for code, total := range totalsBySet(cards) {
+		set, isMap := sets[code].(map[string]any)
+		if !isMap {
+			continue
+		}
+		size, err := strconv.Atoi(strings.TrimLeft(total, "0"))
+		if err != nil || size <= 0 {
+			continue
+		}
+		set["baseSetSize"] = size
+		sized++
+	}
+	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed (%d sets carry a printed size)",
+		len(sets), len(cards), len(singles), len(sealed), sized)
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
