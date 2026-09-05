@@ -832,6 +832,71 @@ var renumberedSets = map[string]bool{
 // them; half is the middle of it and nothing sits near either side.
 const shadowShare = 0.5
 
+// pokemontcgSetsURL is pokemontcg.io's set list, read for the one field
+// tcgdex leaves empty on 49 of its 218 sets: the symbol. Every one of its
+// 174 sets carries one.
+const pokemontcgSetsURL = "https://api.pokemontcg.io/v2/sets?pageSize=250"
+
+// pokemontcgSet is the slice of a pokemontcg.io set this build reads.
+type pokemontcgSet struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	PtcgoCode   string `json:"ptcgoCode"`
+	ReleaseDate string `json:"releaseDate"`
+	Images      struct {
+		Symbol string `json:"symbol"`
+	} `json:"images"`
+}
+
+// loadPokemontcgSets reads the set list from a path or the live API. A
+// failure is reported and not fatal: this fills a field 162 of 255 sets
+// already have from tcgdex, and no build is worth losing over the rest.
+func loadPokemontcgSets(path string) ([]pokemontcgSet, error) {
+	var data []byte
+	var err error
+	if path != "" {
+		data, err = os.ReadFile(path)
+	} else {
+		var resp *http.Response
+		resp, err = http.Get(pokemontcgSetsURL)
+		if err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return nil, fmt.Errorf("%s: %s", pokemontcgSetsURL, resp.Status)
+			}
+			data, err = io.ReadAll(resp.Body)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Data []pokemontcgSet `json:"data"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Data, nil
+}
+
+// mtgmatcherNormalize reduces a set name to its letters and digits, so the
+// two sources' punctuation and casing do not part names that are the same.
+func mtgmatcherNormalize(name string) string {
+	var out strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
+}
+
+// pokemontcgDate spells a pokemontcg.io release date the way this datastore
+// spells one: it writes "1999/01/09" where every date here is "1999-01-09".
+func pokemontcgDate(date string) string {
+	return strings.ReplaceAll(date, "/", "-")
+}
+
 // nonCodeRe matches the runs a set code cannot carry.
 var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
@@ -1058,6 +1123,7 @@ func main() {
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 3 (required)")
 	tcgdexSets := flag.String("tcgdex-sets", "", "tcgdex sets GraphQL response file (default: query the live API)")
 	tcgdexCards := flag.String("tcgdex-cards", "", "tcgdex cards GraphQL response file (default: query the live API)")
+	pokemontcgSets := flag.String("pokemontcg-sets", "", "pokemontcg.io sets response file, read for the symbols tcgdex has none of (default: query the live API)")
 	tcgdexCache := flag.String("tcgdex-cache", "", "directory holding the last good tcgdex responses, refreshed on a live fetch and read back when the live API is unreachable")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
@@ -1693,6 +1759,62 @@ func main() {
 	}
 	if mintedSets > 0 {
 		log.Printf("sets minted for tcgdex sets no group joined: %d", mintedSets)
+	}
+	// The symbols tcgdex has none of, from pokemontcg.io, which carries one
+	// for every set it lists. Only the sets still without one are asked
+	// about, so tcgdex stays the first word wherever it has one.
+	//
+	// Two joins, and the second is why the first is not enough on its own:
+	// an exact name reaches the McDonald's collections and the reprint sets
+	// tcgdex leaves blank, and a ptcgo code reaches the sets whose names
+	// the two sources write differently. The code alone would be reckless -
+	// "BST" is this catalog's EX Battle Stadium of 2004 and pokemontcg.io's
+	// Battle Styles of 2021, seventeen years apart and three letters alike -
+	// so the release day has to agree with it.
+	//
+	// The URL is taken as given rather than built on. pokemontcg.io serves
+	// PNG where tcgdex serves webp, four of its symbols sit on another host
+	// entirely, and asking its path for a webp answers 404 with a 186KB
+	// body typed image/png.
+	if ptcg, err := loadPokemontcgSets(*pokemontcgSets); err != nil {
+		log.Printf("pokemontcg.io: %v; the sets tcgdex has no symbol for keep none", err)
+	} else {
+		byName := map[string]*pokemontcgSet{}
+		byCodeDate := map[string]*pokemontcgSet{}
+		for i := range ptcg {
+			set := &ptcg[i]
+			if set.Images.Symbol == "" {
+				continue
+			}
+			byName[mtgmatcherNormalize(set.Name)] = set
+			if set.PtcgoCode != "" {
+				byCodeDate[strings.ToUpper(set.PtcgoCode)+"|"+pokemontcgDate(set.ReleaseDate)] = set
+			}
+		}
+		var byNameHits, byCodeHits int
+		for code, entry := range sets {
+			set, isMap := entry.(map[string]any)
+			if !isMap || set["symbol"] != nil {
+				continue
+			}
+			name, _ := set["name"].(string)
+			date, _ := set["releaseDate"].(string)
+			if found, ok := byName[mtgmatcherNormalize(name)]; ok {
+				set["symbol"] = found.Images.Symbol
+				byNameHits++
+				symboled++
+				continue
+			}
+			if found, ok := byCodeDate[strings.ToUpper(code)+"|"+date]; ok {
+				set["symbol"] = found.Images.Symbol
+				byCodeHits++
+				symboled++
+			}
+		}
+		if byNameHits+byCodeHits > 0 {
+			log.Printf("set symbols: %d filled from pokemontcg.io (%d by name, %d by ptcgo code and release day)",
+				byNameHits+byCodeHits, byNameHits, byCodeHits)
+		}
 	}
 	log.Printf("set symbols: %d of %d sets carry one", symboled, len(sets))
 
