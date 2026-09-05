@@ -103,7 +103,7 @@ const (
 	// tcgpSerie is tcgdex's digital Pocket serie, dropped before joining.
 	tcgpSerie = "tcgp"
 
-	tcgdexSetsQuery  = "{ sets { id name releaseDate serie { id } } }"
+	tcgdexSetsQuery  = "{ sets { id name releaseDate symbol serie { id } } }"
 	tcgdexCardsQuery = "{ cards { id localId name rarity category image variants { normal reverse holo firstEdition } set { id } } }"
 )
 
@@ -203,6 +203,7 @@ type tcgdexSet struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	ReleaseDate string `json:"releaseDate"`
+	Symbol      string `json:"symbol"`
 	Serie       struct {
 		ID string `json:"id"`
 	} `json:"serie"`
@@ -1584,7 +1585,7 @@ func main() {
 	// TCGplayer files a product there.
 	sets := map[string]any{}
 	promoted := promoGroups(catalog)
-	var promoSets, skippedEmpty int
+	var promoSets, skippedEmpty, symboled int
 	for _, group := range groups {
 		if productsIn[group.GroupID] == 0 {
 			skippedEmpty++
@@ -1596,6 +1597,16 @@ func main() {
 		}
 		if group.Abbreviation != "" {
 			set["abbreviation"] = group.Abbreviation
+		}
+		// The mark the set's cards print, from the tcgdex set the group
+		// joined. tcgdex hands back an extension-less asset URL and serves
+		// several encodings off it; webp is the smallest, and the one the
+		// card images already ask for. A group that joined no set, or joined
+		// one tcgdex holds no symbol for, carries none, and whatever renders
+		// this falls back to drawing the set code.
+		if dex := joinedSets[group.GroupID]; dex != nil && dex.Symbol != "" {
+			set["symbol"] = dex.Symbol + ".webp"
+			symboled++
 		}
 		// The type is what tells the matcher a printing is promotional, so
 		// only the wholly promotional groups carry it.
@@ -1654,6 +1665,10 @@ func main() {
 		if dex != nil {
 			set["name"] = dex.Name
 			set["releaseDate"] = dex.ReleaseDate
+			if dex.Symbol != "" {
+				set["symbol"] = dex.Symbol + ".webp"
+				symboled++
+			}
 		}
 		sets[code] = set
 		mintedSets++
@@ -1661,6 +1676,7 @@ func main() {
 	if mintedSets > 0 {
 		log.Printf("sets minted for tcgdex sets no group joined: %d", mintedSets)
 	}
+	log.Printf("set symbols: %d of %d sets carry one", symboled, len(sets))
 
 	// The coverage contract: every product the catalog types as a card,
 	// with the sku printings it is sold in. validate reads it back off the
