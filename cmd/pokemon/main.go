@@ -809,6 +809,22 @@ func identityKey(name, number string) string {
 	return out.String() + "|" + strings.ToLower(strings.TrimSpace(number))
 }
 
+// renumberedSets are the tcgdex sets that hold the catalog's own cards
+// under a numbering of their own, so the number cannot be asked and the
+// name has to answer alone. Named rather than detected: a set-wide
+// numbering disagreement looks exactly like a set of genuinely new cards
+// until someone reads both, and every rule tried for telling them apart
+// refused real printings.
+//
+// Celebrations reprints twenty-five classics and numbers them CC001-CC025
+// where the catalog numbers each by the card it reprints - Blastoise is
+// CC001 upstream and 2 here, Umbreon Star CC015 and 17. All twenty-five
+// were minted a second time, unpriced, beside the products that carry
+// their prices.
+var renumberedSets = map[string]bool{
+	"cel25cc": true, // Celebrations: Classic Collection
+}
+
 // shadowShare is how much of a tcgdex set has to be the catalog's already
 // for the set to be the catalog's under another name. The measured sets sit
 // at 67% and above or at 33% and below, so anything in the gap separates
@@ -1821,9 +1837,50 @@ func main() {
 			set, 100*sh.share, sh.group, sh.cards)
 	}
 
+	// The numbers the catalog gives each name in a set, for the two cases
+	// the identity above cannot see: a set the catalog numbers its own way,
+	// and a name it sells without a number at all.
+	pricedNumbers := map[string]map[string]bool{}
+	for _, entry := range cards {
+		e, isMap := entry.(map[string]any)
+		if !isMap {
+			continue
+		}
+		name, _ := e["name"].(string)
+		number, _ := e["number"].(string)
+		setCode, _ := e["setCode"].(string)
+		key := setCode + "|" + identityKey(name, "")
+		if pricedNumbers[key] == nil {
+			pricedNumbers[key] = map[string]bool{}
+		}
+		pricedNumbers[key][number] = true
+	}
+
+	var renumberedTwins, unnumberedTwins int
 	for _, card := range mintable {
 		if _, shadowing := shadows[card.Set.ID]; shadowing {
 			mintedTwins++
+			continue
+		}
+		// The two cases the identity above cannot see, both of them a name
+		// the catalog already sells in this set under a number that cannot
+		// be compared. Anything else falls through and is minted: the
+		// lettered alternate arts share a set and a name with the card they
+		// alter - "Hex Maniac 75a" beside 75 - and are cards of their own.
+		numbers := pricedNumbers[mintedSetCode[card.Set.ID]+"|"+identityKey(card.Name, "")]
+		switch {
+		// A set the catalog numbers its own way: the name is all there is
+		// to go on, and the catalog selling that name here is the answer.
+		case len(numbers) > 0 && renumberedSets[card.Set.ID]:
+			renumberedTwins++
+			continue
+		// A name the catalog sells with no collector number at all. Nothing
+		// can be told apart by number, so a name it already sells is the
+		// same card. Only where no printing of that name carries one: a
+		// name sold both ways - "Pikachu" in the promo drawers, at six
+		// numbers and at none - says nothing either way.
+		case len(numbers) == 1 && numbers[""]:
+			unnumberedTwins++
 			continue
 		}
 		var finishes []string
@@ -1888,6 +1945,12 @@ func main() {
 	}
 	if mintedTwins > 0 {
 		log.Printf("minted: %d tcgdex cards refused as twins of a product the catalog already sells", mintedTwins)
+	}
+	if renumberedTwins > 0 {
+		log.Printf("minted: %d refused as the catalog's own cards under a numbering of their own", renumberedTwins)
+	}
+	if unnumberedTwins > 0 {
+		log.Printf("minted: %d refused as names the catalog sells with no collector number to tell them apart", unnumberedTwins)
 	}
 	if mintedCards > 0 {
 		log.Printf("minted: %d entries over %d tcgdex cards the catalog has no product for (%d of those cards have no art upstream, %d took the set's own printed total)",
