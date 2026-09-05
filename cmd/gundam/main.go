@@ -77,7 +77,61 @@ type gcgCard struct {
 	Rarity   string `json:"rarity"`
 	CardType string `json:"card_type"`
 	Color    string `json:"color"`
+	// Source is the product the printing was handed out in - the set for
+	// most cards, a promotional pack or accessory set for the rest. It is
+	// what justifies every hand-carried row below, and is checked against
+	// them so a row whose upstream reason disappears is reported.
+	Source string `json:"where_to_get"`
 }
+
+// handCarried is a printing the game hands out that TCGplayer sells no
+// single of, and that shares its collector number with a printing the
+// catalog does sell - so the mint keyed on an uncarried number never
+// reaches it. Each row names the promotional product it came in, and that
+// name is both the variant label the entry carries and the string gcg-api
+// has to agree with for the row to stand.
+//
+// Only the printings a storefront actually offers are here. A general mint
+// off gcg-api's own field would carry 480 entries of very mixed quality:
+// upstream files a card's own set under it too, spells the promotional
+// products differently from the catalog, and writes "Events" and "-" where
+// it knows nothing. Anchoring instead to the labels the catalog already
+// uses carries one. Between the two there is no rule to write, so these are
+// named one at a time and justified one at a time.
+type handCarried struct {
+	// number is the card's collector number, and names the printing this
+	// entry reads its name, type, color and rarity from.
+	number string
+	// label is the promotional product the printing was handed out in,
+	// spelled as the catalog spells the ones it does sell. It becomes the
+	// entry's variant, which is what tells this printing from the ordinary
+	// card sharing its number.
+	label string
+	// source is gcg-api's own spelling of the same product. The two differ
+	// - upstream writes "Premium Card Collection 02" where the catalog
+	// writes "Premium Card Collection" - so the row carries both and the
+	// build checks that upstream still says it.
+	source string
+}
+
+// handCarriedPrintings are the promotional reprints a storefront sells and
+// TCGplayer does not, each one a card of an ordinary set handed out again
+// in a promotional product. Without them a listing of one resolves to the
+// ordinary card at the same number and is published at its identity.
+var handCarriedPrintings = []handCarried{
+	{number: "GD01-073", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
+	{number: "GD03-101", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
+	{number: "GD04-063", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
+	{number: "GD05-110", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
+	{number: "GD05-114", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
+	{number: "ST03-006", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
+	{number: "ST04-012", label: "1st Anniversary Event Pack", source: "1st Anniversary Event Pack"},
+}
+
+// promoSetCode is the set the catalog files a promotional reprint under,
+// and so where a hand-carried one belongs: the printings TCGplayer does
+// sell of this kind are all filed there.
+const promoSetCode = "GCG-PR"
 
 // fetch reads a local path or an http location, so a build can be pinned to
 // a file and the default can be the live URL.
@@ -752,6 +806,100 @@ func main() {
 		cards = append(cards, entry)
 		minted++
 	}
+	// The promotional reprints a storefront sells and TCGplayer does not.
+	// They share a collector number with the ordinary card, so the mint
+	// above never reaches them: it fires on a number nothing carries.
+	//
+	// Each row stands down the moment the catalog sells the printing. What
+	// the build already names it leaves alone - the test is the identity
+	// and not the number, since the whole point of these is to sit beside
+	// an entry at the same number - and the real product wins, prices and
+	// artwork and all.
+	carriedIdentity := map[string]bool{}
+	plainByNumber := map[string][]map[string]any{}
+	for _, entry := range cards {
+		e, isMap := entry.(map[string]any)
+		if !isMap {
+			continue
+		}
+		number, _ := e["number"].(string)
+		variant, _ := e["variant"].(string)
+		setCode, _ := e["setCode"].(string)
+		carriedIdentity[number+"|"+setCode+"|"+variant] = true
+		if number != "" {
+			plainByNumber[number] = append(plainByNumber[number], e)
+		}
+	}
+	upstreamSource := map[string]map[string]bool{}
+	for _, u := range upstream {
+		if u.Number == "" || u.Source == "" {
+			continue
+		}
+		if upstreamSource[u.Number] == nil {
+			upstreamSource[u.Number] = map[string]bool{}
+		}
+		upstreamSource[u.Number][u.Source] = true
+	}
+
+	var handCarriedCount, stoodDown int
+	if _, known := sets[promoSetCode]; !known && len(handCarriedPrintings) > 0 {
+		log.Fatalf("hand-carried: set %s holds no product here; refusing to file promotional reprints nowhere", promoSetCode)
+	}
+	for _, printing := range handCarriedPrintings {
+		// Upstream is what says the printing exists. A row it no longer
+		// agrees with is reported rather than carried: the alternative is
+		// a printing this build asserts on nobody's authority.
+		if !upstreamSource[printing.number][printing.source] {
+			log.Printf("hand-carried: gcg-api no longer says %s came in %q; not carried",
+				printing.number, printing.source)
+			continue
+		}
+		if carriedIdentity[printing.number+"|"+promoSetCode+"|"+printing.label] {
+			log.Printf("hand-carried: %s %q is sold as a product now; the hand-carried one stands down",
+				printing.number, printing.label)
+			stoodDown++
+			continue
+		}
+		// The ordinary card at this number is what the entry reads its
+		// name and printed details from; a promotional reprint is that
+		// card handed out again, not a card of its own.
+		var base map[string]any
+		for _, e := range plainByNumber[printing.number] {
+			if variant, _ := e["variant"].(string); variant == "" {
+				base = e
+				break
+			}
+		}
+		if base == nil {
+			log.Printf("hand-carried: %s names no plain printing to read from; not carried", printing.number)
+			continue
+		}
+		id := idStem(printing.number + "-" + printing.label)
+		if id == "" || carriedIdentity[printing.number+"|"+promoSetCode+"|"+printing.label] {
+			log.Printf("hand-carried: %s %q mints no usable id; not carried", printing.number, printing.label)
+			continue
+		}
+		entry := map[string]any{
+			"id":      id,
+			"name":    base["name"],
+			"number":  printing.number,
+			"setCode": promoSetCode,
+			"rarity":  base["rarity"],
+			"finish":  "Normal",
+			"variant": printing.label,
+		}
+		for _, field := range []string{"type", "color"} {
+			if v, found := base[field]; found {
+				entry[field] = v
+			}
+		}
+		carriedIdentity[printing.number+"|"+promoSetCode+"|"+printing.label] = true
+		cards = append(cards, entry)
+		handCarriedCount++
+	}
+	log.Printf("hand-carried: %d promotional reprints carried, %d stood down for a product the catalog now sells",
+		handCarriedCount, stoodDown)
+
 	// The direction nothing else counts: an upstream card this datastore
 	// does not hold would be invisible, since the coverage invariant only
 	// looks at the catalog side.
