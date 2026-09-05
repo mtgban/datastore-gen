@@ -232,8 +232,26 @@ func renumberCollisions(singles []single) {
 		held[slot{singles[i].product.GroupID, singles[i].number}] = append(
 			held[slot{singles[i].product.GroupID, singles[i].number}], &singles[i])
 	}
+	// Map order is not an order, and this logs what it repairs: read back
+	// two runs of the same catalog and the lines would be shuffled between
+	// them, so a build log could not be diffed against the one before it.
+	// The repair itself does not care - each product's new number is read
+	// off its own name - but the record of it should be stable, the way the
+	// mint below sorts for the same reason.
+	slots := make([]slot, 0, len(held))
+	for key := range held {
+		slots = append(slots, key)
+	}
+	sort.Slice(slots, func(i, j int) bool {
+		if slots[i].group != slots[j].group {
+			return slots[i].group < slots[j].group
+		}
+		return slots[i].number < slots[j].number
+	})
+
 	var repaired int
-	for key, bucket := range held {
+	for _, key := range slots {
+		bucket := held[key]
 		if len(bucket) < 2 {
 			continue
 		}

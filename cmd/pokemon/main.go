@@ -804,6 +804,49 @@ var handNames = map[int]string{
 	89808: "Team Galactic's Invention G-107 Technical Machine G",
 }
 
+// reportStaleHandTables says when a hand-maintained row has stopped doing
+// anything. Both tables here correct a source rather than add to it, so a
+// row outlives its reason silently: the catalog fixes a spelling, or gains
+// a real date, and the row goes on being consulted and changing nothing.
+// Nobody would notice, and the next person to read the table would take
+// every row in it as still true.
+//
+// Nothing is dropped automatically. A row the catalog agrees with today
+// may disagree again tomorrow - the catalog has re-broken a name before -
+// and a row whose product has vanished may be a product withdrawn for a
+// week. This reports; a person decides.
+func reportStaleHandTables(catalog tcgplayer.CatalogDump, dated map[int]bool) {
+	names := map[int]string{}
+	for _, product := range catalog.Products {
+		names[product.ProductID] = product.Name
+	}
+	for productID, corrected := range handNames {
+		switch have, sold := names[productID]; {
+		case !sold:
+			log.Printf("hand names: product %d is no longer in the catalog; the row correcting it to %q does nothing",
+				productID, corrected)
+		case have == corrected:
+			log.Printf("hand names: the catalog now spells product %d %q itself; the row is a no-op",
+				productID, corrected)
+		}
+	}
+
+	groups := map[int]bool{}
+	for _, group := range catalog.Groups {
+		groups[group.GroupID] = true
+	}
+	for groupID, date := range handDates {
+		switch {
+		case !groups[groupID]:
+			log.Printf("hand dates: group %d is no longer in the catalog; the row dating it %s does nothing",
+				groupID, date)
+		case dated[groupID]:
+			log.Printf("hand dates: group %d is dated by a source now; the row dating it %s is a no-op",
+				groupID, date)
+		}
+	}
+}
+
 // handDates are release dates for the groups neither source can date: the
 // catalog stamps its request time on them and tcgdex has no set to join.
 // Each is researched, not guessed, and keyed by the group id, which the
@@ -1086,6 +1129,9 @@ func main() {
 	}
 
 	releaseDates := map[int]string{}
+	// The groups a source dates on its own, which is what makes a hand row
+	// for one of them dead rather than merely unused this run.
+	datedBySource := map[int]bool{}
 	var placeholders, filled int
 	for _, group := range groups {
 		if productsIn[group.GroupID] == 0 {
@@ -1093,12 +1139,14 @@ func main() {
 		}
 		if hasDate(group) {
 			releaseDates[group.GroupID] = group.ReleaseDate()
+			datedBySource[group.GroupID] = true
 			continue
 		}
 		placeholders++
 		dex := joinedSets[group.GroupID]
 		if dex != nil && dex.ReleaseDate != "" {
 			releaseDates[group.GroupID] = dex.ReleaseDate
+			datedBySource[group.GroupID] = true
 			filled++
 			log.Printf("%s (%s): release date %s filled from tcgdex",
 				group.Name, setCodes[group.GroupID], dex.ReleaseDate)
@@ -1113,6 +1161,7 @@ func main() {
 		}
 		log.Printf("%s (%s): no release date anywhere, left undated", group.Name, setCodes[group.GroupID])
 	}
+	reportStaleHandTables(catalog, datedBySource)
 	log.Printf("release dates: %d placeholders, %d filled, %d left empty",
 		placeholders, filled, placeholders-filled)
 
