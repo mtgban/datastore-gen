@@ -761,6 +761,60 @@ func electionKey(s *single) string {
 	return fmt.Sprintf("%d|%s", s.product.GroupID, s.number)
 }
 
+// tcgdexSymbols writes the marks tcgdex prints on a name the way TCGplayer
+// writes them. The catalog spells every one of them out and carries not a
+// single symbol in 32,675 product names - "Alakazam Star", "Giratina Prism
+// Star", "Aerodactyl (Delta Species)" - while tcgdex prints the mark: 192
+// cards carry δ, 27 carry ◇, 24 carry ☆ or ★, 36 carry ♀ or ♂.
+//
+// The catalog's spelling is the one this datastore speaks. TCGplayer is
+// what prices a card and what a storefront copies its wording from, so a
+// listing will say "Star", never "☆", and the name a listing is matched
+// against should be the one it will be written with. These only ever enter
+// through minting, which is the minority path.
+//
+// Accents need no rule: the matcher folds é to e already, so "Flabébé" and
+// "Flabebe" are one name to it whatever is stored.
+var tcgdexSymbols = strings.NewReplacer(
+	"☆", " Star",
+	"★", " Star",
+	"◇", " Prism Star",
+	"♀", " F",
+	"♂", " M",
+)
+
+// deltaRe matches the mark tcgdex hangs off a Delta Species card's name,
+// which the catalog writes as a parenthetical instead.
+var deltaRe = regexp.MustCompile(`\s*δ`)
+
+// catalogSpelling is a name written the way the catalog would write it.
+func catalogSpelling(name string) string {
+	name = deltaRe.ReplaceAllString(name, " (Delta Species)")
+	name = tcgdexSymbols.Replace(name)
+	return strings.Join(strings.Fields(name), " ")
+}
+
+// identityKey is a name and number reduced to what makes two spellings of
+// one card the same card: the catalog's marks, no case, no punctuation.
+// It is what the mint asks before adding a card, and the answer has to be
+// insensitive to every way the two sources differ in writing it down.
+func identityKey(name, number string) string {
+	folded := strings.ToLower(catalogSpelling(name))
+	var out strings.Builder
+	for _, r := range folded {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			out.WriteRune(r)
+		}
+	}
+	return out.String() + "|" + strings.ToLower(strings.TrimSpace(number))
+}
+
+// shadowShare is how much of a tcgdex set has to be the catalog's already
+// for the set to be the catalog's under another name. The measured sets sit
+// at 67% and above or at 33% and below, so anything in the gap separates
+// them; half is the middle of it and nothing sits near either side.
+const shadowShare = 0.5
+
 // nonCodeRe matches the runs a set code cannot carry.
 var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
@@ -1683,7 +1737,95 @@ func main() {
 
 	var mintedCards, mintedWithoutArt int
 	var mintedTotals int
+	// The sets tcgdex carries that the catalog already sells under another
+	// name. The gate above only asks whether a tcgdex card joined a
+	// product, and a join fails wherever the two sources cut a set
+	// differently: tcgdex files a trainer kit as one set per mascot where
+	// TCGplayer files the pair as one group, and files a Radiant Collection
+	// inside its parent set where TCGplayer gives it a group of its own.
+	// Every card of the unjoined half then became a card of its own - an
+	// unpriced twin of a card already here, splitting one printing's
+	// identity so a listing could land on either and only one carried a
+	// price. 619 of 892 minted entries were that.
+	//
+	// The test is at the set level on purpose. A card-level one refuses
+	// real cards: a McDonald's Pikachu and a Forbidden Light Pikachu can
+	// share a name and a number and be different cards, and there are some
+	// forty such coincidences. A whole tcgdex set whose cards are the cards
+	// of one catalog group is not a coincidence - the shadowing sets run
+	// 67% to 100% of their cards onto a single group, and the sets that
+	// merely collide here and there run 6% to 33%, with nothing between.
+	pricedIdentity := map[string][]string{}
+	for _, entry := range cards {
+		e, isMap := entry.(map[string]any)
+		if !isMap {
+			continue
+		}
+		name, _ := e["name"].(string)
+		number, _ := e["number"].(string)
+		setCode, _ := e["setCode"].(string)
+		key := identityKey(name, number)
+		pricedIdentity[key] = append(pricedIdentity[key], setCode)
+	}
+
+	// How much of each mintable set the catalog already sells, and where.
+	type shadow struct {
+		group string
+		share float64
+		cards int
+	}
+	printingsIn := map[string]map[string]bool{}
+	twinsIn := map[string]map[string]int{}
 	for _, card := range mintable {
+		set := card.Set.ID
+		if printingsIn[set] == nil {
+			printingsIn[set] = map[string]bool{}
+			twinsIn[set] = map[string]int{}
+		}
+		key := identityKey(card.Name, numberOf(card.LocalID))
+		if printingsIn[set][key] {
+			continue
+		}
+		printingsIn[set][key] = true
+		for _, code := range pricedIdentity[key] {
+			twinsIn[set][code]++
+			break
+		}
+	}
+	shadows := map[string]shadow{}
+	for set, counts := range twinsIn {
+		var best string
+		var n int
+		for code, c := range counts {
+			if c > n || (c == n && code < best) {
+				best, n = code, c
+			}
+		}
+		total := len(printingsIn[set])
+		if total == 0 || best == "" {
+			continue
+		}
+		if share := float64(n) / float64(total); share >= shadowShare {
+			shadows[set] = shadow{group: best, share: share, cards: total}
+		}
+	}
+	var shadowed []string
+	for set := range shadows {
+		shadowed = append(shadowed, set)
+	}
+	sort.Strings(shadowed)
+	var mintedTwins int
+	for _, set := range shadowed {
+		sh := shadows[set]
+		log.Printf("minted: tcgdex set %q is %.0f%% the catalog's %q; its %d printings are not minted",
+			set, 100*sh.share, sh.group, sh.cards)
+	}
+
+	for _, card := range mintable {
+		if _, shadowing := shadows[card.Set.ID]; shadowing {
+			mintedTwins++
+			continue
+		}
 		var finishes []string
 		for _, v := range []struct {
 			flag   bool
@@ -1720,7 +1862,7 @@ func main() {
 		for _, finish := range finishes {
 			entry := map[string]any{
 				"id":       mintedIDBase(card.ID) + finishSuffix[finish],
-				"name":     card.Name,
+				"name":     catalogSpelling(card.Name),
 				"setCode":  mintedSetCode[card.Set.ID],
 				"rarity":   rarity,
 				"finish":   finish,
@@ -1743,6 +1885,9 @@ func main() {
 			cards = append(cards, entry)
 			mintedCards++
 		}
+	}
+	if mintedTwins > 0 {
+		log.Printf("minted: %d tcgdex cards refused as twins of a product the catalog already sells", mintedTwins)
 	}
 	if mintedCards > 0 {
 		log.Printf("minted: %d entries over %d tcgdex cards the catalog has no product for (%d of those cards have no art upstream, %d took the set's own printed total)",
