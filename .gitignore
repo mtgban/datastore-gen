@@ -1,25 +1,27 @@
-# The builders themselves, which `go build ./cmd/<name>` drops here under
-# the name of its directory
-/riftbound
-/lorcana
-/onepiece
-/yugioh
-/fleshandblood
-/pokemon
+# Nothing at the repository root is tracked unless it is named here.
+#
+# The root is where the build drops things: `go build ./cmd/<name>` writes
+# a binary called <name> beside these files, and a builder run without -o
+# writes <name>.json there too. Listing those by name is what this file
+# used to do, and it went wrong the way an enumeration does - cmd/gundam
+# and cmd/palworld were added, nobody extended the list, and an 8.7MB
+# binary was committed three times before anyone noticed. The history had
+# to be rewritten to get it out.
+#
+# So the default is now no, and the exceptions are the seven things that
+# genuinely live here. A new game needs no change to this file; a new root
+# file that does belong gets one line, and until it does `git add` says so
+# out loud rather than quietly taking a binary.
+#
+# The negation cannot be written as `cmd/*` or anything like it: that
+# would ignore the builders' own source. Only the root is denied, and
+# every directory named below is walked normally.
+/*
 
-# The published datastores, pulled back down beside the builders that
-# wrote them. go-mtgban's matcher suite reads each game from here through
-# the <GAME>_PATH variables in its .env, so this directory is refreshed
-# after every publish and holds ~46MB of JSON that belongs in the bucket
-# rather than in the history.
-/output/
-
-# Datastores the builders write, and the catalog dumps they read
-/riftbound.json
-/lorcana.json
-/onepiece.json
-/yugioh.json
-/fleshandblood.json
-/pokemon.json
-*.json.xz
-/tcgplayer-catalog.json
+!/.github/
+!/cmd/
+!/.gitignore
+!/LICENSE
+!/README.md
+!/go.mod
+!/go.sum
