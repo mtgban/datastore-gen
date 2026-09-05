@@ -1092,6 +1092,24 @@ func main() {
 	if err != nil {
 		log.Fatalln("tcgdex sets:", err)
 	}
+	// A response older than the query answers every field the query did not
+	// used to ask for with nothing, and says so nowhere: -tcgdex-sets reads
+	// a file whatever the query has become, and the cache is read back
+	// verbatim when the API is unreachable. A file written before the
+	// symbol was asked for yields a datastore whose sets all draw their own
+	// badge, which looks like a datastore and is one field short of it.
+	if len(setsResponse.Sets) > 0 {
+		var withSymbol int
+		for _, set := range setsResponse.Sets {
+			if set.Symbol != "" {
+				withSymbol++
+			}
+		}
+		if withSymbol == 0 {
+			log.Printf("tcgdex sets: not one of the %d sets carries a symbol, so this response predates the query asking for one; the sets will carry none",
+				len(setsResponse.Sets))
+		}
+	}
 	cardsData, err := loadTcgdexCached(*tcgdexCards, *tcgdexCache, "tcgdex-cards.json", tcgdexCardsQuery)
 	if err != nil {
 		log.Fatalln("tcgdex cards:", err)
