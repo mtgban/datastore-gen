@@ -633,10 +633,141 @@ func promoGroups(catalog tcgplayer.CatalogDump) map[int]bool {
 
 // promoTypesOf folds a printing's surviving qualifiers to the spelling the
 // matcher declares tags in.
-func promoTypesOf(s *single) []string {
+// bareNumberingRe matches a qualifier that is a number and nothing else,
+// short enough not to be a year. The trainer kits are where they come
+// from: TCGplayer writes a card's place in the kit into its name and its
+// parent set's number into the Number field, so "Alolan Ninetales (17)"
+// and "Alolan Ninetales (30)" are one card at SM128 sold in both halves of
+// the box, told apart by where each sits. That is a numbering, not a
+// promotion.
+//
+// Four digits are left alone because they are years, and a year does name
+// a promotion: "No. 1 Trainer (2012)" is a trophy card of that season and
+// "Professor Birch (2006)" a Player Rewards card of that one, neither
+// carrying a number to say so instead.
+var bareNumberingRe = regexp.MustCompile(`^#?[0-9]{1,3}$`)
+
+// pokemonListSep matches the four ways the catalog joins a list of them.
+var pokemonListSep = regexp.MustCompile(`\s*(?:,|&|/|\band\b)\s*`)
+
+// allPokemon reports whether a qualifier is a list of Pokemon and nothing
+// else.
+func allPokemon(qualifier string, pokemon map[string]bool) bool {
+	// "Articuno, Zapdos, & Moltres" and "Shaymin, Zeraora, and Marshadow"
+	// separate twice over between the last two, so a split leaves an empty
+	// piece between them. That is the separator, not a part.
+	// A blister sometimes says what it holds as well as which: "[Snorlax,
+	// Morpeko & Applin Cards]" is three Pokemon and the word for what they
+	// are printed on.
+	qualifier = strings.TrimSuffix(qualifier, " Cards")
+	var named int
+	for _, part := range pokemonListSep.Split(qualifier, -1) {
+		if strings.TrimSpace(part) == "" {
+			continue
+		}
+		if !pokemon[mtgmatcherNormalize(part)] {
+			return false
+		}
+		named++
+	}
+	return named > 1
+}
+
+// deckPlaceRe splits a qualifier into a name and the number behind it.
+var deckPlaceRe = regexp.MustCompile(`^(.+?)\s+([0-9]{1,3})$`)
+
+// variantOnlyQuals name a label that tells two printings apart without
+// saying anything promoted either, and which no rule here can recognise on
+// its own. Trading Card Game Classic ships three decks - Blastoise,
+// Charizard and Venusaur - and every card is in all three, so CLB, CLC and
+// CLV say which deck a copy came from and nothing more. Thirteen cards
+// each, and the marker is the only thing between the three copies, so it
+// stays a variant rather than leaving.
+var variantOnlyQuals = map[string]bool{
+	"clb": true,
+	"clc": true,
+	"clv": true,
+}
+
+// namesASet reports whether a label names one of the sets this datastore
+// carries, reading past the era the catalog writes in front where our own
+// name does not carry it: "DP Legends Awakened" against "Legends Awakened",
+// "HGSS Undaunted" against "Undaunted", beside an "EX Hidden Legends" that
+// matches whole. The head has to be short enough to be an era and there has
+// to be a name behind it, so nothing reads the first word of a two-word set
+// as a prefix of the second.
+func namesASet(label string, setNames map[string]bool) bool {
+	if setNames[mtgmatcherNormalize(label)] {
+		return true
+	}
+	head, rest, found := strings.Cut(label, " ")
+	if !found || len(head) > 4 || !strings.Contains(rest, " ") && len(rest) < 4 {
+		return false
+	}
+	return setNames[mtgmatcherNormalize(rest)]
+}
+
+func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool) []string {
+	// A code card is a redemption slip, and its label names what the code
+	// unlocks or the box it came in: "Code Card - Steam Siege Collectible
+	// Pin 3 Pack Blister [Shiny Mega Gardevoir]", "[Ballonea Gym]",
+	// "[Chespin Box]". Nothing promoted the slip. Seventy labels were in the
+	// promo types for no other reason, none of them shared with a card
+	// anybody plays, and each still tells its own slip from the others as a
+	// variant.
+	if s.product.Extended("Rarity") == codeCardRarity {
+		return nil
+	}
 	out := make([]string, 0, len(s.quals))
 	for _, q := range s.quals {
+		if variantOnlyQuals[strings.ToLower(q.text)] {
+			continue
+		}
+		if onShelf && namesASet(q.text, setNames) {
+			continue
+		}
+		if pokemon[mtgmatcherNormalize(q.text)] || bareNumberingRe.MatchString(q.text) {
+			continue
+		}
+		// A Pokemon and a number is a deck and a place in it. Battle
+		// Academy names its decks after Pokemon and numbers the cards
+		// within each - "Armarouge ex (Armarouge 60)" is card 60 of the
+		// Armarouge deck, and the card's own number is 105.
+		if m := deckPlaceRe.FindStringSubmatch(q.text); m != nil && pokemon[mtgmatcherNormalize(m[1])] {
+			continue
+		}
+		// And a list of them is still them. A blister naming what is inside
+		// it - "Glaceon/Vaporeon/Sylveon/Espeon", "Articuno, Zapdos, &
+		// Moltres", "Mew & Mewtwo" - names 25 labels no two cards share,
+		// and every one is a variant for the same reason a single Pokemon
+		// is. Every part has to be a Pokemon before any of it is taken.
+		if allPokemon(q.text, pokemon) {
+			continue
+		}
 		out = append(out, strings.ToLower(q.text))
+	}
+	return out
+}
+
+// pokemonNames are the Pokemon tcgdex files as Pokemon, 2,842 of them
+// against its 3,055 Trainers and 568 Energies. A qualifier naming one is a
+// variant and not a promo type: "Ditto - 039/113 (Pikachu)" is the Ditto
+// transformed into Pikachu, "Energy Search (Latias)" is the Latias artwork,
+// and neither card was promoted by anything. 420 labels over 690 printings
+// were filed as promotions for being named after a Pokemon.
+//
+// The category is what makes this safe to do by name. "Poke Ball", "Dusk
+// Ball" and "Love Ball" are card names too and they say which pattern a
+// reverse holo wears; "Cyrus", "Ghetsis" and "Professor Rowan" are card
+// names and they say which Supporter. tcgdex files all six as Trainers, so
+// none of them is touched.
+func pokemonNames(cards []tcgdexCard) map[string]bool {
+	out := map[string]bool{}
+	for i := range cards {
+		if cards[i].Category != "Pokemon" || cards[i].Name == "" {
+			continue
+		}
+		out[mtgmatcherNormalize(cards[i].Name)] = true
 	}
 	return out
 }
@@ -854,6 +985,16 @@ var (
 	worldsSingularRe = regexp.MustCompile(`^World Championship\s+((?:19|20)\d{2})$`)
 )
 
+// blackStarRe matches the promo shelf the catalog names singular and
+// plural in one breath: "SM Black Star Promo" 21 times beside "XY Black
+// Star Promos" 11, and each spelling elected its own because the election
+// compares one label at a time. The shelf is "Black Star Promos".
+var blackStarRe = regexp.MustCompile(`(?i)black star promos?$`)
+
+func oneBlackStar(qualifier string) string {
+	return blackStarRe.ReplaceAllString(qualifier, "Black Star Promos")
+}
+
 func oneWorldsLabel(qualifier string) string {
 	if m := worldsShortRe.FindStringSubmatch(qualifier); m != nil {
 		return "World Championships 20" + m[1]
@@ -871,7 +1012,7 @@ func oneWorldsLabel(qualifier string) string {
 // where the catalog spells it several.
 func respellQual(qualifier string) string {
 	q := trimQualJoiners(qualifier)
-	return oneWorldsLabel(spelledNumbers.Replace(oneGameStop(oneCosmos(q))))
+	return oneBlackStar(oneWorldsLabel(spelledNumbers.Replace(oneGameStop(oneCosmos(q)))))
 }
 
 // peelQuals peels the trailing parenthetical and bracket qualifiers off a
@@ -920,7 +1061,7 @@ func peelQuals(name string) (string, []qual) {
 // printed in, so it distinguishes a Pikachu from nothing; the six other
 // languages beside it in the same set do distinguish theirs and stay.
 var droppedQuals = map[string]bool{
-	"English": true,
+	"english": true,
 }
 
 // isBareLetter reports whether a qualifier is a single letter and nothing
@@ -929,8 +1070,10 @@ var droppedQuals = map[string]bool{
 // What is left is a letter the catalog wrote and the number already says:
 // "M Charizard EX (X)" is numbered 69 where its Y is numbered 13, and a
 // promo type spelled "x" helps no one read that.
-// setOfRe matches the count a multi-card product carries in its name.
-var setOfRe = regexp.MustCompile(`(?i)^set of \d+$`)
+// setOfRe matches the count a multi-card product carries in its name,
+// written either way: "Zacian V-UNION [Set of 4]" and "Code Card - Mini
+// Portfolio [Giratina] (2-Pack)".
+var setOfRe = regexp.MustCompile(`(?i)^(?:set of \d+|\d+-pack)$`)
 
 func isBareLetter(qualifier string) bool {
 	if len([]rune(qualifier)) != 1 {
@@ -945,25 +1088,31 @@ func isBareLetter(qualifier string) bool {
 // only card of 298 staff printings to run the two words together, and the
 // three Non-Holos are a surface and a distribution said in one breath.
 var qualSplits = map[string][]string{
-	"Prerelease Staff":            {"Prerelease", "Staff"},
-	"Non-Holo DVD Promo":          {"Non-Holo", "DVD Promo"},
-	"Non-Holo GameStop Exclusive": {"Non-Holo", "GameStop Exclusive"},
-	"Non-Holo Movie Exclusive":    {"Non-Holo", "Movie Exclusive"},
+	"prerelease staff": {"Prerelease", "Staff"},
+	// A rarity and a treatment: "Mewtwo EX (163 Secret Full Art)" is the
+	// secret rare and it is full art, and both are labels hundreds of cards
+	// carry on their own.
+	"secret full art": {"Secret", "Full Art"},
+	// A store and a surface, the way its Non-Holo siblings already read.
+	"target non-holo":             {"Target Promo", "Non-Holo"},
+	"non-holo dvd promo":          {"Non-Holo", "DVD Promo"},
+	"non-holo gamestop exclusive": {"Non-Holo", "GameStop Exclusive"},
+	"non-holo movie exclusive":    {"Non-Holo", "Movie Exclusive"},
 }
 
 var qualSpellings = map[string]string{
-	"Player Reward": "Player Rewards",
+	"player reward": "Player Rewards",
 	// One marking, named twice. Both cards carry the anniversary logo, and
 	// the catalog calls it a stamp on one of them: "Professor Burnet -
 	// SWSH167 (25th Anniversary Stamp)" against "Pikachu - 58/102 (25th
 	// Anniversary)". The bare form is what its own family uses, the catalog
 	// writing "10th Anniversary" and "20th Anniversary" beside it.
-	"25th Anniversary Stamp": "25th Anniversary",
+	"25th anniversary stamp": "25th Anniversary",
 	// One marking, named twice, one use each: "Larvitar (Delta Species
 	// Stamp)" against "Ditto - 64/113 (Squirtle) (Delta Species Stamped)".
 	// "Stamped" is what the rest of the catalog says - Charizard Stamped,
 	// Pikachu Stamped, Chaos Rising Stamped.
-	"Delta Species Stamp": "Delta Species Stamped",
+	"delta species stamp": "Delta Species Stamped",
 	// One storefront naming its exclusive two ways, thirteen times and
 	// four: "Flapple - 022/192 (EB Games Exclusive)" against "Lechonk -
 	// 154/198 (EB Games Promo)".
@@ -972,43 +1121,85 @@ var qualSpellings = map[string]string{
 	// sells two Flapples at 022/192, one under each label, so the region is
 	// the only thing between them - fold it and validate refuses the build
 	// for two products wearing one identity, which is how this was found.
-	"EB Games Promo": "EB Games Exclusive",
-	"EB Games":       "EB Games Exclusive",
+	"eb games promo": "EB Games Exclusive",
+	"eb games":       "EB Games Exclusive",
 	// A convention names itself with and without the year it was held and
 	// the word promo: "Treecko - 70/106 (GEN CON)" against "Bagon - 50/97
 	// (Gen Con 2004 Promo)". A promo type saying "promo" says nothing.
-	"GEN CON":            "Gen Con",
-	"Gen Con 2004 Promo": "Gen Con",
+	"gen con":            "Gen Con",
+	"gen con 2004 promo": "Gen Con",
 	// And a cereal company, the same way: "Pikachu - SM04 (General Mills)"
 	// against "Litten - SM02 (General Mills Promo)".
-	"General Mills Promo": "General Mills",
+	"general mills promo": "General Mills",
 	// One surface, three labels: eighteen "Holo", eight "Holo Common" and
 	// three "Holofoil". The rarity says common where a card is common, so
 	// the label only has to say holo.
-	"Holofoil":    "Holo",
-	"Holo Common": "Holo",
+	"holofoil":    "Holo",
+	"holo common": "Holo",
 	// "Ancient Mew (Japanese Exclusive Print)" against "Gardevoir ex
 	// (Japanese Exclusive)". The ones naming a set beside them - "SM-P
 	// Japanese Exclusive", "Vstar Universe Japanese Exclusive" - name a
 	// different thing and stay.
-	"Japanese Exclusive Print": "Japanese Exclusive",
+	"japanese exclusive print": "Japanese Exclusive",
 	// A player misspelled once out of twenty-four. Naoto Suzuki played the
 	// 2017 World Championships and twenty-three of his cards say so; the
 	// Wimpod says Naoko.
-	"Naoko Suzuki": "Naoto Suzuki",
+	"naoko suzuki": "Naoto Suzuki",
 	// A label saying "promo" says nothing this field does not, so where the
 	// catalog offers both the bare form wins.
-	"National Championship Promo": "National Championships",
-	"Premium Collection Promo":    "Premium Collection",
-	"Thank You Promo":             "Thank You",
-	"Toys R Us Promo":             "Toys R Us",
-	"Pokemon Day Stamped":         "Pokemon Day",
+	"national championship promo": "National Championships",
+	"premium collection promo":    "Premium Collection",
+	"thank you promo":             "Thank You",
+	"toys r us promo":             "Toys R Us",
+	"pokemon day stamped":         "Pokemon Day",
 	// The kit is where the prerelease card came from, which is what
 	// "Prerelease" already says on the other 327.
-	"Prerelease Kit Exclusive": "Prerelease",
+	"prerelease kit exclusive": "Prerelease",
 	// One code card naming the deck's Urshifu with its VMAX and one
 	// without.
-	"Single Strike Urshifu VMAX": "Single Strike Urshifu",
+	"single strike urshifu vmax": "Single Strike Urshifu",
+	// More of the same: a season, a shelf, a store, a surface, each named
+	// twice. Where the catalog offers a bare form the word "promo" comes
+	// off it, and where it does not the fuller name is the one that says
+	// something.
+	"2006-2007 league promo":      "2006-2007",
+	"2011 pokemon league promo":   "2011 Pokemon League",
+	"black bolt":                  "Black Bolt Stamped",
+	"black star":                  "Black Star Promos",
+	"gamestop":                    "GameStop Exclusive",
+	"gamestop metal card":         "GameStop Exclusive",
+	"gamestop promo":              "GameStop Exclusive",
+	"movie exclusive":             "Movie",
+	"movie promo":                 "Movie",
+	"snap promo":                  "Snap",
+	"state championship promo":    "State Championships",
+	"store exclusive promo":       "Store Exclusive",
+	"store promo":                 "Store Exclusive",
+	"prismatic evolution stamped": "Prismatic Evolutions Stamped",
+	// Two players misspelled once each, against nineteen and twenty-seven
+	// cards that spell them right.
+	// The catalog abbreviates the mark on nine cards and writes it out on
+	// 361: "Dustox (8 Delta)" against "Aerodactyl (Delta Species)".
+	"delta": "Delta Species",
+	// Two Pokemon the catalog misspells, which the rule above cannot see
+	// as Pokemon until they are spelled the way one is.
+	"rowlett":             "Rowlet",
+	"galarian slowbrow v": "Galarian Slowbro V",
+	// A tier, a set, a convention, a programme and a championship, each
+	// named twice.
+	"league":                      "League Promo",
+	"surging sparks":              "Surging Sparks Stamped",
+	"san diego comic con":         "SDCC Stamp",
+	"secret shining":              "Secret",
+	"play! pokemon promo":         "Play! Pokemon",
+	"regional championship promo": "Regional Championships",
+	"regional stamp promo":        "Regional Championships",
+	// The year is on seven of the eight and not on the eighth, and nothing
+	// here knows it belongs there, so the eight read as the seven do
+	// without it rather than the one being given a year it may not have.
+	"wotc 2002 league promo":     "WotC League Promo",
+	"jeremy moran":               "Jeremy Maron",
+	"jose cruz galindo-rosendiz": "Jose Cruz Galindo-Resendiz",
 }
 
 var rawNames = map[int]string{
@@ -1167,12 +1358,6 @@ func decompose(p tcgplayer.Product, num, year string) (single, int) {
 	// and each has to face the number and rarity checks on its own.
 	var expanded []qual
 	for _, q := range quals {
-		if parts, split := qualSplits[q.text]; split {
-			for _, part := range parts {
-				expanded = append(expanded, qual{text: part, bracket: q.bracket})
-			}
-			continue
-		}
 		if m := bracketInnerRe.FindStringSubmatch(q.text); m != nil {
 			expanded = append(expanded,
 				qual{text: strings.TrimSpace(m[1]), bracket: q.bracket},
@@ -1202,6 +1387,22 @@ func decompose(p tcgplayer.Product, num, year string) (single, int) {
 		}
 		s.quals = append(s.quals, q)
 	}
+
+	// The hand splits read last, on the label the number has come off:
+	// "Mewtwo EX (163 Secret Full Art)" is not "Secret Full Art" until the
+	// 163 restating its own number is gone.
+	var split []qual
+	for _, q := range s.quals {
+		parts, hand := qualSplits[strings.ToLower(q.text)]
+		if !hand {
+			split = append(split, q)
+			continue
+		}
+		for _, part := range parts {
+			split = append(split, qual{text: part, bracket: q.bracket})
+		}
+	}
+	s.quals = split
 	return s, numberLed
 }
 
@@ -1896,6 +2097,7 @@ func main() {
 	// is a property of the printing and leaves as a variant label, which is
 	// what the entry publishes as its promo types - the one exception being
 	// a qualifier tcgdex prints as part of the name itself.
+	pokemon := pokemonNames(cardsResponse.Cards)
 	nameQuals := dexNameQuals(cardsResponse.Cards)
 	var keptQuals, droppedLabels int
 	for i := range singles {
@@ -1922,7 +2124,7 @@ func main() {
 		s.baseName = strings.Join(name, " ")
 		s.quals = nil
 		for _, q := range variant {
-			if droppedQuals[q.text] || isBareLetter(q.text) {
+			if droppedQuals[strings.ToLower(q.text)] || isBareLetter(q.text) {
 				droppedLabels++
 				continue
 			}
@@ -1959,6 +2161,59 @@ func main() {
 			written[q.text] = true
 		}
 	}
+	// A dash inside a parenthesis joins two labels where both halves are
+	// labels other cards already carry: "Deoxys (Delta Species - Attack
+	// Forme)" is a Delta Species card in its Attack Forme, and "Espeon -
+	// 2/90 (HGSS Undaunted - Cracked Ice Holo)" a set and a surface. The
+	// peeler reads the outer delimiter and stops, so both arrived whole.
+	//
+	// Both halves have to be known before either is taken, which is what
+	// keeps this off a dash that is part of a label rather than between
+	// two: "Jose Cruz Galindo-Resendiz" has no space around its dash and
+	// "2006-2007" none either, and neither half of either is a label.
+	var dashSplit int
+	for i := range singles {
+		var out []qual
+		for _, q := range singles[i].quals {
+			head, tail, found := strings.Cut(q.text, " - ")
+			if !found || !written[head] || !written[tail] {
+				out = append(out, q)
+				continue
+			}
+			out = append(out,
+				qual{text: head, bracket: q.bracket},
+				qual{text: tail, bracket: q.bracket})
+			dashSplit++
+		}
+		singles[i].quals = out
+	}
+	if dashSplit > 0 {
+		log.Printf("promo types: %d labels split on a dash joining two the catalog writes apart", dashSplit)
+	}
+
+	// A signature is a treatment and the name in front of it is the player,
+	// who is a label 26 other cards of that championship already carry:
+	// "Regidrago VSTAR - 2024 (Evan Pavelski Gold Signature)".
+	var goldSplit int
+	for i := range singles {
+		var out []qual
+		for _, q := range singles[i].quals {
+			head, ok := strings.CutSuffix(q.text, " Gold Signature")
+			if !ok || !written[head] {
+				out = append(out, q)
+				continue
+			}
+			out = append(out,
+				qual{text: head, bracket: q.bracket},
+				qual{text: "Gold Signature", bracket: q.bracket})
+			goldSplit++
+		}
+		singles[i].quals = out
+	}
+	if goldSplit > 0 {
+		log.Printf("promo types: %d signatures split from the player who signed", goldSplit)
+	}
+
 	var stamped int
 	for i := range singles {
 		for j, q := range singles[i].quals {
@@ -2043,7 +2298,7 @@ func main() {
 	var handFixed int
 	for i := range singles {
 		for j, q := range singles[i].quals {
-			if fixed, hand := qualSpellings[q.text]; hand {
+			if fixed, hand := qualSpellings[strings.ToLower(q.text)]; hand {
 				singles[i].quals[j].text = fixed
 				handFixed++
 			}
@@ -2441,6 +2696,35 @@ func main() {
 		catalogFinishes[product.ProductID] = printings[product.ProductID]
 	}
 
+	// The sets this datastore carries, by name, and the ones that are a
+	// shelf rather than a set. "Deck Exclusives" and "Blister Exclusives"
+	// hold cards sold only inside a deck or a blister, and the label on
+	// each says which set it was pulled from: "Metagross - 11/101 (EX
+	// Hidden Legends)" is numbered out of 101 and EX Hidden Legends holds
+	// 101, which is true of 111 of the 116 that name a set we carry.
+	//
+	// That is provenance, not promotion, so it leaves the promo types and
+	// stays the variant it already was. Scoped to those shelves because
+	// the same test unscoped reads "Gym Challenge" as the 2000 set rather
+	// than the tournament tier, and "Base Set" and "Jungle" off cards that
+	// only picture them.
+	setNames := map[string]bool{}
+	exclusiveShelf := map[string]bool{}
+	for code, entry := range sets {
+		set, isMap := entry.(map[string]any)
+		if !isMap {
+			continue
+		}
+		name, _ := set["name"].(string)
+		if name == "" {
+			continue
+		}
+		setNames[mtgmatcherNormalize(name)] = true
+		if strings.HasSuffix(name, "Exclusives") {
+			exclusiveShelf[code] = true
+		}
+	}
+
 	var cards []any
 	for i := range singles {
 		s := &singles[i]
@@ -2489,7 +2773,12 @@ func main() {
 				// The same labels as a list: joined, "Full Art Staff"
 				// cannot be read back into the two tags it holds, and the
 				// matcher needs them whole to declare and to match on.
-				entry["promoTypes"] = promoTypesOf(s)
+				// A printing whose only label was a Pokemon has a variant
+				// and no promo types, so the key stays off rather than
+				// carrying an empty list.
+				if tags := promoTypesOf(s, pokemon, setNames, exclusiveShelf[setCodeFor(s.product)]); len(tags) > 0 {
+					entry["promoTypes"] = tags
+				}
 			}
 			if dex != nil {
 				entry["tcgdexId"] = dex.ID
