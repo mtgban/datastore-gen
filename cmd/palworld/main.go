@@ -202,6 +202,47 @@ func imageURL(url string) string {
 
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
 
+// soulCardName is what every Soul card is called, which is why the label on
+// one has to be read rather than joined to it. Ten of them carry the name
+// and nothing else, so a qualifier on one either says which Pal is drawn on
+// it or how it was handed out, and only the second kind is a promotion.
+const soulCardName = "Soul"
+
+// palNames are the Pals this datastore carries, read off the head of every
+// card name: "Chillet - Dragon Whisperer" is Chillet, and a Soul card
+// labelled "(Chillet)" is the Soul with Chillet on it. Read off the data
+// rather than named, because the game's own card list is the list of Pals
+// and it grows with every set.
+func palNames(singles []single) map[string]bool {
+	out := map[string]bool{}
+	for _, s := range singles {
+		head, _, _ := strings.Cut(s.baseName, " - ")
+		if head = strings.TrimSpace(head); head != "" {
+			out[strings.ToLower(head)] = true
+		}
+	}
+	return out
+}
+
+// promoTypesOf is the labels a printing carries, one at a time and
+// lowercased the way every datastore here spells a promo type. The Pal a
+// Soul card pictures is not one: nothing promoted a Soul for having Nox on
+// it, so the Pal stays the variant it already is.
+func promoTypesOf(name string, quals []string, pals map[string]bool) []string {
+	out := make([]string, 0, len(quals))
+	for _, qual := range quals {
+		tag := strings.ToLower(strings.Join(strings.Fields(qual), " "))
+		if tag == "" || slices.Contains(out, tag) {
+			continue
+		}
+		if name == soulCardName && pals[tag] {
+			continue
+		}
+		out = append(out, tag)
+	}
+	return out
+}
+
 // single is a card product with its name taken apart: the base name, the
 // collector number, and the parentheticals the election below decides the
 // meaning of.
@@ -633,6 +674,8 @@ func main() {
 		catalogFinishes[product.ProductID] = printings[product.ProductID]
 	}
 
+	pals := palNames(singles)
+
 	var cards []any
 	for _, s := range singles {
 		productID := s.product.ProductID
@@ -656,6 +699,9 @@ func main() {
 			}
 			if len(s.quals) > 0 {
 				entry["variant"] = strings.Join(s.quals, " ")
+				if tags := promoTypesOf(s.baseName, s.quals, pals); len(tags) > 0 {
+					entry["promoTypes"] = tags
+				}
 			}
 			if t := s.product.Extended("CardType"); t != "" {
 				entry["type"] = t
