@@ -1565,6 +1565,33 @@ func main() {
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
+	// The id upstream knows this printing by, in the place every other
+	// identifier lives. It has been written flat on the entry beside an
+	// externalLinks holding only the TCGplayer id, so "which id spaces is
+	// this card in" has been two questions rather than one - and three
+	// across the eight games, because Riftbound writes the TCGplayer id
+	// flat as well. It is written in both places for now: the loader reads
+	// the flat one, and the flat one goes when it reads this one instead.
+	var linked int
+	for _, entry := range cards {
+		item, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := item["bandaiId"].(string)
+		if id == "" {
+			continue
+		}
+		links, ok := item["externalLinks"].(map[string]any)
+		if !ok {
+			links = map[string]any{}
+			item["externalLinks"] = links
+		}
+		links["bandaiId"] = id
+		linked++
+	}
+	log.Printf("external links: %d cards carry their bandaiId under externalLinks as well", linked)
+
 	doc := map[string]any{
 		"game":   "onepiece",
 		"sets":   sets,
