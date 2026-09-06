@@ -492,6 +492,20 @@ func setCodeOf(abbreviation string) string {
 	return strings.Trim(nonAlnumRe.ReplaceAllString(abbreviation, "-"), "-")
 }
 
+// isPromoGroup reports whether a catalog group hands its cards out rather
+// than selling them in packs of its own. The group name is the only thing
+// that says so in this category, the way it is the only thing in Yu-Gi-Oh's:
+// the rarity names the treatment a card wears and never the promotion that
+// handed it out, so a rarity test finds no wholly promotional group here at
+// all.
+//
+// The matcher has been reading the set name for this because the datastore
+// never said it - "strings.Contains(strings.ToLower(set.Name), "promotional")" - which is the same fact
+// asserted twice, in the place that cannot see the catalog.
+func isPromoGroup(group tcgplayer.Group) bool {
+	return strings.Contains(strings.ToLower(group.Name), "promo")
+}
+
 // setCodes assigns every group a unique, non-empty set code. Codes are
 // claimed in group-id order, so the group that claimed one keeps it bare
 // and only a later arrival is marked: a set code then depends on the groups
@@ -768,18 +782,26 @@ func main() {
 		productsIn[product.GroupID]++
 	}
 	sets := map[string]any{}
-	var populated, skippedEmpty int
+	var populated, promoSets, skippedEmpty int
 	for _, group := range catalog.Groups {
 		if productsIn[group.GroupID] == 0 {
 			skippedEmpty++
 			continue
 		}
 		populated++
-		sets[codes[group.GroupID]] = map[string]any{
+		set := map[string]any{
 			"name":        group.Name,
 			"releaseDate": group.ReleaseDate(),
 		}
+		// The type is what tells the matcher a printing is promotional, so
+		// only the wholly promotional groups carry it.
+		if isPromoGroup(group) {
+			set["type"] = "promo"
+			promoSets++
+		}
+		sets[codes[group.GroupID]] = set
 	}
+	log.Printf("promotional sets: %d of %d", promoSets, len(sets))
 	if skippedEmpty > 0 {
 		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
 	}

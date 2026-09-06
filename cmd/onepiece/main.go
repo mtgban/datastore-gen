@@ -707,6 +707,28 @@ func packKey(s string) string {
 	return strings.ToUpper(nonCodeRe.ReplaceAllString(s, ""))
 }
 
+// isPromoGroup reports whether a catalog group hands its cards out rather
+// than selling them in packs of its own.
+//
+// The matcher has been reading this off the set name because the datastore
+// typed no set - "promotion cards" or "pre-release", in a function whose
+// comment says so - and this is that same test, moved to the side that can
+// see the catalog. Two families answer to it: the promo set, which names
+// itself, and the pre-release sets, which hand out stamped copies ahead of
+// a release. Matching the name rather than the code keeps the Premium
+// Booster sets out, whose codes begin "PRB" but which are an ordinary
+// product.
+//
+// The event distributions this leaves untyped - the Release Event and
+// Anniversary Tournament cards, 21 groups over 1,600 printings - hand their
+// cards out too, and typing them is a change to what the matcher believes
+// rather than a change to where the belief is written. That is a decision,
+// not a port, and it is not made here.
+func isPromoGroup(group tcgplayer.Group) bool {
+	lower := strings.ToLower(group.Name)
+	return strings.Contains(lower, "promotion cards") || strings.Contains(lower, "pre-release")
+}
+
 // setCodes assigns every group a unique, non-empty set code. Abbreviations
 // repeat across groups in this category the way they do in every other one
 // — a set beside the promo group that hands its cards out, a reissue beside
@@ -1295,18 +1317,26 @@ func main() {
 		productsIn[product.GroupID]++
 	}
 	sets := map[string]any{}
-	var populated, skippedEmpty int
+	var populated, promoSets, skippedEmpty int
 	for _, group := range catalog.Groups {
 		if productsIn[group.GroupID] == 0 {
 			skippedEmpty++
 			continue
 		}
 		populated++
-		sets[codes[group.GroupID]] = map[string]any{
+		set := map[string]any{
 			"name":        group.Name,
 			"releaseDate": group.ReleaseDate(),
 		}
+		// The type is what tells the matcher a printing is promotional, so
+		// only the wholly promotional groups carry it.
+		if isPromoGroup(group) {
+			set["type"] = "promo"
+			promoSets++
+		}
+		sets[codes[group.GroupID]] = set
 	}
+	log.Printf("promotional sets: %d of %d", promoSets, len(sets))
 	if skippedEmpty > 0 {
 		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
 	}
