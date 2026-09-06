@@ -189,6 +189,19 @@ func publicCode(group tcgplayer.Group, number string) string {
 	return group.Abbreviation + "-" + strings.Join(strings.Fields(number), "")
 }
 
+// numberWritten is the collector number as a storefront writes it: what
+// follows the set prefix, without the "/total" tail, in the case the
+// gallery printed it. numberOf beside it folds the same string for
+// comparison, lowercasing and stripping leading zeros; this one is the
+// value the datastore publishes, because every other game here publishes
+// the number as written.
+func numberWritten(code string) string {
+	if idx := strings.IndexByte(code, '-'); idx >= 0 {
+		code = code[idx+1:]
+	}
+	return strings.Split(code, "/")[0]
+}
+
 // numberOf reduces a collector number or public code to the loader's
 // canonical form: what follows any set prefix, without the "/total" tail.
 func numberOf(code string) string {
@@ -225,6 +238,7 @@ func canonicalNumber(number string) string {
 // than only those the gallery published.
 func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string, printings []string) map[string]any {
 	name, qualifiers := splitQualifiers(product.Name)
+	kept := keptQualifiers(qualifiers, number)
 	promoTypes := promoTypesOf(qualifiers, number)
 
 	item := map[string]any{
@@ -251,15 +265,16 @@ func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string
 	}
 	if len(promoTypes) > 0 {
 		item["promoTypes"] = promoTypes
+		item["variant"] = strings.Join(kept, " ")
 	}
 	return item
 }
 
-// promoTypesOf is the labels a printing's qualifiers hold, lowercased the
-// way every datastore here spells a promo type. Both kinds of printing read
-// it - the ones adopted into a gallery set and the ones minted into a set
-// of their own - because a qualifier means the same thing either way, and a
-// rule written on one path alone reaches half the cards: the six runes the
+// keptQualifiers is the qualifiers that say something about a printing, in
+// the spelling the catalog wrote them. Both kinds of printing read it - the
+// ones adopted into a gallery set and the ones minted into a set of their
+// own - because a qualifier means the same thing either way, and a rule
+// written on one path alone reaches half the cards: the six runes the
 // promotional set carries were labelled "r01c" through "r06c" while their
 // siblings on the other path were not.
 //
@@ -271,20 +286,33 @@ func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string
 //
 // "Promo" on the end of a label says what the set the printing is filed
 // under already says.
-func promoTypesOf(qualifiers []string, number string) []string {
+func keptQualifiers(qualifiers []string, number string) []string {
 	out := make([]string, 0, len(qualifiers))
 	for _, qualifier := range qualifiers {
 		if strings.EqualFold(numberOf(qualifier), numberOf(number)) {
 			continue
 		}
-		tag := strings.ToLower(strings.Join(strings.Fields(qualifier), " "))
-		if trimmed := strings.TrimSuffix(tag, " promo"); trimmed != "" {
-			tag = trimmed
+		qualifier = strings.Join(strings.Fields(qualifier), " ")
+		if trimmed := strings.TrimSuffix(qualifier, " Promo"); trimmed != "" {
+			qualifier = trimmed
 		}
-		if tag == "" || slices.Contains(out, tag) {
+		if qualifier == "" || slices.ContainsFunc(out, func(s string) bool {
+			return strings.EqualFold(s, qualifier)
+		}) {
 			continue
 		}
-		out = append(out, tag)
+		out = append(out, qualifier)
+	}
+	return out
+}
+
+// promoTypesOf is those labels lowercased, the way every datastore here
+// spells a promo type.
+func promoTypesOf(qualifiers []string, number string) []string {
+	kept := keptQualifiers(qualifiers, number)
+	out := make([]string, len(kept))
+	for i, qualifier := range kept {
+		out[i] = strings.ToLower(qualifier)
 	}
 	return out
 }
@@ -724,6 +752,7 @@ func main() {
 			// promos share one clean name and are told apart by number or
 			// by the storefront's own wording matching the types.
 			name, qualifiers := splitQualifiers(product.Name)
+			kept := keptQualifiers(qualifiers, number)
 			promoTypes := promoTypesOf(qualifiers, number)
 
 			item := map[string]any{
@@ -753,6 +782,7 @@ func main() {
 			}
 			if len(promoTypes) > 0 {
 				item["promoTypes"] = promoTypes
+				item["variant"] = strings.Join(kept, " ")
 			}
 			cardItems = append(cardItems, item)
 			added++
@@ -812,6 +842,75 @@ func main() {
 		gallery["sealed"] = map[string]any{"items": sealedItems}
 	}
 	log.Printf("sealed: %d products", len(sealedItems))
+
+	// The fields every other datastore here carries, added beside the
+	// gallery's own rather than in place of them. This file is the upstream
+	// payload with our data merged in, which is what lets the loader read it
+	// unchanged - and it is also why a consumer holding it has to know a
+	// second vocabulary for facts every other game states plainly: the set
+	// is an object rather than a code, the picture is "cardImage", the
+	// product id is bare where everyone else wraps it, and the labels have
+	// no joined string beside them at all. Adding the common names costs
+	// the loader nothing and spares every reader the special case.
+	var stamped, variants int
+	for _, raw := range cardItems {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if set, ok := item["set"].(map[string]any); ok {
+			if value, ok := set["value"].(map[string]any); ok {
+				if id, ok := value["id"].(string); ok && id != "" {
+					item["setCode"] = id
+				}
+			}
+		}
+		if code, ok := item["publicCode"].(string); ok {
+			if number := numberWritten(code); number != "" {
+				item["number"] = number
+			}
+		}
+		if image, ok := item["cardImage"].(map[string]any); ok {
+			if url, ok := image["url"].(string); ok && url != "" {
+				item["image"] = url
+			}
+		}
+		if id, ok := item["tcgplayerProductId"].(float64); ok && id != 0 {
+			item["externalLinks"] = map[string]any{"tcgPlayerId": int(id)}
+		} else if id, ok := item["tcgplayerProductId"].(int); ok && id != 0 {
+			item["externalLinks"] = map[string]any{"tcgPlayerId": id}
+		}
+		if _, found := item["variant"]; found {
+			variants++
+		}
+		stamped++
+	}
+	log.Printf("common fields: %d cards given a setCode, number, image and product link; %d given a variant",
+		stamped, variants)
+
+	// The base run's size, under the name Pokemon and mtgjson give it. The
+	// gallery calls it collectorNumberMax and Lorcana's upstream calls it
+	// cardCounts.base; the fact is the same one.
+	var sized int
+	for _, raw := range setItems {
+		set, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch max := set["collectorNumberMax"].(type) {
+		case float64:
+			if max > 0 {
+				set["baseSetSize"] = int(max)
+				sized++
+			}
+		case int:
+			if max > 0 {
+				set["baseSetSize"] = max
+				sized++
+			}
+		}
+	}
+	log.Printf("sets: %d given a baseSetSize beside the gallery's collectorNumberMax", sized)
 
 	sets["items"] = setItems
 	cards["items"] = cardItems

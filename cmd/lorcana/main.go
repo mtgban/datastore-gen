@@ -937,11 +937,24 @@ func main() {
 	// rule written where the two meet cannot reach one and miss the other.
 	universal := universalVarnishes(items)
 	vocabulary := map[string]int{}
-	var labelled int
+	var labelled, imaged int
 	for _, raw := range items {
 		item, ok := raw.(map[string]any)
 		if !ok {
 			continue
+		}
+		// The card's picture, under the name the other seven datastores
+		// give it. Upstream publishes an images object with a full, a
+		// thumbnail and the masks; every other game here publishes one
+		// string called "image", and a consumer should not have to know
+		// which game it is holding to find the picture.
+		if _, found := item["image"]; !found {
+			if images, ok := item["images"].(map[string]any); ok {
+				if full, ok := images["full"].(string); ok && full != "" {
+					item["image"] = full
+					imaged++
+				}
+			}
 		}
 		types := promoTypesOf(item, universal)
 		if len(types) == 0 {
@@ -953,6 +966,7 @@ func main() {
 			vocabulary[t]++
 		}
 	}
+	log.Printf("image: %d cards given the common field beside upstream's images object", imaged)
 	log.Printf("promo types: %d labels over %d cards, and %d varnishes left off as their rarity's own",
 		len(vocabulary), labelled, len(universal))
 
@@ -981,6 +995,29 @@ func main() {
 	if sets == nil {
 		log.Fatalln("lorcana source: no sets")
 	}
+	// The base run's size, under the name Pokemon and mtgjson give it.
+	// Upstream calls it cardCounts.base and Riftbound's gallery calls it
+	// collectorNumberMax; the fact is the same one, and a reader of this
+	// file should not have to learn three names for it.
+	var sized int
+	for _, raw := range sets {
+		set, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, found := set["baseSetSize"]; found {
+			continue
+		}
+		counts, ok := set["cardCounts"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if base, ok := counts["base"].(float64); ok && base > 0 {
+			set["baseSetSize"] = int(base)
+			sized++
+		}
+	}
+	log.Printf("sets: %d given a baseSetSize beside upstream's cardCounts", sized)
 	var sealedItems []any
 	for _, group := range groups {
 		var count int
