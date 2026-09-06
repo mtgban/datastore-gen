@@ -673,6 +673,20 @@ func allPokemon(qualifier string, pokemon map[string]bool) bool {
 	return named > 1
 }
 
+// stampPlaceRe splits the place off a stamp that carries one. Battle
+// Academy stamps every card of a deck and numbers them, so "#47 Charizard
+// Stamped" is the 47th card of the Charizard deck - 180 labels over 240
+// printings, and behind them only three stamps: Charizard, Pikachu and
+// Cinderace.
+//
+// The stamp is a promotion and the place in the deck is not, so the place
+// comes off here and stays in the variant, where it goes on telling the
+// sixty cards of a deck apart.
+var stampPlaceRe = regexp.MustCompile(`^#[0-9]{1,3}\s+(\S.*)$`)
+
+// formeRe matches a label naming which shape a Pokemon is in.
+var formeRe = regexp.MustCompile(`(?i)^(?:.+ forme|form [a-z])$`)
+
 // deckPlaceRe splits a qualifier into a name and the number behind it.
 var deckPlaceRe = regexp.MustCompile(`^(.+?)\s+([0-9]{1,3})$`)
 
@@ -687,6 +701,18 @@ var variantOnlyQuals = map[string]bool{
 	"clb": true,
 	"clc": true,
 	"clv": true,
+	// The three Champions Festival years, which their numbers already fix:
+	// XY27 is the 2014 card, XY91 the 2015 and XY176 the 2016, and the
+	// seven placings each carries had the same year taken off them for the
+	// same reason. No other card carries a bare year of these three, and if
+	// one ever does it will read as a variant here until somebody says
+	// otherwise.
+	"2014": true,
+	"2015": true,
+	"2016": true,
+	// "Gym Badge (Giovanni)" is one badge of eight, each named for the
+	// leader who awards it. Which badge, not what promoted it.
+	"giovanni": true,
 }
 
 // namesASet reports whether a label names one of the sets this datastore
@@ -726,6 +752,14 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool) []
 		if onShelf && namesASet(q.text, setNames) {
 			continue
 		}
+		// Which shape the Pokemon is in, which no card was promoted for:
+		// Deoxys in its Normal, Attack, Defense and Speed Formes at four
+		// numbers of its own, Shaymin Lv.X in its Land and Sky, and the two
+		// M Charizard EX that say Form X and Form Y where the four others
+		// say a bare X and Y this already leaves out.
+		if formeRe.MatchString(q.text) {
+			continue
+		}
 		if pokemon[mtgmatcherNormalize(q.text)] || bareNumberingRe.MatchString(q.text) {
 			continue
 		}
@@ -744,7 +778,11 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool) []
 		if allPokemon(q.text, pokemon) {
 			continue
 		}
-		out = append(out, strings.ToLower(q.text))
+		text := q.text
+		if m := stampPlaceRe.FindStringSubmatch(text); m != nil {
+			text = m[1]
+		}
+		out = append(out, strings.ToLower(text))
 	}
 	return out
 }
@@ -1197,7 +1235,45 @@ var qualSpellings = map[string]string{
 	// The year is on seven of the eight and not on the eighth, and nothing
 	// here knows it belongs there, so the eight read as the seven do
 	// without it rather than the one being given a year it may not have.
-	"wotc 2002 league promo":     "WotC League Promo",
+	"wotc 2002 league promo": "WotC League Promo",
+	// The Champions Festival placings, whose year the number already
+	// fixes: XY27 is the 2014 card, XY91 the 2015 and XY176 the 2016, and
+	// each carries seven placings that say the year again. Nine year-less
+	// placings already sit beside them.
+	//
+	// A table rather than a rule, because a year in front is only redundant
+	// where something else says it. "2010 Play! Pokemon" and "2011 Pokemon
+	// League" sit on energies with no number at all, and dropping their
+	// year would drop the only season they name.
+	"2014 champion":         "Champion",
+	"2014 finalist":         "Finalist",
+	"2014 quarter finalist": "Quarter-Finalist",
+	"2014 semi-finalist":    "Semi-Finalist",
+	"2014 staff":            "Staff",
+	"2014 top 16":           "Top 16",
+	"2014 top 32":           "Top 32",
+	"2015 champion":         "Champion",
+	"2015 finalist":         "Finalist",
+	"2015 quarter finalist": "Quarter-Finalist",
+	"2015 semi-finalist":    "Semi-Finalist",
+	"2015 top 16":           "Top 16",
+	"2015 top 32":           "Top 32",
+	"2016 champion":         "Champion",
+	"2016 finalist":         "Finalist",
+	"2016 quarter finalist": "Quarter-Finalist",
+	"2016 semi-finalist":    "Semi-Finalist",
+	"2016 top 16":           "Top 16",
+	"2016 top 32":           "Top 32",
+	// A storefront and a stamp, each named with and without the word that
+	// says so. "Flutter Mane - 097 (Pokemon Center)" and "Lechonk (Pokemon
+	// Center Exclusive)" are one distribution; the Paldean pair missed the
+	// stamp rule because the bare one has no "Stamp" to match on.
+	//
+	// "Pokemon Center NY" stays apart. That is the shop on Rockefeller
+	// Plaza, not the chain.
+	"pokemon center":             "Pokemon Center Exclusive",
+	"best buy":                   "Best Buy Exclusive",
+	"paldean fates":              "Paldean Fates Stamped",
 	"jeremy moran":               "Jeremy Maron",
 	"jose cruz galindo-rosendiz": "Jose Cruz Galindo-Resendiz",
 }
@@ -1285,6 +1361,9 @@ var numberLedRe = regexp.MustCompile(`^#?([0-9]+[a-zA-Z]?(?:/[0-9]+)?)[\s,-]*([^
 // products, against these two.
 var numberJoinRe = regexp.MustCompile(`^(\S.*?)\s+-\s+#?([0-9]+[a-zA-Z]?(?:/[0-9]+)?)\s+([^\s,-].*)$`)
 
+// unnumberedRe matches the word and nothing else around it.
+var unnumberedRe = regexp.MustCompile(`(?i)\bunnumbered\b`)
+
 // bracketInnerRe matches a qualifier that closes with a bracketed one of
 // its own, which is how the catalog writes two labels in one parenthesis:
 // "Vivillon (High Plains [Orange])" is the pattern and the colour, and
@@ -1368,6 +1447,19 @@ func decompose(p tcgplayer.Product, num, year string) (single, int) {
 	}
 	quals = expanded
 
+	// "Unnumbered" on a card that carries no number says what the empty
+	// Number field says. Ten labels wore it - "2005 Unnumbered", "2007
+	// Unnumbered D/P Style Non-Holo" - and the word is the only thing
+	// keeping them from the years and treatments they otherwise name.
+	// Dropped only where the card really is unnumbered, so a label saying
+	// it of a numbered card stays and can be read as the mistake it is.
+	if num == "" {
+		for i := range quals {
+			without := unnumberedRe.ReplaceAllString(quals[i].text, " ")
+			quals[i].text = strings.Join(strings.Fields(without), " ")
+		}
+	}
+
 	rarity := p.Extended("Rarity")
 	s := single{product: p, number: num, baseName: base}
 	var numberLed int
@@ -1380,6 +1472,24 @@ func decompose(p tcgplayer.Product, num, year string) (single, int) {
 		if m := numberLedRe.FindStringSubmatch(q.text); m != nil && restatesNumber(m[1], num) {
 			q.text = strings.TrimSpace(m[2])
 			numberLed++
+		}
+		// A number the label carries in the middle of itself, which says
+		// what the Number field says: "Best of Game 6 Promo" on the card
+		// numbered 6, and its 1, 2 and 7. Only the middle - a number at
+		// either end is the label's own, "Top 16" on a card numbered 16 and
+		// "#47 Charizard Stamped" on the 47th card of a deck.
+		if fields := strings.Fields(q.text); len(fields) > 2 {
+			kept := make([]string, 0, len(fields))
+			for i, field := range fields {
+				if i > 0 && i < len(fields)-1 && restatesNumber(strings.TrimPrefix(field, "#"), num) {
+					numberLed++
+					continue
+				}
+				kept = append(kept, field)
+			}
+			if len(kept) != len(fields) {
+				q.text = strings.Join(kept, " ")
+			}
 		}
 		if restatesNumber(strings.TrimPrefix(q.text, "#"), num) || restatesRarity(q.text, rarity) {
 			s.dropped = append(s.dropped, q)
@@ -1547,10 +1657,20 @@ var latinAccents = strings.NewReplacer(
 )
 
 func mtgmatcherNormalize(name string) string {
+	// The word joining two halves of a name is dropped, whichever of the
+	// three ways it is written. Our own set names use all of them -
+	// "HeartGold SoulSilver" with nothing, "Diamond & Pearl" with an
+	// ampersand, "EX Ruby and Sapphire" with the word - so a label writing
+	// one missed a set writing another.
 	var out strings.Builder
-	for _, r := range latinAccents.Replace(strings.ToLower(name)) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			out.WriteRune(r)
+	for _, field := range strings.Fields(latinAccents.Replace(strings.ToLower(name))) {
+		if field == "and" || field == "&" {
+			continue
+		}
+		for _, r := range field {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+				out.WriteRune(r)
+			}
 		}
 	}
 	return out.String()
@@ -2308,6 +2428,39 @@ func main() {
 		log.Printf("promo types: %d labels named by hand, where frequency had nothing to say", handFixed)
 	}
 
+	// A year in front of a label the vocabulary already carries is two
+	// labels: "2011 Pokemon League" is the season and the tier, and 122
+	// other cards say the tier without a season. Splitting keeps the year,
+	// which nothing else on these cards records - they are energies with no
+	// number - and stops the tier reading as a thing of its own.
+	yearLead := regexp.MustCompile(`^((?:19|20)\d{2}(?:-\d{2,4})?)\s+(\S.*)$`)
+	var yearSplit int
+	for i := range singles {
+		var out []qual
+		for _, q := range singles[i].quals {
+			m := yearLead.FindStringSubmatch(q.text)
+			// A year variantOnlyQuals drops would leave the promo types
+			// with no date at all, which is the opposite of the point:
+			// "2014 Movie Promo" is one Pikachu nothing else dates, where
+			// the three Champions Festivals are dated by their numbers.
+			if m != nil && variantOnlyQuals[strings.ToLower(m[1])] {
+				m = nil
+			}
+			if m == nil || !written[m[2]] {
+				out = append(out, q)
+				continue
+			}
+			out = append(out,
+				qual{text: m[1], bracket: q.bracket},
+				qual{text: m[2], bracket: q.bracket})
+			yearSplit++
+		}
+		singles[i].quals = out
+	}
+	if yearSplit > 0 {
+		log.Printf("promo types: %d labels split into the year and what it dates", yearSplit)
+	}
+
 	// The collision guard: a pre-election drop must not leave two products
 	// of a bucket with the same (name, variant, rarity), so a colliding
 	// product takes its dropped qualifiers back as variant. The keys are
@@ -2720,6 +2873,12 @@ func main() {
 			continue
 		}
 		setNames[mtgmatcherNormalize(name)] = true
+		// And without its era, because a label writes the set either way:
+		// "Ruby & Sapphire" for our "EX Ruby and Sapphire". The same head
+		// test namesASet uses to read past one.
+		if head, rest, found := strings.Cut(name, " "); found && len(head) <= 4 && strings.Contains(rest, " ") {
+			setNames[mtgmatcherNormalize(rest)] = true
+		}
 		if strings.HasSuffix(name, "Exclusives") {
 			exclusiveShelf[code] = true
 		}
