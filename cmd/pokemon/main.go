@@ -529,10 +529,21 @@ func idBase(num string, productID int) string {
 // componentEq compares one side of a collector number case-insensitively
 // and zero-padding-insensitively: the Number field says "004/102" where the
 // name says "4/102".
+// padRe matches the zeros a component pads its digits with, in front or
+// behind a letter prefix.
+var padRe = regexp.MustCompile(`^([A-Z]*)0+([0-9])`)
+
+// unpad writes a component the one way, so "H01" and "H1" are one number
+// and so are "045" and "45". The padding behind a letter is the one that
+// was missed: the e-Card sets number their holos H01 to H32 and the catalog
+// writes the qualifier unpadded, which left nine promo types spelled "h1"
+// through "h9" saying what the number already said.
+func unpad(s string) string {
+	return padRe.ReplaceAllString(strings.ToUpper(strings.TrimSpace(s)), "$1$2")
+}
+
 func componentEq(a, b string) bool {
-	a = strings.TrimLeft(strings.ToUpper(strings.TrimSpace(a)), "0")
-	b = strings.TrimLeft(strings.ToUpper(strings.TrimSpace(b)), "0")
-	return a == b
+	return unpad(a) == unpad(b)
 }
 
 // restatesNumber reports whether a name token restates the Number field:
@@ -669,9 +680,12 @@ func foldQualKey(qual string) string {
 			key.WriteString(field)
 			continue
 		}
-		key.WriteString(foldPunctuationOnly(field))
+		key.WriteString(mtgmatcherNormalize(field))
 	}
-	out := key.String()
+	out := foldPunctuationOnly(key.String())
+	if out == "" {
+		out = strings.ToLower(strings.TrimSpace(qual))
+	}
 	if len(out) > 3 && strings.HasSuffix(out, "s") {
 		out = out[:len(out)-1]
 	}
@@ -681,7 +695,11 @@ func foldQualKey(qual string) string {
 // qualNameKey identifies one card's name paired with one qualifier, folded
 // so the catalog's punctuation and casing never decide.
 func qualNameKey(base, qual string) string {
-	return mtgmatcherNormalize(base) + "|" + foldPunctuationOnly(qual)
+	folded := mtgmatcherNormalize(qual)
+	if folded == "" {
+		folded = strings.ToLower(strings.TrimSpace(qual))
+	}
+	return mtgmatcherNormalize(base) + "|" + folded
 }
 
 // foldPunctuationOnly keeps a qualifier that is nothing but punctuation
@@ -689,10 +707,7 @@ func qualNameKey(base, qual string) string {
 // key that drops every non-alphanumeric makes those the same qualifier -
 // which spelled both of them "?" until this.
 func foldPunctuationOnly(qual string) string {
-	if folded := mtgmatcherNormalize(qual); folded != "" {
-		return folded
-	}
-	return strings.ToLower(strings.TrimSpace(qual))
+	return mtgmatcherNormalize(qual)
 }
 
 // dexNameQuals collects the parentheticals tcgdex prints as part of a card's
@@ -736,6 +751,18 @@ func dexNameQuals(cards []tcgdexCard) map[string]string {
 			}
 			continue
 		}
+		// Upstream brackets some of them: the Unown letters it does not
+		// write bare, and "Ancient Technical Machine [Rock]" beside its Ice
+		// and Steel. Thirty names carry one, and reading only the
+		// parenthesised ones filed "[Rock]" as a promo type on a card whose
+		// two siblings differ from it by nothing else.
+		if m := bracketTailRe.FindStringSubmatch(name); m != nil {
+			if base := strings.TrimSpace(strings.TrimSuffix(name, m[0])); base != "" {
+				qual := strings.TrimSpace(m[1])
+				out[qualNameKey(base, qual)] = "[" + qual + "]"
+			}
+			continue
+		}
 		// Upstream also writes a name qualifier with nothing around it,
 		// which is how the Unown letters are spelled: "Unown A", "Unown !",
 		// "Unown ?". The catalog parenthesises them - "Unown (!)" - and
@@ -744,6 +771,13 @@ func dexNameQuals(cards []tcgdexCard) map[string]string {
 		// The last word is only taken as a qualifier when what precedes it
 		// is a card name in its own right, which is what keeps "Dark
 		// Tyranitar" from being read as a Tyranitar qualified by "Dark".
+		// Read with the marks spelled the way the catalog spells them, so
+		// "Nidoran \u2640" is indexed as the "Nidoran (F)" the catalog
+		// writes and the gender stays part of the name instead of leaving
+		// as a promo type called "f". Only the marks: catalogSpelling would
+		// also turn every Delta Species into a parenthetical and teach this
+		// the opposite of what it is for.
+		name = strings.Join(strings.Fields(tcgdexSymbols.Replace(name)), " ")
 		idx := strings.LastIndex(name, " ")
 		if idx <= 0 {
 			continue
@@ -775,6 +809,71 @@ func oneCosmos(qualifier string) string {
 	return cosmosSpelling.ReplaceAllString(qualifier, "Cosmos Holo")
 }
 
+// gameStopSpelling matches the retailer the catalog names eight ways over
+// twenty-four products: "Gamestop Exclusive" 12 times, "GameStop Exclusive"
+// 4, "Gamestop Promo" 3, and one each of "GameStop Promo", "GameStop Metal
+// Card", "Gamestop" inside "Non-Holo Gamestop Exclusive", "GameStop" and
+// "Game Stop".
+var gameStopSpelling = regexp.MustCompile(`(?i)\bGame\s*Stop\b`)
+
+// oneGameStop writes the retailer's name the way the retailer writes it.
+// Frequency says "Gamestop" and the election below would duly elect it, but
+// a majority of a typo is still a typo. Rewriting the word rather than the
+// labels is what keeps the family together: the bare label, the two it
+// leads, and the one it sits in the middle of all read alike, and a label
+// the catalog has not invented yet will too.
+func oneGameStop(qualifier string) string {
+	return gameStopSpelling.ReplaceAllString(qualifier, "GameStop")
+}
+
+// trimQualJoiners takes off a character the catalog uses to join two things
+// and left dangling at the end of one. It closes two Ralts numbers with a
+// stray slash, "(060/189/)" and "(067/195/)", which is enough to stop the
+// number being read as a number: the qualifier survived the drop, the split
+// took "060/189" off the front, and what it left behind became a promo type
+// called "/". No qualifier the catalog means ends in one of these.
+func trimQualJoiners(qualifier string) string {
+	return strings.TrimRight(strings.TrimSpace(qualifier), " /,-")
+}
+
+// spelledNumbers writes a placing the way the rest of them are written.
+// The catalog spells two of them out - "2014 Top Sixteen" beside "Top 16",
+// "Top Thirty-Two" beside "Top 32" - and a word and a numeral fold to no
+// common key however they are normalised.
+var spelledNumbers = strings.NewReplacer(
+	"Thirty-Two", "32", "Thirty Two", "32", "Sixteen", "16",
+)
+
+// worldsLabelRe write the championship the one way. The catalog names it
+// four: "Worlds 07" through "Worlds 13", "2004 World Championships" with
+// the year in front, "World Championship 2025" without its plural, and
+// "World Championships 2017" which is what the other three become.
+var (
+	worldsShortRe    = regexp.MustCompile(`^Worlds\s+(\d{2})$`)
+	worldsLeadYearRe = regexp.MustCompile(`^((?:19|20)\d{2})\s+World Championships?$`)
+	worldsSingularRe = regexp.MustCompile(`^World Championship\s+((?:19|20)\d{2})$`)
+)
+
+func oneWorldsLabel(qualifier string) string {
+	if m := worldsShortRe.FindStringSubmatch(qualifier); m != nil {
+		return "World Championships 20" + m[1]
+	}
+	if m := worldsLeadYearRe.FindStringSubmatch(qualifier); m != nil {
+		return "World Championships " + m[1]
+	}
+	if m := worldsSingularRe.FindStringSubmatch(qualifier); m != nil {
+		return "World Championships " + m[1]
+	}
+	return qualifier
+}
+
+// respellQual writes a qualifier the one way this datastore spells it,
+// where the catalog spells it several.
+func respellQual(qualifier string) string {
+	q := trimQualJoiners(qualifier)
+	return oneWorldsLabel(spelledNumbers.Replace(oneGameStop(oneCosmos(q))))
+}
+
 // peelQuals peels the trailing parenthetical and bracket qualifiers off a
 // name, outermost last, preserving their order and dropping a repeat of a
 // qualifier the product already carries.
@@ -783,10 +882,10 @@ func peelQuals(name string) (string, []qual) {
 	for {
 		var q qual
 		if m := parenTailRe.FindStringSubmatch(name); m != nil {
-			q = qual{text: oneCosmos(strings.TrimSpace(m[1]))}
+			q = qual{text: respellQual(strings.TrimSpace(m[1]))}
 			name = strings.TrimSuffix(name, m[0])
 		} else if m := bracketTailRe.FindStringSubmatch(name); m != nil {
-			q = qual{text: oneCosmos(strings.TrimSpace(m[1])), bracket: true}
+			q = qual{text: respellQual(strings.TrimSpace(m[1])), bracket: true}
 			name = strings.TrimSuffix(name, m[0])
 		} else {
 			break
@@ -816,6 +915,102 @@ func peelQuals(name string) (string, []qual) {
 // close a bracket they never opened and three of those are sealed, so this
 // is a repair rather than a rule: the peeler should not be taught to guess
 // where a missing parenthesis went.
+// droppedQuals name a label that survives the peel and says nothing worth
+// carrying. "English" is the language every card in this datastore is
+// printed in, so it distinguishes a Pikachu from nothing; the six other
+// languages beside it in the same set do distinguish theirs and stay.
+var droppedQuals = map[string]bool{
+	"English": true,
+}
+
+// isBareLetter reports whether a qualifier is a single letter and nothing
+// else. Where the letter belongs to the card, upstream says so and it has
+// already been taken into the name - the Unown letters, Nidoran's gender.
+// What is left is a letter the catalog wrote and the number already says:
+// "M Charizard EX (X)" is numbered 69 where its Y is numbered 13, and a
+// promo type spelled "x" helps no one read that.
+// setOfRe matches the count a multi-card product carries in its name.
+var setOfRe = regexp.MustCompile(`(?i)^set of \d+$`)
+
+func isBareLetter(qualifier string) bool {
+	if len([]rune(qualifier)) != 1 {
+		return false
+	}
+	r := []rune(strings.ToLower(qualifier))[0]
+	return r >= 'a' && r <= 'z'
+}
+
+// qualSplits name a qualifier the catalog wrote as one label and every
+// other card writes as two. "Finneon - SWSH240 (Prerelease Staff)" is the
+// only card of 298 staff printings to run the two words together, and the
+// three Non-Holos are a surface and a distribution said in one breath.
+var qualSplits = map[string][]string{
+	"Prerelease Staff":            {"Prerelease", "Staff"},
+	"Non-Holo DVD Promo":          {"Non-Holo", "DVD Promo"},
+	"Non-Holo GameStop Exclusive": {"Non-Holo", "GameStop Exclusive"},
+	"Non-Holo Movie Exclusive":    {"Non-Holo", "Movie Exclusive"},
+}
+
+var qualSpellings = map[string]string{
+	"Player Reward": "Player Rewards",
+	// One marking, named twice. Both cards carry the anniversary logo, and
+	// the catalog calls it a stamp on one of them: "Professor Burnet -
+	// SWSH167 (25th Anniversary Stamp)" against "Pikachu - 58/102 (25th
+	// Anniversary)". The bare form is what its own family uses, the catalog
+	// writing "10th Anniversary" and "20th Anniversary" beside it.
+	"25th Anniversary Stamp": "25th Anniversary",
+	// One marking, named twice, one use each: "Larvitar (Delta Species
+	// Stamp)" against "Ditto - 64/113 (Squirtle) (Delta Species Stamped)".
+	// "Stamped" is what the rest of the catalog says - Charizard Stamped,
+	// Pikachu Stamped, Chaos Rising Stamped.
+	"Delta Species Stamp": "Delta Species Stamped",
+	// One storefront naming its exclusive two ways, thirteen times and
+	// four: "Flapple - 022/192 (EB Games Exclusive)" against "Lechonk -
+	// 154/198 (EB Games Promo)".
+	//
+	// "EB Games Exclusive APAC" reads like a third and is not. TCGplayer
+	// sells two Flapples at 022/192, one under each label, so the region is
+	// the only thing between them - fold it and validate refuses the build
+	// for two products wearing one identity, which is how this was found.
+	"EB Games Promo": "EB Games Exclusive",
+	"EB Games":       "EB Games Exclusive",
+	// A convention names itself with and without the year it was held and
+	// the word promo: "Treecko - 70/106 (GEN CON)" against "Bagon - 50/97
+	// (Gen Con 2004 Promo)". A promo type saying "promo" says nothing.
+	"GEN CON":            "Gen Con",
+	"Gen Con 2004 Promo": "Gen Con",
+	// And a cereal company, the same way: "Pikachu - SM04 (General Mills)"
+	// against "Litten - SM02 (General Mills Promo)".
+	"General Mills Promo": "General Mills",
+	// One surface, three labels: eighteen "Holo", eight "Holo Common" and
+	// three "Holofoil". The rarity says common where a card is common, so
+	// the label only has to say holo.
+	"Holofoil":    "Holo",
+	"Holo Common": "Holo",
+	// "Ancient Mew (Japanese Exclusive Print)" against "Gardevoir ex
+	// (Japanese Exclusive)". The ones naming a set beside them - "SM-P
+	// Japanese Exclusive", "Vstar Universe Japanese Exclusive" - name a
+	// different thing and stay.
+	"Japanese Exclusive Print": "Japanese Exclusive",
+	// A player misspelled once out of twenty-four. Naoto Suzuki played the
+	// 2017 World Championships and twenty-three of his cards say so; the
+	// Wimpod says Naoko.
+	"Naoko Suzuki": "Naoto Suzuki",
+	// A label saying "promo" says nothing this field does not, so where the
+	// catalog offers both the bare form wins.
+	"National Championship Promo": "National Championships",
+	"Premium Collection Promo":    "Premium Collection",
+	"Thank You Promo":             "Thank You",
+	"Toys R Us Promo":             "Toys R Us",
+	"Pokemon Day Stamped":         "Pokemon Day",
+	// The kit is where the prerelease card came from, which is what
+	// "Prerelease" already says on the other 327.
+	"Prerelease Kit Exclusive": "Prerelease",
+	// One code card naming the deck's Urshifu with its VMAX and one
+	// without.
+	"Single Strike Urshifu VMAX": "Single Strike Urshifu",
+}
+
 var rawNames = map[int]string{
 	// The catalog never closes the parenthesis: "Chesnaught - XY68
 	// (Prerelease [Staff]". Both qualifiers are real and neither is
@@ -871,7 +1066,43 @@ func worldsReleaseDate(year string) string {
 	return year + "-08-01"
 }
 
-func decompose(p tcgplayer.Product, num, year string) single {
+// numberLedRe splits a qualifier that opens with the card's own collector
+// number from the label behind it: "(147 Full Art)", "(#13 - Non-Holo)",
+// "(8 Delta)". The number is dropped the way a qualifier that is nothing
+// but the number already was, and what is left joins the label it is one
+// of - 202 products carried one, and their labels are Full Art 116 times,
+// Secret Rare 15, Non-Holo 14, Holo 12.
+//
+// Left whole they are 202 labels no query will ever name, and two of them
+// looked like a spelling to fold: "(#13 - Non-Holo)" on a Noivern numbered
+// 13 and "(#13 Non-Holo)" on a Latios numbered 13 are not two spellings of
+// one label, they are two cards each restating their own number.
+// The separator is whatever the catalog put between them: a space, a dash,
+// or a comma - "Great Ball (#21, Alolan Sandslash Half-Deck)" - and all of
+// it goes, or the label keeps a leading comma and stops being the label its
+// siblings carry.
+var numberLedRe = regexp.MustCompile(`^#?([0-9]+[a-zA-Z]?(?:/[0-9]+)?)[\s,-]*([^\s,-].*)$`)
+
+// numberJoinRe splits a qualifier that hangs the card's own number between
+// two labels rather than in front of one: "(Alpha - 149 Full Art)" on a
+// Primal Kyogre EX numbered 149 is two labels, Alpha and Full Art, with a
+// number in the middle that says nothing the number field does not.
+//
+// The dash is what says so. "Best of Game 6 Promo" on a card numbered 6
+// carries its number the same way and is left whole, because there is no
+// dash to read it as a join and the phrase is the promo's own name - four
+// products, against these two.
+var numberJoinRe = regexp.MustCompile(`^(\S.*?)\s+-\s+#?([0-9]+[a-zA-Z]?(?:/[0-9]+)?)\s+([^\s,-].*)$`)
+
+// bracketInnerRe matches a qualifier that closes with a bracketed one of
+// its own, which is how the catalog writes two labels in one parenthesis:
+// "Vivillon (High Plains [Orange])" is the pattern and the colour, and
+// "Vivillon (Meadow [Pink])" beside it is another of each. Peeling reads
+// the outer delimiter and stops, so both arrived as a single label no other
+// card shares.
+var bracketInnerRe = regexp.MustCompile(`^(\S.*?)\s*\[([^\[\]]+)\]$`)
+
+func decompose(p tcgplayer.Product, num, year string) (single, int) {
 	name := p.Name
 	if repaired, hand := rawNames[p.ProductID]; hand {
 		name = repaired
@@ -931,16 +1162,47 @@ func decompose(p tcgplayer.Product, num, year string) single {
 		}
 	}
 
+	// A qualifier holding a bracketed one becomes the two it holds, before
+	// anything below reads either: each half is a label in its own right
+	// and each has to face the number and rarity checks on its own.
+	var expanded []qual
+	for _, q := range quals {
+		if parts, split := qualSplits[q.text]; split {
+			for _, part := range parts {
+				expanded = append(expanded, qual{text: part, bracket: q.bracket})
+			}
+			continue
+		}
+		if m := bracketInnerRe.FindStringSubmatch(q.text); m != nil {
+			expanded = append(expanded,
+				qual{text: strings.TrimSpace(m[1]), bracket: q.bracket},
+				qual{text: strings.TrimSpace(m[2]), bracket: true})
+			continue
+		}
+		expanded = append(expanded, q)
+	}
+	quals = expanded
+
 	rarity := p.Extended("Rarity")
 	s := single{product: p, number: num, baseName: base}
+	var numberLed int
 	for _, q := range quals {
+		if m := numberJoinRe.FindStringSubmatch(q.text); m != nil && restatesNumber(m[2], num) {
+			s.quals = append(s.quals, qual{text: strings.TrimSpace(m[1]), bracket: q.bracket})
+			q.text = strings.TrimSpace(m[3])
+			numberLed++
+		}
+		if m := numberLedRe.FindStringSubmatch(q.text); m != nil && restatesNumber(m[1], num) {
+			q.text = strings.TrimSpace(m[2])
+			numberLed++
+		}
 		if restatesNumber(strings.TrimPrefix(q.text, "#"), num) || restatesRarity(q.text, rarity) {
 			s.dropped = append(s.dropped, q)
 			continue
 		}
 		s.quals = append(s.quals, q)
 	}
-	return s
+	return s, numberLed
 }
 
 // electionKey identifies the (group, number) bucket a name-versus-variant
@@ -1068,9 +1330,24 @@ func loadPokemontcgSets(path string) ([]pokemontcgSet, error) {
 
 // mtgmatcherNormalize reduces a set name to its letters and digits, so the
 // two sources' punctuation and casing do not part names that are the same.
+// latinAccents fold to the letter underneath. Only one of these is load
+// bearing: tcgdex writes "Pok\u00e9dex" where the catalog writes "Pokedex",
+// 175 names against 2, and a key that drops the accent rather than folding
+// it made "pokdex" of one and "pokedex" of the other - so upstream's
+// "Pok\u00e9Dex (HANDY909)" never reached the card the catalog sells. The rest
+// are here so the next one costs nothing.
+var latinAccents = strings.NewReplacer(
+	"á", "a", "à", "a", "â", "a", "ä", "a",
+	"é", "e", "è", "e", "ê", "e", "ë", "e",
+	"í", "i", "ì", "i", "î", "i", "ï", "i",
+	"ó", "o", "ò", "o", "ô", "o", "ö", "o",
+	"ú", "u", "ù", "u", "û", "u", "ü", "u",
+	"ñ", "n", "ç", "c",
+)
+
 func mtgmatcherNormalize(name string) string {
 	var out strings.Builder
-	for _, r := range strings.ToLower(name) {
+	for _, r := range latinAccents.Replace(strings.ToLower(name)) {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
 			out.WriteRune(r)
 		}
@@ -1558,6 +1835,7 @@ func main() {
 	// printing, Sealed Products become sealed. "N/A" is a spelling of no
 	// number; the unnumbered are real singles and stay.
 	var singles []single
+	var numberLedQuals int
 	var sealedProducts []tcgplayer.Product
 	var codeCards, unnumbered int
 	for _, product := range catalog.Products {
@@ -1582,7 +1860,9 @@ func main() {
 		if num == "" {
 			unnumbered++
 		}
-		singles = append(singles, decompose(product, num, worldsYears[product.ProductID]))
+		one, numberLed := decompose(product, num, worldsYears[product.ProductID])
+		numberLedQuals += numberLed
+		singles = append(singles, one)
 	}
 	log.Printf("singles: %d kept (%d unnumbered, %d code cards), %d sealed",
 		len(singles), unnumbered, codeCards, len(sealedProducts))
@@ -1617,7 +1897,7 @@ func main() {
 	// what the entry publishes as its promo types - the one exception being
 	// a qualifier tcgdex prints as part of the name itself.
 	nameQuals := dexNameQuals(cardsResponse.Cards)
-	var keptQuals int
+	var keptQuals, droppedLabels int
 	for i := range singles {
 		s := &singles[i]
 		name := []string{s.baseName}
@@ -1628,10 +1908,32 @@ func main() {
 				keptQuals++
 				continue
 			}
+			// "Zacian V-UNION [Set of 4]" is four cards TCGplayer types as
+			// one card product. How many cards are in a product is not a
+			// property of a printing, so it stays in the name it was
+			// written in rather than becoming a promo type on a single.
+			if setOfRe.MatchString(q.text) {
+				name = append(name, q.String())
+				keptQuals++
+				continue
+			}
 			variant = append(variant, q)
 		}
 		s.baseName = strings.Join(name, " ")
-		s.quals = variant
+		s.quals = nil
+		for _, q := range variant {
+			if droppedQuals[q.text] || isBareLetter(q.text) {
+				droppedLabels++
+				continue
+			}
+			s.quals = append(s.quals, q)
+		}
+	}
+	if droppedLabels > 0 {
+		log.Printf("promo types: %d labels dropped for saying nothing a reader needs", droppedLabels)
+	}
+	if numberLedQuals > 0 {
+		log.Printf("name qualifiers: %d opened with the card's own number, which is dropped", numberLedQuals)
 	}
 	log.Printf("name qualifiers: %d kept because tcgdex names the card that way", keptQuals)
 
@@ -1645,6 +1947,32 @@ func main() {
 	// Spellings are folded to the one the catalog uses most, so the winner
 	// is the wording a listing is likeliest to arrive in, and ties go to
 	// whichever sorts first so a rebuild folds the same way twice.
+	// "Stamp" against "Stamped", where the catalog writes both of the same
+	// marking: prismatic evolutions, stellar crown, twilight masquerade and
+	// pokemon horizons each carry the pair. Only those are touched. Seven
+	// more end in "Stamp" with no twin anywhere - "Left Stamp", "SDCC
+	// Stamp", "What's Your Favorite Stamp" - and a blanket suffix rule
+	// would rewrite all of them to say something no card says.
+	written := map[string]bool{}
+	for i := range singles {
+		for _, q := range singles[i].quals {
+			written[q.text] = true
+		}
+	}
+	var stamped int
+	for i := range singles {
+		for j, q := range singles[i].quals {
+			if !strings.HasSuffix(q.text, " Stamp") || !written[q.text+"ed"] {
+				continue
+			}
+			singles[i].quals[j].text = q.text + "ed"
+			stamped++
+		}
+	}
+	if stamped > 0 {
+		log.Printf("promo types: %d labels say Stamped, beside the twin that already did", stamped)
+	}
+
 	spellings := map[string]map[string]int{}
 	for i := range singles {
 		for _, q := range singles[i].quals {
@@ -1704,6 +2032,25 @@ func main() {
 			}
 		}
 		log.Printf("promo types: %d spellings folded away over %d labels", len(folded), refolded)
+	}
+
+	// Two labels naming one thing, which the election cannot reach: it
+	// compares spellings that fold to one key, and these fold to two - a
+	// word apart, or one use each with nothing to learn from. It reads last
+	// so it never has to name a spelling the election was going to fix
+	// anyway: "Toys R' Us Promo" folds into "Toys R Us Promo" first, and
+	// only then does this take the word "promo" off it.
+	var handFixed int
+	for i := range singles {
+		for j, q := range singles[i].quals {
+			if fixed, hand := qualSpellings[q.text]; hand {
+				singles[i].quals[j].text = fixed
+				handFixed++
+			}
+		}
+	}
+	if handFixed > 0 {
+		log.Printf("promo types: %d labels named by hand, where frequency had nothing to say", handFixed)
 	}
 
 	// The collision guard: a pre-election drop must not leave two products
