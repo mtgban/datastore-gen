@@ -80,6 +80,7 @@ import (
 	"github.com/mtgban/go-tcgplayer"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -653,10 +654,45 @@ type single struct {
 	dropped  []qual
 }
 
+// foldQualKey is what two spellings of one qualifier have in common: no
+// case, no punctuation, and no plural on the end. One "s" is dropped rather
+// than every trailing one, and only from a word long enough to still be a
+// word without it, so "boss" does not become "bos".
+// Case is folded away with everything else except on "ex", where it is the
+// whole meaning: "Charizard ex" is a Scarlet & Violet card and "Charizard
+// EX" an XY one, two mechanics a decade apart that a case-blind key would
+// read as one spelling of the other.
+func foldQualKey(qual string) string {
+	var key strings.Builder
+	for _, field := range strings.Fields(qual) {
+		if strings.EqualFold(field, "ex") {
+			key.WriteString(field)
+			continue
+		}
+		key.WriteString(foldPunctuationOnly(field))
+	}
+	out := key.String()
+	if len(out) > 3 && strings.HasSuffix(out, "s") {
+		out = out[:len(out)-1]
+	}
+	return out
+}
+
 // qualNameKey identifies one card's name paired with one qualifier, folded
 // so the catalog's punctuation and casing never decide.
 func qualNameKey(base, qual string) string {
-	return mtgmatcherNormalize(base) + "|" + mtgmatcherNormalize(qual)
+	return mtgmatcherNormalize(base) + "|" + foldPunctuationOnly(qual)
+}
+
+// foldPunctuationOnly keeps a qualifier that is nothing but punctuation
+// telling itself apart. Unseen Forces names two Unown "!" and "?", and a
+// key that drops every non-alphanumeric makes those the same qualifier -
+// which spelled both of them "?" until this.
+func foldPunctuationOnly(qual string) string {
+	if folded := mtgmatcherNormalize(qual); folded != "" {
+		return folded
+	}
+	return strings.ToLower(strings.TrimSpace(qual))
 }
 
 // dexNameQuals collects the parentheticals tcgdex prints as part of a card's
@@ -681,18 +717,42 @@ func qualNameKey(base, qual string) string {
 // somebody already recorded. tcgdex's own spelling is read raw here: putting
 // it through catalogSpelling would turn every Delta Species mark into a
 // parenthetical and teach this the opposite of what it is for.
-func dexNameQuals(cards []tcgdexCard) map[string]bool {
-	out := map[string]bool{}
+// The value is how upstream writes the qualifier, not how the catalog does.
+// Both spell the same thing differently - the catalog brackets the Unown
+// letter, "Unown [A]" and "Unown (J)", where tcgdex writes "Unown A" - and
+// keeping the catalog's delimiter left one card family spelled three ways.
+func dexNameQuals(cards []tcgdexCard) map[string]string {
+	names := map[string]bool{}
 	for i := range cards {
-		m := parenTailRe.FindStringSubmatch(cards[i].Name)
-		if m == nil {
+		names[mtgmatcherNormalize(cards[i].Name)] = true
+	}
+	out := map[string]string{}
+	for i := range cards {
+		name := cards[i].Name
+		if m := parenTailRe.FindStringSubmatch(name); m != nil {
+			if base := strings.TrimSpace(strings.TrimSuffix(name, m[0])); base != "" {
+				qual := strings.TrimSpace(m[1])
+				out[qualNameKey(base, qual)] = "(" + qual + ")"
+			}
 			continue
 		}
-		base := strings.TrimSpace(strings.TrimSuffix(cards[i].Name, m[0]))
-		if base == "" {
+		// Upstream also writes a name qualifier with nothing around it,
+		// which is how the Unown letters are spelled: "Unown A", "Unown !",
+		// "Unown ?". The catalog parenthesises them - "Unown (!)" - and
+		// they would otherwise leave as promo types called "!" and "?".
+		//
+		// The last word is only taken as a qualifier when what precedes it
+		// is a card name in its own right, which is what keeps "Dark
+		// Tyranitar" from being read as a Tyranitar qualified by "Dark".
+		idx := strings.LastIndex(name, " ")
+		if idx <= 0 {
 			continue
 		}
-		out[qualNameKey(base, strings.TrimSpace(m[1]))] = true
+		base, tail := name[:idx], strings.TrimSpace(name[idx+1:])
+		if tail == "" || !names[mtgmatcherNormalize(base)] {
+			continue
+		}
+		out[qualNameKey(base, tail)] = tail
 	}
 	return out
 }
@@ -751,8 +811,75 @@ func peelQuals(name string) (string, []qual) {
 // dash-hung collector number, and applies the pre-election drops. The dash
 // number sits between the name and the trailing qualifiers, so the
 // qualifiers peel first and the tail check runs on what remains.
-func decompose(p tcgplayer.Product, num string) single {
-	base, quals := peelQuals(p.Name)
+// rawNames repair a product name the catalog wrote in a shape nothing can
+// read, keyed by the product id it never reuses. Only four names in 32,675
+// close a bracket they never opened and three of those are sealed, so this
+// is a repair rather than a rule: the peeler should not be taught to guess
+// where a missing parenthesis went.
+var rawNames = map[int]string{
+	// The catalog never closes the parenthesis: "Chesnaught - XY68
+	// (Prerelease [Staff]". Both qualifiers are real and neither is
+	// reachable while the name is unbalanced.
+	108598: "Chesnaught - XY68 (Prerelease) [Staff]",
+	// A stray letter after the closing parenthesis, which stops the peel
+	// dead: "Jet Energy - 2023 (Gabriel Fernandez)a".
+	541801: "Jet Energy - 2023 (Gabriel Fernandez)",
+}
+
+// worldsGroupRe matches the catalog group that is not one set. TCGplayer
+// files every World Championship deck ever printed on one shelf, twenty
+// championships from 2004 to 2025, and the year is the only thing telling
+// two printings of a card apart: 226 (name, number, finish) keys there hold
+// two or more entries separated by nothing else. It is also why the group
+// can publish no set size - its cards keep the total of wherever they were
+// first printed, so 44/130 sits beside 87/101 - and a set per year agrees
+// on one.
+var worldsGroupRe = regexp.MustCompile(`(?i)world championship deck`)
+
+// worldsYearTailRe reads the year off a card, which the catalog hangs on a
+// dash before whatever qualifiers follow - "Torchic - 2004 (Chris Fulop)" -
+// and worldsDeckYearRe off a deck or a code card, which name it in front.
+// Every one of the 2,001 products carries it one way or the other. The tail
+// pattern keeps what follows the year so stripping it leaves the qualifiers
+// where the peeler can still reach them.
+var (
+	worldsYearTailRe = regexp.MustCompile(`\s+-\s+((?:19|20)\d{2})(\s*(?:[\(\[].*)?)$`)
+	worldsDeckYearRe = regexp.MustCompile(`(?i)\b((?:19|20)\d{2})\s+world championship`)
+)
+
+// worldsYear is the championship a product belongs to, empty for a product
+// that names none.
+func worldsYear(name string) string {
+	if m := worldsYearTailRe.FindStringSubmatch(name); m != nil {
+		return m[1]
+	}
+	if m := worldsDeckYearRe.FindStringSubmatch(name); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// worldsReleaseDate dates a championship's set. Nothing this build reads
+// publishes the day: tcgdex files no World Championship set at all, and the
+// catalog's own group date is 2018-07-01 for all twenty, which is when
+// TCGplayer made the shelf and not when anything was printed. The
+// championship is held in August every year it is held - 2004 in Orlando
+// through 2025 in Anaheim, with 2020 and 2021 missing because it was not
+// held - so the month is right and the day is the first, said plainly here
+// rather than guessed at differently in twenty places.
+func worldsReleaseDate(year string) string {
+	return year + "-08-01"
+}
+
+func decompose(p tcgplayer.Product, num, year string) single {
+	name := p.Name
+	if repaired, hand := rawNames[p.ProductID]; hand {
+		name = repaired
+	}
+	if year != "" {
+		name = strings.TrimSpace(worldsYearTailRe.ReplaceAllString(name, "$2"))
+	}
+	base, quals := peelQuals(name)
 
 	// A name that hangs its qualifier off a dash of its own leaves that
 	// dash behind once the qualifier is peeled, and the dash number then
@@ -760,13 +887,21 @@ func decompose(p tcgplayer.Product, num string) single {
 	for {
 		base = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(base), "-"))
 
-		idx := strings.LastIndex(base, " - ")
+		idx, skip := strings.LastIndex(base, " - "), 3
+		if idx < 0 {
+			// The catalog also writes the number with no dash at all,
+			// "Gyarados 21/98" and, once the qualifiers are off,
+			// "Multi Energy (Special) 93/100". Only a tail that restates
+			// the Number field is taken, so a name whose last word is a
+			// number of its own keeps it.
+			idx, skip = strings.LastIndex(base, " "), 1
+		}
 		if idx < 0 {
 			break
 		}
-		tail := strings.TrimSpace(base[idx+3:])
+		tail := strings.TrimSpace(base[idx+skip:])
 		if !restatesNumber(tail, num) {
-			if numberLikeRe.MatchString(tail) {
+			if skip == 3 && numberLikeRe.MatchString(tail) {
 				log.Printf("dash number: %q keeps tail %q, Number is %q", p.Name, tail, num)
 			}
 			break
@@ -1290,6 +1425,51 @@ func main() {
 	}
 	log.Printf("set codes: %d minted for blank abbreviations, %d deduplicated", minted, suffixed)
 
+	// A championship is a set. The group code is the stem and the year the
+	// suffix, so "WCD" becomes WCD2004 through WCD2025, and every product
+	// of the shelf - cards, decks and code cards alike - is filed under the
+	// year it names. productSetCode holds the products whose set is not
+	// their group's, which is only ever this.
+	worldsGroup := map[int]bool{}
+	for _, group := range groups {
+		if worldsGroupRe.MatchString(group.Name) {
+			worldsGroup[group.GroupID] = true
+		}
+	}
+	productSetCode := map[int]string{}
+	worldsYears := map[int]string{}
+	worldsSets := map[string]string{}
+	var worldsUndated int
+	for _, product := range catalog.Products {
+		if !worldsGroup[product.GroupID] {
+			continue
+		}
+		year := worldsYear(product.Name)
+		if year == "" {
+			worldsUndated++
+			log.Printf("world championships: %q (%d) names no year and stays on the shelf",
+				product.Name, product.ProductID)
+			continue
+		}
+		code := setCodes[product.GroupID] + year
+		if !usedCodes[code] {
+			usedCodes[code] = true
+		}
+		productSetCode[product.ProductID] = code
+		worldsYears[product.ProductID] = year
+		worldsSets[year] = code
+	}
+	if len(worldsSets) > 0 {
+		log.Printf("world championships: %d products over %d years, %d naming none",
+			len(productSetCode), len(worldsSets), worldsUndated)
+	}
+	setCodeFor := func(p tcgplayer.Product) string {
+		if code, split := productSetCode[p.ProductID]; split {
+			return code
+		}
+		return setCodes[p.GroupID]
+	}
+
 	// Join each group to its tcgdex set by normalized name, retrying with
 	// the short-code prefix stripped. Ambiguous or missing joins nothing:
 	// a wrong annotation is worse than a missing one.
@@ -1402,7 +1582,7 @@ func main() {
 		if num == "" {
 			unnumbered++
 		}
-		singles = append(singles, decompose(product, num))
+		singles = append(singles, decompose(product, num, worldsYears[product.ProductID]))
 	}
 	log.Printf("singles: %d kept (%d unnumbered, %d code cards), %d sealed",
 		len(singles), unnumbered, codeCards, len(sealedProducts))
@@ -1443,8 +1623,8 @@ func main() {
 		name := []string{s.baseName}
 		var variant []qual
 		for _, q := range s.quals {
-			if nameQuals[qualNameKey(s.baseName, q.text)] {
-				name = append(name, q.String())
+			if written, upstream := nameQuals[qualNameKey(s.baseName, q.text)]; upstream {
+				name = append(name, written)
 				keptQuals++
 				continue
 			}
@@ -1454,6 +1634,77 @@ func main() {
 		s.quals = variant
 	}
 	log.Printf("name qualifiers: %d kept because tcgdex names the card that way", keptQuals)
+
+	// One label, one spelling. The catalog writes the same qualifier several
+	// ways - "regional championships" beside "regional championship",
+	// "eb games exclusive" beside "ebgames exclusive", "#30 holo" beside
+	// "#30 - holo" - and a query naming one of them misses every printing
+	// filed under the others, which is the same fault oneCosmos was written
+	// for and the same fix, only counted rather than listed.
+	//
+	// Spellings are folded to the one the catalog uses most, so the winner
+	// is the wording a listing is likeliest to arrive in, and ties go to
+	// whichever sorts first so a rebuild folds the same way twice.
+	spellings := map[string]map[string]int{}
+	for i := range singles {
+		for _, q := range singles[i].quals {
+			key := foldQualKey(q.text)
+			if spellings[key] == nil {
+				spellings[key] = map[string]int{}
+			}
+			spellings[key][q.text]++
+		}
+	}
+	folded := map[string]string{}
+	for key, seen := range spellings {
+		if len(seen) < 2 {
+			continue
+		}
+		winner, tied := "", false
+		for text := range seen {
+			switch {
+			case winner == "" || seen[text] > seen[winner]:
+				winner, tied = text, false
+			case seen[text] == seen[winner]:
+				tied = true
+				if text < winner {
+					winner = text
+				}
+			}
+		}
+		if tied {
+			// Nothing to learn from: the catalog has shown no preference,
+			// so folding would be picking one spelling over another on
+			// nothing but sort order.
+			var texts []string
+			for text := range seen {
+				texts = append(texts, text)
+			}
+			sort.Strings(texts)
+			log.Printf("promo types: %q are used alike and are left apart", texts)
+			continue
+		}
+		for text := range seen {
+			if text != winner {
+				folded[text] = winner
+				log.Printf("promo types: %q folds into %q (%d against %d)",
+					text, winner, seen[text], seen[winner])
+			}
+		}
+		_ = key
+	}
+	if len(folded) > 0 {
+		var refolded int
+		for i := range singles {
+			for j, q := range singles[i].quals {
+				if winner, fold := folded[q.text]; fold {
+					singles[i].quals[j].text = winner
+					refolded++
+				}
+			}
+		}
+		log.Printf("promo types: %d spellings folded away over %d labels", len(folded), refolded)
+	}
 
 	// The collision guard: a pre-election drop must not leave two products
 	// of a bucket with the same (name, variant, rarity), so a colliding
@@ -1504,7 +1755,7 @@ func main() {
 				}
 				identicalPairs++
 				log.Printf("collision guard: %d products of %s|%s wear one identity: %q",
-					len(colliding), setCodes[s.product.GroupID], s.number, s.product.Name)
+					len(colliding), setCodeFor(s.product), s.number, s.product.Name)
 			}
 			break
 		}
@@ -1671,6 +1922,12 @@ func main() {
 			skippedEmpty++
 			continue
 		}
+		if worldsGroup[group.GroupID] && worldsUndated == 0 {
+			// One set per championship is emitted below. The shelf keeps a
+			// set of its own only while a product on it names no year, so
+			// nothing is ever filed under a code no set carries.
+			continue
+		}
 		set := map[string]any{
 			"name":        group.Name,
 			"releaseDate": releaseDates[group.GroupID],
@@ -1695,6 +1952,17 @@ func main() {
 			promoSets++
 		}
 		sets[setCodes[group.GroupID]] = set
+	}
+	for year, code := range worldsSets {
+		sets[code] = map[string]any{
+			"name":        year + " World Championship Decks",
+			"releaseDate": worldsReleaseDate(year),
+		}
+	}
+	if len(worldsSets) > 0 {
+		log.Printf("world championships: %d sets, %s to %s",
+			len(worldsSets), worldsReleaseDate(slices.Min(slices.Collect(maps.Keys(worldsSets)))),
+			worldsReleaseDate(slices.Max(slices.Collect(maps.Keys(worldsSets)))))
 	}
 	if skippedEmpty > 0 {
 		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
@@ -1845,7 +2113,7 @@ func main() {
 			entry := map[string]any{
 				"id":      idBase(s.number, productID) + suffix,
 				"name":    handName(s.product.ProductID, s.baseName),
-				"setCode": setCodes[s.product.GroupID],
+				"setCode": setCodeFor(s.product),
 				"rarity":  s.product.Extended("Rarity"),
 				"finish":  finish,
 				"image":   image,
@@ -2122,7 +2390,7 @@ func main() {
 	})
 	var sealed []any
 	for _, product := range sealedProducts {
-		code := setCodes[product.GroupID]
+		code := setCodeFor(product)
 		sealed = append(sealed, map[string]any{
 			"id":          fmt.Sprintf("%s-%d", sanitizeID(code), product.ProductID),
 			"name":        product.Name,
