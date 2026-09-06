@@ -225,17 +225,7 @@ func canonicalNumber(number string) string {
 // than only those the gallery published.
 func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string, printings []string) map[string]any {
 	name, qualifiers := splitQualifiers(product.Name)
-	// A qualifier that only repeats the collector number ("Fury Rune
-	// (R01a)") says nothing the number field does not, and would cost the
-	// name every storefront actually writes. Any other one is a real
-	// distinction between printings and is kept.
-	var promoTypes []string
-	for _, qualifier := range qualifiers {
-		if strings.EqualFold(numberOf(qualifier), numberOf(number)) {
-			continue
-		}
-		promoTypes = append(promoTypes, strings.ToLower(qualifier))
-	}
+	promoTypes := promoTypesOf(qualifiers, number)
 
 	item := map[string]any{
 		"id":                 fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
@@ -263,6 +253,40 @@ func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string
 		item["promoTypes"] = promoTypes
 	}
 	return item
+}
+
+// promoTypesOf is the labels a printing's qualifiers hold, lowercased the
+// way every datastore here spells a promo type. Both kinds of printing read
+// it - the ones adopted into a gallery set and the ones minted into a set
+// of their own - because a qualifier means the same thing either way, and a
+// rule written on one path alone reaches half the cards: the six runes the
+// promotional set carries were labelled "r01c" through "r06c" while their
+// siblings on the other path were not.
+//
+// A qualifier that only repeats the collector number ("Fury Rune (R01c)"
+// filed at R01c) says nothing the number field does not, and would cost the
+// name every storefront actually writes. A qualifier naming another set
+// ("Body Rune (Vendetta)", filed at R04b in the promotional set) is not
+// that: it says which release the rune was printed for, and stays.
+//
+// "Promo" on the end of a label says what the set the printing is filed
+// under already says.
+func promoTypesOf(qualifiers []string, number string) []string {
+	out := make([]string, 0, len(qualifiers))
+	for _, qualifier := range qualifiers {
+		if strings.EqualFold(numberOf(qualifier), numberOf(number)) {
+			continue
+		}
+		tag := strings.ToLower(strings.Join(strings.Fields(qualifier), " "))
+		if trimmed := strings.TrimSuffix(tag, " promo"); trimmed != "" {
+			tag = trimmed
+		}
+		if tag == "" || slices.Contains(out, tag) {
+			continue
+		}
+		out = append(out, tag)
+	}
+	return out
 }
 
 func splitQualifiers(name string) (string, []string) {
@@ -700,10 +724,7 @@ func main() {
 			// promos share one clean name and are told apart by number or
 			// by the storefront's own wording matching the types.
 			name, qualifiers := splitQualifiers(product.Name)
-			var promoTypes []string
-			for _, qualifier := range qualifiers {
-				promoTypes = append(promoTypes, strings.ToLower(qualifier))
-			}
+			promoTypes := promoTypesOf(qualifiers, number)
 
 			item := map[string]any{
 				// The TCGplayer product id is the stable identity of a
