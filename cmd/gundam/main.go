@@ -126,6 +126,12 @@ var handCarriedPrintings = []handCarried{
 	{number: "GD05-114", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
 	{number: "ST03-006", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
 	{number: "ST04-012", label: "1st Anniversary Event Pack", source: "1st Anniversary Event Pack"},
+	// Not an event pack, whatever a storefront files it beside. gcg-api
+	// knows the phrase "1st Anniversary Event Pack" and spends it on two
+	// cards, ST04-012 above and EXBP-028; for this one it writes a prize
+	// instead. A source that had the word and chose another is naming a
+	// second printing, not the same one twice.
+	{number: "GD01-100", label: "Serial Numbered Card Challenge Upper Ranks Prize", source: "Serial Numbered Card Challenge Upper Ranks Prize"},
 }
 
 // promoSetCode is the set the catalog files a promotional reprint under,
