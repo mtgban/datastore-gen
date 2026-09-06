@@ -233,6 +233,221 @@ var languageWords = map[string]string{
 	"japanese": "Japanese",
 }
 
+// seasonPrefixRe matches the season or championship a label opens with,
+// which the catalog repeats in front of every pack that season handed out:
+// "CS 2023 Celebration Pack", "CS 25-26 Event Pack", "Championship 2024 Top
+// Player Pack". The season is one label and what it handed out is another,
+// and saying them apart is what lets a celebration pack of one season read
+// as the same kind of thing as another's.
+var seasonPrefixRe = regexp.MustCompile(`(?i)^(CS ?\d{4}|CS ?\d{2}-\d{2}|Championship \d{4}|(?:19|20)\d{2})\s+(\S.*)$`)
+
+// wrappedRe matches a label the catalog wraps in dashes, which are how it
+// sets an edition off rather than anything the label says: "Official
+// Playmat -Limited Edition Vol. 3-" beside an unwrapped Vol.4 and Vol.5.
+var wrappedRe = regexp.MustCompile(`^(.*?)\s*-(.+)-$`)
+
+// spelledVolume writes the word the catalog abbreviates almost everywhere:
+// one "Double Pack Set Volume 2" against ten "Vol." siblings.
+var spelledVolume = strings.NewReplacer("Volume ", "Vol. ")
+
+// spacedRe puts the space back where the catalog drops it. It writes the
+// season both "CS 25-26" and "CS26-27", and the volume both "Vol. 3" and
+// "Vol.4", so one family reads two ways for no reason either spelling
+// gives.
+var (
+	spacedSeasonRe = regexp.MustCompile(`(?i)\bCS(\d)`)
+	spacedVolumeRe = regexp.MustCompile(`(?i)\b(Vol\.)(\d)`)
+)
+
+// foldQualKey is what two spellings of one label have in common: no case,
+// no punctuation, and no plural on the end. One "s" is dropped rather than
+// every trailing one, and only from a word long enough to still be a word
+// without it. A label that is punctuation and nothing else keeps itself,
+// so two of those are not read as one.
+func foldQualKey(qual string) string {
+	var key strings.Builder
+	for _, r := range strings.ToLower(qual) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			key.WriteRune(r)
+		}
+	}
+	out := key.String()
+	if out == "" {
+		return strings.ToLower(strings.TrimSpace(qual))
+	}
+	if len(out) > 3 && strings.HasSuffix(out, "s") {
+		out = out[:len(out)-1]
+	}
+	return out
+}
+
+// promoTypesOf folds a printing's labels to the spelling the matcher
+// declares tags in. Every label this build keeps is one: the treatments
+// ("Alternate Art", "Parallel", "Jolly Roger Foil"), the shelves a printing
+// was handed out on ("Judge Pack Vol. 2", "Premium Card Collection -Best
+// Selection Vol. 1-") and the placings ("Online Regional 2023 Winner").
+// What is not one is already in the name, where the epithet election puts
+// it - "Miss Doublefinger (Zala)" is the character, not a promotion.
+// donSubjects are what a DON!! card pictures. Every DON!! card is named
+// "DON!! Card", so the label on one either says what is drawn on it or how
+// it was made and handed out, and only the second kind is a promotion:
+// "Gold" and "Silhouette" and "Double Pack Set Vol. 5" stay, and the
+// character, the crew and the scene leave for the variant they already are.
+//
+// Named rather than read off the data, because nothing in the data tells a
+// subject from a treatment. A label appearing only on DON!! cards is one or
+// the other - that test takes "Double Pack Set Vol. 5" along with Luffy -
+// and a label shared with a normal card is a treatment only by luck: "Gold"
+// escapes it on the strength of one Buggy carrying it.
+var donSubjects = map[string]bool{
+	"2y":                        true,
+	"ace":                       true,
+	"ace, luffy, sabo":          true,
+	"big mom":                   true,
+	"blackbeard":                true,
+	"blue":                      true,
+	"bonney":                    true,
+	"chopper":                   true,
+	"dragon":                    true,
+	"elbaph luffy":              true,
+	"enel lightning":            true,
+	"eustass \"captain\" kid":   true,
+	"gear 4 luffy":              true,
+	"gear 5":                    true,
+	"gear5 luffy":               true,
+	"green":                     true,
+	"iceberg":                   true,
+	"ivankov":                   true,
+	"ivankov & sanji":           true,
+	"katakuri":                  true,
+	"luffy":                     true,
+	"luffy and ace":             true,
+	"luffy and loki":            true,
+	"luffy vs. crocodile":       true,
+	"mihawk & zoro":             true,
+	"netflix tony tony.chopper": true,
+	"oden":                      true,
+	"op-op fruit":               true,
+	"orange":                    true,
+	"pink":                      true,
+	"pudding":                   true,
+	"purple":                    true,
+	"red":                       true,
+	"reiju":                     true,
+	"robin":                     true,
+	"rocks":                     true,
+	"rosinante":                 true,
+	"sky island map":            true,
+	"teach":                     true,
+	"teal":                      true,
+	"the four emperors":         true,
+	"trafalgar law, eustass kid and monkey.d.luffy": true,
+	"vivi":         true,
+	"whitebeard":   true,
+	"world united": true,
+	"yellow":       true,
+	"young luffy":  true,
+	"zoro":         true,
+}
+
+// donCardName is what every DON!! card is called, which is why the label
+// on one has to say which it is.
+const donCardName = "DON!! Card"
+
+// placings are how a prize card says where its holder finished. They are
+// named rather than read off the labels already written, because any label
+// can end in a word some other label is: "One Piece Film Red" ends in a
+// "Red" this build writes elsewhere, and cutting there would make a movie
+// into a colour.
+var placings = map[string]bool{
+	"winner": true, "finalist": true, "participant": true,
+	"1st place": true, "2nd place": true, "3rd place": true,
+	"4th place": true, "champion": true, "runner-up": true,
+}
+
+// qualSpellings name a label the catalog spells two ways that fold to two
+// keys, so nothing else here can pair them.
+var qualSpellings = map[string]string{
+	"finals":        "World Final",
+	"serial number": "Serial Numbered",
+	// A treatment named with and without the surface it is on, and a pack
+	// named with and without its plural.
+	"textured":           "Textured Foil",
+	"top players pack":   "Top Player Pack",
+	"psa magazine promo": "PSA Magazine",
+	// "Promo Reprint" on a promo reprinted into a starter deck. The
+	// reprinting is the label; that it was a promo is what the set it came
+	// from says.
+	"promo reprint": "Reprint",
+}
+
+// qualSplits name a label the catalog wrote as one and every other card
+// writes as two. A dash is not enough on its own to say so: this category
+// hangs deck ranges off one - "Beginners Deck Party [ST-23] - [ST-28]",
+// "ST15 - ST20 Release Event Pack" - and cutting there would halve a range.
+var qualSplits = map[string][]string{
+	"leader pack - live action": {"Leader Pack", "Live Action"},
+	"pre-errata demo deck":      {"Pre-Errata", "Demo Deck"},
+}
+
+// cutPlacing splits a label that ends in one, longest tail first so "2nd
+// Place" is taken whole rather than "Place" alone.
+func cutPlacing(qual string) (string, string, bool) {
+	fields := strings.Fields(qual)
+	for i := 1; i < len(fields); i++ {
+		head := strings.Join(fields[:i], " ")
+		tail := strings.Join(fields[i:], " ")
+		if placings[strings.ToLower(tail)] {
+			return head, tail, true
+		}
+	}
+	return qual, "", false
+}
+
+// respellQual writes a label the one way this datastore spells it, where
+// the catalog spells it several.
+func respellQual(qual string) string {
+	qual = spelledVolume.Replace(strings.TrimSpace(qual))
+	qual = spacedSeasonRe.ReplaceAllString(qual, "CS $1")
+	qual = spacedVolumeRe.ReplaceAllString(qual, "$1 $2")
+	if m := wrappedRe.FindStringSubmatch(qual); m != nil {
+		qual = strings.TrimSpace(m[1] + " " + m[2])
+	}
+	return strings.Join(strings.Fields(qual), " ")
+}
+
+func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool) []string {
+	// The catalog labels are split before they reach here; the
+	// hand-carried printings are not, and a label is a label either way.
+	expanded := make([]string, 0, len(quals))
+	for _, qual := range quals {
+		if parts, hand := qualSplits[strings.ToLower(qual)]; hand {
+			expanded = append(expanded, parts...)
+			continue
+		}
+		expanded = append(expanded, qual)
+	}
+	out := make([]string, 0, len(expanded))
+	for _, qual := range expanded {
+		// A label that is the card's own rarity says what the rarity field
+		// says: the nine Treasure Rares are filed at rarity TR and were
+		// labelled "TR" as well.
+		if strings.EqualFold(qual, rarity) {
+			continue
+		}
+		// Every DON!! card is named "DON!! Card", so the character on one
+		// is what tells it from the others - Chopper, Crocodile, Yamato,
+		// forty-five of them over 150 printings, every one also the name of
+		// a card this datastore carries. Nothing promoted a DON!! card for
+		// having Nami on it, so the character stays the variant it is.
+		if name == donCardName && (cardNames[strings.ToLower(qual)] || donSubjects[strings.ToLower(qual)]) {
+			continue
+		}
+		out = append(out, strings.ToLower(qual))
+	}
+	return out
+}
+
 // nameLanguage names the language a product's qualifiers call it out as,
 // empty when they name none.
 func nameLanguage(quals []string) string {
@@ -283,8 +498,21 @@ type single struct {
 // decorations strips the collector number worn as decoration: a dash
 // suffix ("Yamato - OP16-098") and the parenthetical forms ("(003)",
 // "(OP01-003)").
+// rawNames repair a product name the catalog wrote in a shape nothing can
+// read, keyed by the product id it never reuses. One name in 7,100 carries
+// a bare number that is not the card's: 788 write the number as three
+// digits and this one writes four.
+var rawNames = map[int]string{
+	// "Tony Tony.Chopper (0070) (Parallel)" is OP08-007, and the extra
+	// zero is the only thing keeping the number from being read as one.
+	558030: "Tony Tony.Chopper (007) (Parallel)",
+}
+
 func decompose(p tcgplayer.Product, num string) single {
 	name := p.Name
+	if repaired, hand := rawNames[p.ProductID]; hand {
+		name = repaired
+	}
 	name = strings.ReplaceAll(name, " - "+num, "")
 
 	var quals []string
@@ -293,7 +521,7 @@ func decompose(p tcgplayer.Product, num string) single {
 		if bareNumRe.MatchString(q) || strings.EqualFold(q, num) {
 			return ""
 		}
-		quals = append(quals, q)
+		quals = append(quals, respellQual(q))
 		return ""
 	})
 	// The bracketed tail is the placement a prize card was handed out for
@@ -308,13 +536,20 @@ func decompose(p tcgplayer.Product, num string) single {
 		if q == "" {
 			return ""
 		}
-		quals = append(quals, q)
+		quals = append(quals, respellQual(q))
 		return ""
 	})
+	// A name never ends in the character that joined it to what has just
+	// been peeled off. The catalog writes one that does - "Dracule Mihawk
+	// - (CS 26-27 Regionals Season 1)" - and the dash outlived the
+	// parenthesis it was holding on to.
+	base := strings.Join(strings.Fields(name), " ")
+	base = strings.TrimSpace(strings.TrimRight(base, " -,/&"))
+
 	return single{
 		product:  p,
 		number:   num,
-		baseName: strings.Join(strings.Fields(name), " "),
+		baseName: base,
 		quals:    quals,
 		language: nameLanguage(quals),
 	}
@@ -773,6 +1008,132 @@ func main() {
 		}
 	}
 
+	// A season in front of what it handed out is two labels. The catalog
+	// repeats the season on every pack of it, so a celebration pack of one
+	// season read as a different thing from another's; apart, the season is
+	// a label and so is the pack.
+	//
+	// A placing on the end is two as well, and this build already writes
+	// those apart where the catalog brackets them - "Online Regional 2023"
+	// beside "Winner".
+	var seasonSplit, placingSplit int
+	for i := range singles {
+		var out []string
+		for _, q := range singles[i].quals {
+			if parts, hand := qualSplits[strings.ToLower(q)]; hand {
+				out = append(out, parts...)
+				continue
+			}
+			if m := seasonPrefixRe.FindStringSubmatch(q); m != nil {
+				out = append(out, strings.TrimSpace(m[1]), strings.TrimSpace(m[2]))
+				seasonSplit++
+				continue
+			}
+			out = append(out, q)
+		}
+		singles[i].quals = out
+	}
+	for i := range singles {
+		var out []string
+		for _, q := range singles[i].quals {
+			head, tail, split := cutPlacing(q)
+			if !split {
+				out = append(out, q)
+				continue
+			}
+			out = append(out, head, tail)
+			placingSplit++
+		}
+		singles[i].quals = out
+	}
+	if seasonSplit > 0 || placingSplit > 0 {
+		log.Printf("promo types: %d labels split from the season they open with, %d from a label they end with",
+			seasonSplit, placingSplit)
+	}
+
+	// One label, one spelling. The catalog writes the same qualifier more
+	// than one way - "CS26-27 Regionals Season 1" beside "CS 26-27
+	// Regionals Season 1" - and a query naming one misses every printing
+	// filed under the other. Spellings fold to the one the catalog uses
+	// most, so the winner is the wording a listing is likeliest to arrive
+	// in; a tie folds nothing, because there is no preference to read and
+	// picking on sort order is not one.
+	spellings := map[string]map[string]int{}
+	for i := range singles {
+		for _, q := range singles[i].quals {
+			key := foldQualKey(q)
+			if spellings[key] == nil {
+				spellings[key] = map[string]int{}
+			}
+			spellings[key][q]++
+		}
+	}
+	folded := map[string]string{}
+	for _, seen := range spellings {
+		if len(seen) < 2 {
+			continue
+		}
+		winner, tied := "", false
+		for text := range seen {
+			switch {
+			case winner == "" || seen[text] > seen[winner]:
+				winner, tied = text, false
+			case seen[text] == seen[winner]:
+				tied = true
+				if text < winner {
+					winner = text
+				}
+			}
+		}
+		if tied {
+			var texts []string
+			for text := range seen {
+				texts = append(texts, text)
+			}
+			sort.Strings(texts)
+			log.Printf("promo types: %q are used alike and are left apart", texts)
+			continue
+		}
+		for text := range seen {
+			if text != winner {
+				folded[text] = winner
+				log.Printf("promo types: %q folds into %q (%d against %d)",
+					text, winner, seen[text], seen[winner])
+			}
+		}
+	}
+	if len(folded) > 0 {
+		var refolded int
+		for i := range singles {
+			for j, q := range singles[i].quals {
+				if winner, fold := folded[q]; fold {
+					singles[i].quals[j] = winner
+					refolded++
+				}
+			}
+		}
+		log.Printf("promo types: %d spellings folded away over %d labels", len(folded), refolded)
+	}
+
+	// Two labels naming one thing, which the election cannot reach: it
+	// compares spellings folding to one key, and these fold to two. The
+	// catalog calls the 2024 championship's last round both "World Final"
+	// and "Finals", and writes a serialised card both "Serial Number" and
+	// "Serial Numbered" three times each - a tie the election leaves alone
+	// on purpose.
+	var handFixed int
+	for i := range singles {
+		for j, q := range singles[i].quals {
+			if fixed, hand := qualSpellings[strings.ToLower(q)]; hand {
+				singles[i].quals[j] = fixed
+				handFixed++
+			}
+		}
+	}
+	if handFixed > 0 {
+		log.Printf("promo types: %d labels named by hand, where frequency had nothing to say", handFixed)
+	}
+
 	// Annotate Bandai's _pN printing id where the two sources align
 	// unambiguously: same printing count for the number, base product to
 	// the bare id, variant products in product-id order to _p1, _p2, ...
@@ -973,6 +1334,14 @@ func main() {
 		catalogFinishes[product.ProductID] = printings[product.ProductID]
 	}
 
+	// The names this datastore carries, which is how a label naming a
+	// character is told from one naming a treatment: every character label
+	// sits on a DON!! card, and every one of them is a card of its own.
+	cardNames := map[string]bool{}
+	for i := range singles {
+		cardNames[strings.ToLower(singles[i].baseName)] = true
+	}
+
 	var cards []any
 	var nonEnglish int
 	for _, s := range singles {
@@ -1003,6 +1372,12 @@ func main() {
 			}
 			if len(s.quals) > 0 {
 				entry["variant"] = strings.Join(s.quals, " ")
+				// The same labels as a list. Joined, "Alternate Art Manga"
+				// cannot be read back into the two it holds, and the
+				// matcher declares and narrows on them one at a time.
+				if tags := promoTypesOf(s.baseName, s.product.Extended("Rarity"), s.quals, cardNames); len(tags) > 0 {
+					entry["promoTypes"] = tags
+				}
 			}
 			if s.language != "" {
 				entry["language"] = s.language
@@ -1113,6 +1488,19 @@ func main() {
 		// so: every card in the revision pack set is a revision pack card.
 		if variant != "" {
 			entry["variant"] = variant
+			// The two the variant was joined from, not the words it was
+			// joined into: "Alternate Art" is one label and splitting the
+			// string would make it two.
+			var tags []string
+			if printing.parent != "" {
+				tags = append(tags, printing.parent)
+			}
+			if printing.label != "" {
+				tags = append(tags, printing.label)
+			}
+			if labels := promoTypesOf(fmt.Sprint(src["name"]), fmt.Sprint(src["rarity"]), tags, cardNames); len(labels) > 0 {
+				entry["promoTypes"] = labels
+			}
 		}
 		// No TCGplayer product sells it, so the Cardmarket one is the only
 		// id it can be priced by; a printing Cardmarket does not sell
