@@ -653,23 +653,48 @@ type single struct {
 	dropped  []qual
 }
 
-// treatmentQual matches the qualifiers that name how a printing was made
-// rather than which card it is.
-var treatmentQual = regexp.MustCompile(`(?i)\b(?:holo|holofoil|foil|pattern)\b`)
+// qualNameKey identifies one card's name paired with one qualifier, folded
+// so the catalog's punctuation and casing never decide.
+func qualNameKey(base, qual string) string {
+	return mtgmatcherNormalize(base) + "|" + mtgmatcherNormalize(qual)
+}
 
-// isTreatment says whether a qualifier names a treatment rather than the
-// card. A treatment is never part of a name: every printing of
-// "Meowscarada (Cosmos Holo)" is a Cosmos Holo, so the parenthetical says
-// nothing the finish does not, and it makes a name no storefront writes
-// and no query carries.
+// dexNameQuals collects the parentheticals tcgdex prints as part of a card's
+// own name. Thirteen of its 23,546 names carry one and they are all the same
+// thing, the character a Supporter names: "Boss's Orders (Giovanni)",
+// "Professor's Research (Professor Oak)", "Thought Wave Machine (Rocket's
+// Secret Machine)". Everything else the catalog hangs off a name belongs to
+// the printing.
 //
-// The election below promotes a qualifier that every product of a bucket
-// carries into the name, reasoning that what tells none of them apart
-// belongs to the card. That holds for the qualifiers naming an event or an
-// occasion and not for the ones naming a surface, which is why the pattern
-// spent 437 names claiming to be part of the card.
-func isTreatment(qualifier string) bool {
-	return treatmentQual.MatchString(qualifier)
+// This used to be an election: a qualifier every product of a (group,
+// number) bucket carried was taken to be part of the card, on the reasoning
+// that what tells none of them apart cannot be telling them apart. The
+// reasoning does not survive contact with upstream. Of the 549 entries whose
+// names the election had spelled with a parenthetical, tcgdex carries the
+// parenthetical on none, the bare name on 500, and a name differing only in
+// how an EX is hyphenated on the other 49 - so every name it ever made was
+// a name no card prints. "Prerelease" was 302 of them and "Team Plasma" 196,
+// neither of which appears in any of tcgdex's 23,546 names.
+//
+// Upstream is asked rather than a vocabulary kept because a vocabulary has
+// to be guessed at, and which parentheticals belong to a name is a fact
+// somebody already recorded. tcgdex's own spelling is read raw here: putting
+// it through catalogSpelling would turn every Delta Species mark into a
+// parenthetical and teach this the opposite of what it is for.
+func dexNameQuals(cards []tcgdexCard) map[string]bool {
+	out := map[string]bool{}
+	for i := range cards {
+		m := parenTailRe.FindStringSubmatch(cards[i].Name)
+		if m == nil {
+			continue
+		}
+		base := strings.TrimSpace(strings.TrimSuffix(cards[i].Name, m[0]))
+		if base == "" {
+			continue
+		}
+		out[qualNameKey(base, strings.TrimSpace(m[1]))] = true
+	}
+	return out
 }
 
 // cosmosSpelling matches the holo pattern the catalog names five ways.
@@ -732,15 +757,42 @@ func decompose(p tcgplayer.Product, num string) single {
 	// A name that hangs its qualifier off a dash of its own leaves that
 	// dash behind once the qualifier is peeled, and the dash number then
 	// looks like it ends the name rather than sitting before it.
-	base = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(base), "-"))
+	for {
+		base = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(base), "-"))
 
-	idx := strings.LastIndex(base, " - ")
-	if idx >= 0 {
+		idx := strings.LastIndex(base, " - ")
+		if idx < 0 {
+			break
+		}
 		tail := strings.TrimSpace(base[idx+3:])
-		if restatesNumber(tail, num) {
-			base = strings.TrimSpace(base[:idx])
-		} else if numberLikeRe.MatchString(tail) {
-			log.Printf("dash number: %q keeps tail %q, Number is %q", p.Name, tail, num)
+		if !restatesNumber(tail, num) {
+			if numberLikeRe.MatchString(tail) {
+				log.Printf("dash number: %q keeps tail %q, Number is %q", p.Name, tail, num)
+			}
+			break
+		}
+		base = strings.TrimSpace(base[:idx])
+
+		// The catalog hangs the number on either side of the qualifiers.
+		// "Oricorio - 55/145 (League Challenge)" writes it in front of them
+		// and "Darkrai (Team Plasma) - BW73" behind, and a qualifier written
+		// the second way is not at the tail until the number is gone - so
+		// peeling once and stripping once left 117 names still wearing one.
+		peeled, more := peelQuals(base)
+		if len(more) == 0 {
+			break
+		}
+		base = peeled
+		for _, q := range more {
+			duplicate := false
+			for _, seen := range quals {
+				if seen.text == q.text {
+					duplicate = true
+				}
+			}
+			if !duplicate {
+				quals = append(quals, q)
+			}
 		}
 	}
 
@@ -1368,11 +1420,10 @@ func main() {
 		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
 	}
 
-	// Per collector number within its group: a qualifier every product of
-	// the number carries is part of the name, not a variant. A number with
-	// a single product cannot make that call alone, so the name parts
-	// learned from the multi-product numbers decide for it — and for the
-	// unnumbered singles, which have no bucket at all.
+	// Buckets by collector number within the group, which the collision
+	// guard below reads. The name-versus-variant call is not made here any
+	// more: it is made per card against tcgdex, which knows what a card is
+	// named without having to infer it from what TCGplayer happens to sell.
 	byNumber := map[string][]*single{}
 	for i := range singles {
 		if singles[i].number == "" {
@@ -1380,84 +1431,29 @@ func main() {
 		}
 		byNumber[electionKey(&singles[i])] = append(byNumber[electionKey(&singles[i])], &singles[i])
 	}
-	// A bucket may only make the all-carry call when it is one card: the
-	// trainer kits file two different cards under one number, and a
-	// decoration both happen to wear must stay a variant, not become part
-	// of two names.
-	sameBase := func(bucket []*single) bool {
-		for _, s := range bucket[1:] {
-			if s.baseName != bucket[0].baseName {
-				return false
-			}
-		}
-		return true
-	}
-	nameParens := map[string]bool{}
-	for _, bucket := range byNumber {
-		sort.Slice(bucket, func(i, j int) bool {
-			return bucket[i].product.ProductID < bucket[j].product.ProductID
-		})
-		if len(bucket) < 2 || !sameBase(bucket) {
-			continue
-		}
-		common := map[string]int{}
-		for _, s := range bucket {
-			for _, q := range s.quals {
-				common[q.text]++
-			}
-		}
-		for q, n := range common {
-			if n == len(bucket) && !isTreatment(q) {
-				nameParens[q] = true
-			}
-		}
-	}
-	assemble := func(s *single, isName func(string) bool) {
+
+	// The name is the bare name. Every qualifier the catalog hangs off it
+	// is a property of the printing and leaves as a variant label, which is
+	// what the entry publishes as its promo types - the one exception being
+	// a qualifier tcgdex prints as part of the name itself.
+	nameQuals := dexNameQuals(cardsResponse.Cards)
+	var keptQuals int
+	for i := range singles {
+		s := &singles[i]
 		name := []string{s.baseName}
 		var variant []qual
 		for _, q := range s.quals {
-			if isName(q.text) {
+			if nameQuals[qualNameKey(s.baseName, q.text)] {
 				name = append(name, q.String())
-			} else {
-				variant = append(variant, q)
+				keptQuals++
+				continue
 			}
+			variant = append(variant, q)
 		}
 		s.baseName = strings.Join(name, " ")
 		s.quals = variant
 	}
-	for _, bucket := range byNumber {
-		// Decide before mutating: the membership test must read every
-		// product's original qualifiers, not the ones a fold already moved.
-		if len(bucket) < 2 {
-			assemble(bucket[0], func(q string) bool { return nameParens[q] })
-			continue
-		}
-		if !sameBase(bucket) {
-			// Different cards under one number elect nothing at all:
-			// whatever tells them apart is variant.
-			for _, s := range bucket {
-				assemble(s, func(q string) bool { return false })
-			}
-			continue
-		}
-		common := map[string]int{}
-		for _, s := range bucket {
-			for _, q := range s.quals {
-				common[q.text]++
-			}
-		}
-		for _, s := range bucket {
-			assemble(s, func(q string) bool {
-				return common[q] == len(bucket) && !isTreatment(q)
-			})
-		}
-	}
-	for i := range singles {
-		if singles[i].number != "" {
-			continue
-		}
-		assemble(&singles[i], func(q string) bool { return nameParens[q] })
-	}
+	log.Printf("name qualifiers: %d kept because tcgdex names the card that way", keptQuals)
 
 	// The collision guard: a pre-election drop must not leave two products
 	// of a bucket with the same (name, variant, rarity), so a colliding
@@ -1856,6 +1852,14 @@ func main() {
 				"externalLinks": map[string]any{
 					"tcgPlayerId": productID,
 				},
+			}
+			// The catalog's own wording, kept where it differs from the
+			// name published above. A storefront copies TCGplayer's
+			// product name verbatim - number, qualifiers and all - so
+			// something has to hold the spelling a listing will arrive
+			// in once the name here stops carrying it.
+			if s.product.Name != entry["name"] {
+				entry["originalName"] = s.product.Name
 			}
 			if s.number != "" {
 				emitNumber(entry, numberOf(s.number))
