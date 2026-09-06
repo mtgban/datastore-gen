@@ -390,6 +390,97 @@ func provenance(qual string) bool {
 
 var wordRe = regexp.MustCompile(`[a-z0-9']+`)
 
+// subjects name what a card is or what is drawn on it rather than what
+// promoted it: the mobile suit's form or part, the type it is built as, the
+// faction whose emblem a Resource token carries, the series an EX Base is
+// illustrated from. Every one of them is really a name parenthetical the
+// election could not learn, because it learns from a collector number sold
+// as several products and each of these is sold as one - the eleven
+// Promotional Resource Tokens are eleven numbers with one product apiece,
+// RP-011 through RP-021, one faction on each. Nothing promoted a Resource
+// for carrying the Zeon emblem, so the faction stays the variant it is.
+//
+// Named rather than read off the data for the same reason cmd/onepiece
+// names the DON!! subjects: nothing in the data tells a subject from a
+// treatment, and the test that comes closest - a label on one printing
+// alone - takes "SDCC 2026" and "Launch Kit 01" along with the factions.
+var subjects = map[string]bool{
+	// The form a mobile suit is in, and the mode it transforms to.
+	"2nd form": true, "middle form": true, "fighter mode": true,
+	"trooper mode": true, "waverider mode": true, "tail unit flight mode": true,
+	// Which part of a multi-part card or token this one is.
+	"head": true, "left hand": true, "right hand": true, "tail booster": true,
+	"gn full shield": true, "gn high mega launcher": true,
+	"mirasoul flight unit": true, "apfsds round": true,
+	// The type or the custom a unit is built as.
+	"armored rru type": true, "ground heavy equipment type": true,
+	"heavy armed type": true, "guards type": true, "type-e": true,
+	"graze custom ii": true, "ryusei-go": true, "meteor": true,
+	// Who or what is drawn on it.
+	"char aznable emblem": true, "four snake eyes'": true,
+	"enhanced person number 5": true, "red": true,
+	// The faction a Resource token carries.
+	"earth alliance": true, "earth federation force": true,
+	"league militaire": true, "militia": true, "neo zeon": true, "oz": true,
+	"peacemaker team": true, "sanc kingdom": true,
+	"united emirates of orb": true, "vist foundation": true,
+	"zaft": true, "zeon force": true,
+	"asticassia school of technology": true,
+	// The series an illustration comes from.
+	"mobile suit gundam: hathaway's flash":     true,
+	"mobile suit gundam: iron-blooded orphans": true,
+}
+
+// bareNumberingRe matches a label that is a collector number and nothing
+// else. The catalog writes a number in a parenthesis where the card is two
+// cards - "Core Booster (005) & Core Booster (006)" - and where it names a
+// number the Number field spells differently: "EX Resource (EXR-003)" is
+// filed at EXR-002. A number is not a promotion either way.
+var bareNumberingRe = regexp.MustCompile(`(?i)^(?:[a-z]{1,4}-)?\d{2,4}$`)
+
+// spacedNumberRe puts back the space the catalog drops before a number, so
+// one family does not read two ways: it writes the season both "WCS 26-27"
+// and "WCS26-27", the volume both "Vol. 2" and "Vol.1", and the mission
+// both "Mission 1" and "Mission1".
+var spacedNumberRe = regexp.MustCompile(`(?i)\b(Vol\.|WCS|Mission)(\d)`)
+
+// spelledQual writes a label the one way this datastore spells it.
+//
+// "Participant Pack" is TCGplayer's own slip and the sealed side is the
+// evidence: the five products are called "Store Tournament Participation
+// Pack 01" through 05, while the singles say "Participant" on the first
+// four and "Participation" on the fifth. The pack has one name.
+//
+// "SP Ver." is the SP treatment with a word after it, and "SDCC" is the
+// convention the other printing of it spells out.
+var spelledQual = strings.NewReplacer(
+	"Participant Pack", "Participation Pack",
+	"SDCC", "San Diego Comic-Con",
+	"SP Ver.", "SP",
+)
+
+// promoTypesOf is the labels a printing carries, one at a time, spelled the
+// one way and lowercased the way every datastore here spells a promo type.
+// It reads the qualifiers rather than the variant string they were joined
+// into, because "Link Rare" is one label and splitting the string would
+// make it two.
+func promoTypesOf(quals []string) []string {
+	out := make([]string, 0, len(quals))
+	for _, qual := range quals {
+		qual = spelledQual.Replace(qual)
+		qual = spacedNumberRe.ReplaceAllString(qual, "$1 $2")
+		tag := strings.ToLower(strings.Join(strings.Fields(qual), " "))
+		if tag == "" || subjects[tag] || bareNumberingRe.MatchString(tag) {
+			continue
+		}
+		if slices.Contains(out, tag) {
+			continue
+		}
+		out = append(out, tag)
+	}
+	return out
+}
+
 // idStem spells a collector number for the inside of a uuid: every run of
 // anything but a letter or a digit becomes one dash, because a slash is a
 // path separator wherever a uuid is written down.
@@ -739,6 +830,9 @@ func main() {
 			}
 			if len(s.quals) > 0 {
 				entry["variant"] = strings.Join(s.quals, " ")
+				if tags := promoTypesOf(s.quals); len(tags) > 0 {
+					entry["promoTypes"] = tags
+				}
 			}
 			if t := s.product.Extended("CardType"); t != "" {
 				entry["type"] = t
@@ -911,6 +1005,9 @@ func main() {
 			"rarity":  base["rarity"],
 			"finish":  "Normal",
 			"variant": printing.label,
+		}
+		if tags := promoTypesOf([]string{printing.label}); len(tags) > 0 {
+			entry["promoTypes"] = tags
 		}
 		for _, field := range []string{"type", "color"} {
 			if v, found := base[field]; found {
