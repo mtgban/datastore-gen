@@ -233,6 +233,128 @@ func mintedNumber(code string) (int, string) {
 	return num, digits[i:]
 }
 
+// A promo type says what promoted a printing, or what treatment it wears
+// beyond what its rarity and its set already say. Three things in this
+// category say one, and each is read where it is written:
+//
+//   - promoSourceCategory, upstream's own word for where a promo came
+//     from, on 252 cards;
+//   - varnishType, the finish printed over the card, on 302;
+//   - the parenthetical a minted product's name carries, which is all
+//     there is to read on a printing upstream does not publish at all.
+//
+// promoGrouping is not one of them. It reads like a label - "P3", "CC1" -
+// but the identifier says what it is: a promo is numbered "1/P3" the way a
+// normal card is numbered "1/204", and the grouping is the denominator.
+// Where a card is numbered is not what promoted it.
+
+// camelWordRe finds the seam between two words upstream ran together.
+// "MetallicHotFoil" is three words and one thing, and a label a query has
+// to spell without its spaces is a label a query will miss.
+var camelWordRe = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+
+// nameQualRe finds the parentheticals a minted product's name carries. No
+// upstream name has one, so this reads the minted printings alone.
+var nameQualRe = regexp.MustCompile(`\(([^)]*)\)`)
+
+// Which piece of a puzzle a card is, which of a numbered run, and how many
+// the run holds. Every one of these is the printing's identity rather than
+// a promotion: the puzzle inserts are sold as nine cards that make one
+// picture, and "Top Left" is which card, not what promoted it.
+var (
+	piecePlaceRe = regexp.MustCompile(`^(?:Top|Middle|Bottom) (?:Left|Right|Middle|Center)$`)
+	pieceCountRe = regexp.MustCompile(`^(?:Version )?\d+ of \d+$`)
+	pieceSetRe   = regexp.MustCompile(`^Set of \d+$`)
+)
+
+// qualTrims are the words a parenthetical ends in that say nothing the rest
+// of it does not: the errata version is the errata, and a promo says it is
+// one by being filed as one.
+var qualTrims = []string{" Promo", " Version"}
+
+// universalVarnishes are the (set, rarity, varnish) triples where every card
+// of that rarity in that set wears that varnish. Upstream records the finish
+// per card, but it is chosen per rarity: the high gloss is on all 12 of set
+// 9's Legendaries and all 18 of its Epics, and the snow hot foil on all 18
+// of set 11's Enchanted. A label every card of a rarity carries tells two of
+// them apart no better than the rarity does, and only the two that are not
+// universal - one Special of set 4, one of set 8 - say anything.
+func universalVarnishes(items []any) map[string]bool {
+	held := map[string]int{}
+	total := map[string]int{}
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		set, _ := item["setCode"].(string)
+		rarity, _ := item["rarity"].(string)
+		total[set+"|"+rarity]++
+		if varnish, _ := item["varnishType"].(string); varnish != "" {
+			held[set+"|"+rarity+"|"+varnish]++
+		}
+	}
+	out := map[string]bool{}
+	for key, n := range held {
+		if n == total[key[:strings.LastIndex(key, "|")]] {
+			out[key] = true
+		}
+	}
+	return out
+}
+
+// keptQual is the label a parenthetical holds, empty where it holds none.
+func keptQual(qual string) string {
+	qual = strings.TrimSpace(qual)
+	if qual == "" || piecePlaceRe.MatchString(qual) ||
+		pieceCountRe.MatchString(qual) || pieceSetRe.MatchString(qual) {
+		return ""
+	}
+	// foilTypes names the finish already, on this very card.
+	if strings.EqualFold(qual, "Foil") {
+		return ""
+	}
+	for _, trim := range qualTrims {
+		if len(qual) > len(trim) && strings.EqualFold(qual[len(qual)-len(trim):], trim) {
+			qual = qual[:len(qual)-len(trim)]
+		}
+	}
+	return strings.TrimSpace(qual)
+}
+
+// promoTypesOf reads a card's labels off the three fields that carry one,
+// lowercased the way every other datastore here spells a promo type, and
+// with no label written twice.
+func promoTypesOf(item map[string]any, universal map[string]bool) []string {
+	var tags []string
+	set, _ := item["setCode"].(string)
+	rarity, _ := item["rarity"].(string)
+	if varnish, _ := item["varnishType"].(string); varnish != "" &&
+		!universal[set+"|"+rarity+"|"+varnish] {
+		tags = append(tags, camelWordRe.ReplaceAllString(varnish, "$1 $2"))
+	}
+	// "Promo" is every promo's category and no promo's promotion: the
+	// rarity and the set it is filed under say that much already.
+	if source, _ := item["promoSourceCategory"].(string); source != "" &&
+		!strings.EqualFold(source, "Promo") {
+		tags = append(tags, source)
+	}
+	name, _ := item["fullName"].(string)
+	for _, m := range nameQualRe.FindAllStringSubmatch(name, -1) {
+		if qual := keptQual(m[1]); qual != "" {
+			tags = append(tags, qual)
+		}
+	}
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.ToLower(strings.Join(strings.Fields(tag), " "))
+		if !slices.Contains(out, tag) {
+			out = append(out, tag)
+		}
+	}
+	return out
+}
+
 // foilTypes names the finishes a minted card is sold in the way upstream
 // names them: "None" for the plain printing, and TCGplayer's own printing
 // name for a foil, which is all that is knowable about a card upstream has
@@ -807,9 +929,34 @@ func main() {
 		items = append(items, item)
 		mintedByGroup[codes[group.GroupID]]++
 	}
-	doc["cards"] = items
 	log.Printf("minted: %d cards for products upstream does not carry, by group %v",
 		len(mintable), mintedByGroup)
+
+	// The labels, over both kinds of card at once: what upstream publishes
+	// and what only a product name says are the same kind of fact, and a
+	// rule written where the two meet cannot reach one and miss the other.
+	universal := universalVarnishes(items)
+	vocabulary := map[string]int{}
+	var labelled int
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		types := promoTypesOf(item, universal)
+		if len(types) == 0 {
+			continue
+		}
+		item["promoTypes"] = types
+		labelled++
+		for _, t := range types {
+			vocabulary[t]++
+		}
+	}
+	log.Printf("promo types: %d labels over %d cards, and %d varnishes left off as their rarity's own",
+		len(vocabulary), labelled, len(universal))
+
+	doc["cards"] = items
 
 	// Sealed products: everything the catalog files outside the singles
 	// type, from every group, in a top-level array a stock LorcanaJSON
