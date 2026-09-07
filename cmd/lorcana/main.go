@@ -355,6 +355,85 @@ func promoTypesOf(item map[string]any, universal map[string]bool) []string {
 	return out
 }
 
+// cardID reads a card's id back off a decoded document: a number comes back
+// as a float64, and a minted card's is negative.
+func cardID(value any) (int, bool) {
+	switch id := value.(type) {
+	case int:
+		return id, true
+	case float64:
+		return int(id), true
+	}
+	return 0, false
+}
+
+// stringsOf reads a list of strings back off a decoded document, where a
+// slice this build wrote itself comes back as []any.
+func stringsOf(value any) []string {
+	switch list := value.(type) {
+	case []string:
+		return list
+	case []any:
+		var out []string
+		for _, item := range list {
+			if name, ok := item.(string); ok {
+				out = append(out, name)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// printingUUID is the uuid a printing prices: the card's for the plain
+// printing, and the card's with the foil type on the end for a foil. It has
+// to agree with the loader exactly - a uuid spelled differently is a
+// printing nothing resolves - so the two helpers below duplicate
+// go-mtgban's, the way this repository duplicates every helper it shares
+// rather than depending on it.
+func printingUUID(id int, foilType string) string {
+	base := cardUUID(id)
+	if finish := canonicalFinish(foilType); finish != finishNonfoil {
+		return base + "_" + finish
+	}
+	return base
+}
+
+const (
+	finishNonfoil = "nonfoil"
+	finishFoil    = "foil"
+)
+
+// cardUUID is a card's uuid: its upstream id, and a minted card's negative
+// id written as the "m-" the loader reads it back from.
+func cardUUID(id int) string {
+	if id < 0 {
+		return fmt.Sprintf("m-%d", -id)
+	}
+	return strconv.Itoa(id)
+}
+
+// canonicalFinish folds a foil type name to the spelling the matcher keys a
+// uuid by: no case and no separators, upstream's "None" placeholder as the
+// plain printing, and the cold foil almost every card is foiled in as the
+// standard foil.
+func canonicalFinish(name string) string {
+	var normalized strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			normalized.WriteRune(r)
+		}
+	}
+	switch folded := normalized.String(); folded {
+	case "none", "normal":
+		return finishNonfoil
+	case "coldfoil", "foil":
+		return finishFoil
+	default:
+		return folded
+	}
+}
+
 // foilTypes names the finishes a minted card is sold in the way upstream
 // names them: "None" for the plain printing, and TCGplayer's own printing
 // name for a foil, which is all that is knowable about a card upstream has
@@ -967,6 +1046,34 @@ func main() {
 		}
 	}
 	log.Printf("image: %d cards given the common field beside upstream's images object", imaged)
+
+	// The uuid each foil type prices, named here rather than left to the
+	// loader to spell by folding the foil type and joining it to the card's
+	// id. A uuid is what a price is keyed on, and 3,200 of this game's are
+	// reached that way, over fifteen spellings - so a change to how the
+	// matcher folds a foil type moves them, silently, since a uuid nobody
+	// stored resolves to nothing rather than erroring. Named here, they
+	// move only when this build says so.
+	var named, withIDs int
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, ok := cardID(item["id"])
+		sold := stringsOf(item["foilTypes"])
+		if !ok || len(sold) == 0 {
+			continue
+		}
+		ids := make(map[string]any, len(sold))
+		for _, foilType := range sold {
+			ids[foilType] = printingUUID(id, foilType)
+		}
+		item["printingIds"] = ids
+		named += len(ids)
+		withIDs++
+	}
+	log.Printf("printing ids: %d uuids named over %d cards, so the loader spells none", named, withIDs)
 	log.Printf("promo types: %d labels over %d cards, and %d varnishes left off as their rarity's own",
 		len(vocabulary), labelled, len(universal))
 

@@ -117,6 +117,25 @@ func imageURL(url string) string {
 // printing it does not list is one that does not exist: most of Riftbound is
 // sold in a single finish, promotional printings being foil and starter
 // cards plain.
+// stringsOf reads a list of strings back off a decoded document: this build
+// carries the gallery payload as generic JSON, so a slice it wrote itself
+// comes back as []any.
+func stringsOf(value any) []string {
+	switch list := value.(type) {
+	case []string:
+		return list
+	case []any:
+		var out []string
+		for _, item := range list {
+			if name, ok := item.(string); ok {
+				out = append(out, name)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
 func finishesByProduct(c *tcgplayer.CatalogDump) map[int][]string {
 	printing := map[int]string{}
 	for _, p := range c.Printings {
@@ -885,7 +904,7 @@ func main() {
 	// product id is bare where everyone else wraps it, and the labels have
 	// no joined string beside them at all. Adding the common names costs
 	// the loader nothing and spares every reader the special case.
-	var stamped, variants int
+	var stamped, variants, printings int
 	for _, raw := range cardItems {
 		item, ok := raw.(map[string]any)
 		if !ok {
@@ -916,10 +935,30 @@ func main() {
 		if _, found := item["variant"]; found {
 			variants++
 		}
+		// The uuid each finish prices, named here rather than left to the
+		// loader to spell by joining a finish to the id. A uuid is what a
+		// price is keyed on, and one spelled in the matcher moves whenever
+		// the matcher changes how it spells a finish - silently, since a
+		// uuid nobody stored resolves to nothing rather than erroring.
+		// Named here, it moves only when this build says so.
+		sold := stringsOf(item["finishes"])
+		if len(sold) == 0 {
+			// A printing the catalog sells nothing for names no finish,
+			// and the loader reads it as sold in both. Saying so is what
+			// keeps the uuids it reaches for from being invented.
+			sold = []string{"nonfoil", "foil"}
+		}
+		ids := make(map[string]any, len(sold))
+		for _, finish := range sold {
+			ids[finish] = fmt.Sprintf("%v_%s", item["id"], finish)
+		}
+		item["printingIds"] = ids
+		printings += len(ids)
 		stamped++
 	}
 	log.Printf("common fields: %d cards given a setCode, number, image and product link; %d given a variant",
 		stamped, variants)
+	log.Printf("printing ids: %d uuids named over %d cards, so the loader spells none", printings, stamped)
 
 	// The base run's size, under the name Pokemon and mtgjson give it. The
 	// gallery calls it collectorNumberMax and Lorcana's upstream calls it
