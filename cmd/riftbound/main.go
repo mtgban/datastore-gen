@@ -116,6 +116,26 @@ func imageURL(url string) string {
 // printing it does not list is one that does not exist: most of Riftbound is
 // sold in a single finish, promotional printings being foil and starter
 // cards plain.
+// stringsOf reads a list of strings back off a decoded document, which is
+// what the finishes stamped onto a row are by the time the split reads
+// them: this build carries the gallery payload as generic JSON, so a slice
+// it wrote itself comes back as []any.
+func stringsOf(value any) []string {
+	switch list := value.(type) {
+	case []string:
+		return list
+	case []any:
+		var out []string
+		for _, item := range list {
+			if name, ok := item.(string); ok {
+				out = append(out, name)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
 func finishesByProduct(c *tcgplayer.CatalogDump) map[int][]string {
 	printing := map[int]string{}
 	for _, p := range c.Printings {
@@ -364,6 +384,7 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 							ID                 string `json:"id"`
 							Name               string `json:"name"`
 							PublicCode         string `json:"publicCode"`
+							Finish             string `json:"finish"`
 							TCGplayerProductID int    `json:"tcgplayerProductId"`
 						} `json:"items"`
 					} `json:"cards"`
@@ -407,6 +428,11 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 			setIDs[set.ID] = true
 		}
 		carried := map[int]bool{}
+		// A product is claimed once per finish. TCGplayer sells one
+		// product with a sku per printing, so its finishes share the id -
+		// what would split a price history is two rows claiming one
+		// product in one finish, not the finishes of one card.
+		claimed := map[string]bool{}
 		for _, card := range blade.Cards.Items {
 			if card.ID == "" || card.Name == "" || card.PublicCode == "" {
 				return 0, 0, 0, 0, fmt.Errorf("printing %q (%s) missing identity", card.Name, card.ID)
@@ -418,17 +444,20 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 			if card.TCGplayerProductID == 0 {
 				continue
 			}
-			identified++
-			// A product resolves to one printing: two printings claiming
-			// it would split its price history between them.
-			if carried[card.TCGplayerProductID] {
-				return 0, 0, 0, 0, fmt.Errorf("product %d claimed by two printings", card.TCGplayerProductID)
+			claim := fmt.Sprintf("%d|%s", card.TCGplayerProductID, card.Finish)
+			if claimed[claim] {
+				return 0, 0, 0, 0, fmt.Errorf("product %d claimed twice in finish %q",
+					card.TCGplayerProductID, card.Finish)
 			}
+			claimed[claim] = true
 			if !cardProducts[card.TCGplayerProductID] {
 				return 0, 0, 0, 0, fmt.Errorf("printing %q (%s) names product %d, which the catalog does not type as a card",
 					card.Name, card.ID, card.TCGplayerProductID)
 			}
-			carried[card.TCGplayerProductID] = true
+			if !carried[card.TCGplayerProductID] {
+				identified++
+				carried[card.TCGplayerProductID] = true
+			}
 		}
 		var missing []int
 		for productID := range cardProducts {
@@ -911,6 +940,46 @@ func main() {
 		}
 	}
 	log.Printf("sets: %d given a baseSetSize beside the gallery's collectorNumberMax", sized)
+
+	// One row per printing, which is how every other datastore here
+	// publishes. A row per card leaves the loader to invent the uuid each
+	// finish prices by spelling the finish into the card's - identity
+	// derived in the matcher rather than published here, so a change to how
+	// the matcher spells a finish moves it. Splitting the rows puts the
+	// uuid in the builder's hands, where the rest of this datastore's
+	// identity already lives.
+	//
+	// Done where the three paths that emit a printing meet, rather than in
+	// each: the gallery's own rows, the ones adopted into a gallery set and
+	// the ones minted into a set of their own all arrive here.
+	var printings []any
+	for _, raw := range cardItems {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			printings = append(printings, raw)
+			continue
+		}
+		// A printing the catalog sells nothing for names no finish, and
+		// nothing here knows which it is sold in. It is carried in both,
+		// which is what the loader assumed for it when the answer was
+		// left to the loader.
+		sold := stringsOf(item["finishes"])
+		if len(sold) == 0 {
+			sold = []string{"nonfoil", "foil"}
+		}
+		for _, finish := range sold {
+			printing := make(map[string]any, len(item)+1)
+			for key, value := range item {
+				printing[key] = value
+			}
+			delete(printing, "finishes")
+			printing["id"] = fmt.Sprintf("%v_%s", item["id"], finish)
+			printing["finish"] = finish
+			printings = append(printings, printing)
+		}
+	}
+	log.Printf("printings: %d cards split into %d rows, one per finish", len(cardItems), len(printings))
+	cardItems = printings
 
 	sets["items"] = setItems
 	cards["items"] = cardItems
