@@ -355,6 +355,86 @@ func promoTypesOf(item map[string]any, universal map[string]bool) []string {
 	return out
 }
 
+// cardID reads a card's id back off a decoded document, which is what this
+// build carries between reading upstream and writing: a number comes back
+// as a float64, and a minted card's is negative.
+func cardID(value any) (int, bool) {
+	switch id := value.(type) {
+	case int:
+		return id, true
+	case float64:
+		return int(id), true
+	}
+	return 0, false
+}
+
+// stringsOf reads a list of strings back off a decoded document, where a
+// slice this build wrote itself comes back as []any.
+func stringsOf(value any) []string {
+	switch list := value.(type) {
+	case []string:
+		return list
+	case []any:
+		var out []string
+		for _, item := range list {
+			if name, ok := item.(string); ok {
+				out = append(out, name)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// printingUUID is the uuid a printing prices, spelled the way the matcher
+// spells one: the card's uuid for the plain printing, and the card's with
+// the foil type on the end for a foil. It has to agree with the loader
+// exactly - a uuid it spells differently is a printing nothing resolves -
+// so the two helpers below duplicate go-mtgban's, the way this repository
+// duplicates every helper it shares rather than depending on it.
+func printingUUID(id int, foilType string) string {
+	base := cardUUID(id)
+	if finish := canonicalFinish(foilType); finish != finishNonfoil {
+		return base + "_" + finish
+	}
+	return base
+}
+
+const (
+	finishNonfoil = "nonfoil"
+	finishFoil    = "foil"
+)
+
+// cardUUID is a card's uuid: its upstream id, and a minted card's negative
+// id written as the "m-" the loader reads it back from.
+func cardUUID(id int) string {
+	if id < 0 {
+		return fmt.Sprintf("m-%d", -id)
+	}
+	return strconv.Itoa(id)
+}
+
+// canonicalFinish folds a foil type name to the spelling the matcher keys a
+// uuid by: no case and no separators, upstream's "None" placeholder as the
+// plain printing, and the cold foil almost every card is foiled in as the
+// standard foil.
+func canonicalFinish(name string) string {
+	var normalized strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			normalized.WriteRune(r)
+		}
+	}
+	switch folded := normalized.String(); folded {
+	case "none", "normal":
+		return finishNonfoil
+	case "coldfoil", "foil":
+		return finishFoil
+	default:
+		return folded
+	}
+}
+
 // foilTypes names the finishes a minted card is sold in the way upstream
 // names them: "None" for the plain printing, and TCGplayer's own printing
 // name for a foil, which is all that is knowable about a card upstream has
@@ -970,6 +1050,47 @@ func main() {
 	log.Printf("promo types: %d labels over %d cards, and %d varnishes left off as their rarity's own",
 		len(vocabulary), labelled, len(universal))
 
+	// One row per printing, which is how every other datastore here
+	// publishes. A row per card leaves the loader to invent the uuid each
+	// finish prices by spelling the foil type into the card's - 3,200 of
+	// them, over fifteen spellings - so a change to how the matcher
+	// normalizes a foil type moves identity that prices are keyed on, and
+	// moves it silently. Splitting the rows puts the uuid in the builder's
+	// hands, where the rest of this datastore's identity already lives.
+	//
+	// The id stays the card's, because it is what upstream's own
+	// cross-references point at: promoIds, enchantedId and reprintedAsIds
+	// are lists of card ids, and a per-printing id there would leave them
+	// naming nothing.
+	var perFinish []any
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			perFinish = append(perFinish, raw)
+			continue
+		}
+		id, ok := cardID(item["id"])
+		sold := stringsOf(item["foilTypes"])
+		if !ok || len(sold) == 0 {
+			// A card upstream lists no foil type for is the plain printing
+			// alone, which is one row either way.
+			perFinish = append(perFinish, item)
+			continue
+		}
+		for _, foilType := range sold {
+			printing := make(map[string]any, len(item)+2)
+			for key, value := range item {
+				printing[key] = value
+			}
+			delete(printing, "foilTypes")
+			printing["finish"] = foilType
+			printing["uuid"] = printingUUID(id, foilType)
+			perFinish = append(perFinish, printing)
+		}
+	}
+	log.Printf("printings: %d cards split into %d rows, one per finish", len(items), len(perFinish))
+	items = perFinish
+
 	doc["cards"] = items
 
 	// Sealed products: everything the catalog files outside the singles
@@ -1080,9 +1201,9 @@ func main() {
 		counted.carried, len(cardProducts), len(cardProducts)-counted.carried,
 		len(mintable), counted.carried-len(mintable))
 	emitted := len(cards) + len(mintable)
-	if counted.cards != emitted || counted.sealed != len(sealedItems) {
+	if counted.distinct != emitted || counted.sealed != len(sealedItems) {
 		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			emitted, len(sealedItems), counted.cards, counted.sealed)
+			emitted, len(sealedItems), counted.distinct, counted.sealed)
 	}
 	// The coverage contract for the sealed side. Sealed is everything the
 	// catalog does not type as a card, so it is exhaustive by construction
@@ -1159,6 +1280,11 @@ func main() {
 
 type counts struct {
 	sets, cards, sealed, identified, carried int
+	// distinct is how many cards the rows speak for, which is fewer than
+	// the rows once a card is published once per finish. The invariant
+	// below is that every card the build decided to carry reached the
+	// file, so it is this that answers it and not the row count.
+	distinct int
 }
 
 // validate decodes an encoded datastore and checks its shape: sets and
@@ -1182,6 +1308,7 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 			ID            int    `json:"id"`
 			FullName      string `json:"fullName"`
 			SetCode       string `json:"setCode"`
+			Finish        string `json:"finish"`
 			ExternalLinks struct {
 				TcgPlayerId     int   `json:"tcgPlayerId"`
 				TcgPlayerExtras []int `json:"tcgPlayerExtraIds"`
@@ -1211,21 +1338,28 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 			return out, fmt.Errorf("set code %q holds what a query cannot carry", code)
 		}
 	}
-	cardIDs := map[int]bool{}
-	// A product is one printing sold under one listing, so it belongs to one
-	// card: two cards claiming it merge their price histories into whichever
-	// of them a consumer happens to load last, which flips the day upstream
-	// reorders its array. Extra ids name products in the same namespace and
-	// are checked against the same claims.
-	claimedBy := map[int]string{}
+	// A card is published once per printing, so its id repeats across the
+	// finishes it is sold in and the pair is what has to be unique: two
+	// rows of one card in one finish are two rows for one printing.
+	printings := map[string]bool{}
+	seenCard := map[int]bool{}
+	// A product is one card's, so two different cards claiming it merge
+	// their price histories into whichever of them a consumer happens to
+	// load last, which flips the day upstream reorders its array. The
+	// finishes of one card share it, because TCGplayer sells one product
+	// with a sku per printing. Extra ids name products in the same
+	// namespace and are checked against the same claims.
+	claimedBy := map[int]int{}
+	claimName := map[int]string{}
 	for _, card := range doc.Cards {
 		if card.ID == 0 || card.FullName == "" || card.SetCode == "" {
 			return out, fmt.Errorf("card %q (%d) missing identity", card.FullName, card.ID)
 		}
-		if cardIDs[card.ID] {
-			return out, fmt.Errorf("duplicate card id %d", card.ID)
+		printing := fmt.Sprintf("%d|%s", card.ID, card.Finish)
+		if printings[printing] {
+			return out, fmt.Errorf("card %d published twice in finish %q", card.ID, card.Finish)
 		}
-		cardIDs[card.ID] = true
+		printings[printing] = true
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.FullName, card.SetCode)
 		}
@@ -1234,15 +1368,18 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 			if id == 0 {
 				continue
 			}
-			if previous, found := claimedBy[id]; found {
-				return out, fmt.Errorf("tcgplayer product %d claimed by both %s and %s", id, previous, claimant)
+			if previous, found := claimedBy[id]; found && previous != card.ID {
+				return out, fmt.Errorf("tcgplayer product %d claimed by both %s and %s", id, claimName[id], claimant)
 			}
-			claimedBy[id] = claimant
+			claimedBy[id] = card.ID
+			claimName[id] = claimant
 		}
-		if card.ExternalLinks.TcgPlayerId != 0 {
+		if card.ExternalLinks.TcgPlayerId != 0 && !seenCard[card.ID] {
 			out.identified++
 		}
+		seenCard[card.ID] = true
 	}
+	out.distinct = len(seenCard)
 	var missing, foreign []int
 	for id := range claimedBy {
 		if !cardProducts[id] {
