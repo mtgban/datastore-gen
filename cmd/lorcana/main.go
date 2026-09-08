@@ -355,6 +355,108 @@ func promoTypesOf(item map[string]any, universal map[string]bool) []string {
 	return out
 }
 
+// finishesSold is the finish each of a card's printings is sold under, in
+// the vocabulary TCGplayer prices them in: what the catalog says where it
+// said anything, and the rule below where it did not.
+//
+// The rule is only for the printings TCGplayer sells none of - the minted
+// promos and the handful upstream carries alone. Silver is the standard
+// foil and everything else is the treatment past it; a card with two
+// treatments and no standard has its first stand in for one, which is what
+// TCGplayer does with the three that exist.
+func finishesSold(item map[string]any) []string {
+	var out []string
+	if links, ok := item["externalLinks"].(map[string]any); ok {
+		for _, name := range stringsOf(links["tcgPrintings"]) {
+			if finish := canonicalFinish(name); finish != "" && !slices.Contains(out, finish) {
+				out = append(out, finish)
+			}
+		}
+	}
+	if len(out) > 0 {
+		return out
+	}
+	var holo int
+	for _, foilType := range stringsOf(item["foilTypes"]) {
+		finish := finishNonfoil
+		switch {
+		case canonicalFinish(foilType) == finishNonfoil:
+		case isStandardFoil(foilType):
+			finish = finishFoil
+		default:
+			finish = finishHolofoil
+			holo++
+		}
+		if !slices.Contains(out, finish) {
+			out = append(out, finish)
+		}
+	}
+	if holo > 1 && !slices.Contains(out, finishFoil) {
+		for i, finish := range out {
+			if finish == finishHolofoil {
+				out[i] = finishFoil
+				break
+			}
+		}
+	}
+	return out
+}
+
+// finishOf is the finish a foil type is sold under: the standard foil where
+// it is the standard one, and the treatment slot otherwise - unless the card
+// has no treatment slot, in which case the treatment is what the standard
+// one holds. Read against the finishes the card is actually sold in rather
+// than assumed, so a card TCGplayer sells one way is not given two.
+func finishOf(foilType string, sold []string) string {
+	if canonicalFinish(foilType) == finishNonfoil {
+		return finishNonfoil
+	}
+	want := finishHolofoil
+	if isStandardFoil(foilType) {
+		want = finishFoil
+	}
+	if slices.Contains(sold, want) {
+		return want
+	}
+	// One finish and two names for it: whichever the card is sold in
+	// answers, because there is nothing else for the name to reach.
+	for _, finish := range sold {
+		if finish != finishNonfoil {
+			return finish
+		}
+	}
+	return ""
+}
+
+// isStandardFoil reports whether a foil type is the cold foil almost every
+// Lorcana card is foiled in, which TCGplayer sells as "Cold Foil".
+func isStandardFoil(foilType string) bool {
+	switch canonicalFinish(foilType) {
+	case finishFoil, "silver":
+		return true
+	}
+	return false
+}
+
+// treatmentLabel is the promo type a foil type is worth carrying: the
+// treatment past the plain foil, spelled the way a label is spelled here.
+// The plain printing and the standard foil are not treatments, and neither
+// is the one upstream calls "Holofoil" - that is the name the finish
+// already wears, and a label saying what the finish says is no label.
+func treatmentLabel(foilType string) string {
+	if canonicalFinish(foilType) == finishNonfoil || isStandardFoil(foilType) ||
+		canonicalFinish(foilType) == finishHolofoil {
+		return ""
+	}
+	spaced := camelWordRe.ReplaceAllString(foilType, "$1 $2")
+	spaced = digitWordRe.ReplaceAllString(spaced, "$1 $2")
+	return strings.ToLower(strings.Join(strings.Fields(spaced), " "))
+}
+
+// digitWordRe finds the seam between a word and the number it ends in, so
+// "FreeForm1" reads as three words rather than two.
+var digitWordRe = regexp.MustCompile(`([A-Za-z])([0-9])`)
+
 // cardID reads a card's id back off a decoded document: a number comes back
 // as a float64, and a minted card's is negative.
 func cardID(value any) (int, bool) {
@@ -391,17 +493,18 @@ func stringsOf(value any) []string {
 // printing nothing resolves - so the two helpers below duplicate
 // go-mtgban's, the way this repository duplicates every helper it shares
 // rather than depending on it.
-func printingUUID(id int, foilType string) string {
+func printingUUID(id int, finish string) string {
 	base := cardUUID(id)
-	if finish := canonicalFinish(foilType); finish != finishNonfoil {
+	if finish != finishNonfoil {
 		return base + "_" + finish
 	}
 	return base
 }
 
 const (
-	finishNonfoil = "nonfoil"
-	finishFoil    = "foil"
+	finishNonfoil  = "nonfoil"
+	finishFoil     = "foil"
+	finishHolofoil = "holofoil"
 )
 
 // cardUUID is a card's uuid: its upstream id, and a minted card's negative
@@ -1047,33 +1150,79 @@ func main() {
 	}
 	log.Printf("image: %d cards given the common field beside upstream's images object", imaged)
 
-	// The uuid each foil type prices, named here rather than left to the
-	// loader to spell by folding the foil type and joining it to the card's
-	// id. A uuid is what a price is keyed on, and 3,200 of this game's are
-	// reached that way, over fifteen spellings - so a change to how the
-	// matcher folds a foil type moves them, silently, since a uuid nobody
-	// stored resolves to nothing rather than erroring. Named here, they
-	// move only when this build says so.
-	var named, withIDs int
+	// The finish each printing is sold under, in TCGplayer's own words,
+	// and the uuid each of those prices.
+	//
+	// Upstream names sixteen foil types where TCGplayer names three -
+	// Normal, Cold Foil and Holofoil - and prices arrive in TCGplayer's
+	// vocabulary, so that is the one a finish is keyed by. Derived instead,
+	// the best rule available ("Silver is the standard foil, everything
+	// else is the treatment past it") disagrees with TCGplayer on 28 of
+	// 3,452 cards: seven SeaWave printings it sells as Cold Foil, and
+	// fifteen foiled in plain silver it sells as Holofoil. Read rather than
+	// derived, they agree by construction.
+	//
+	// What upstream calls the foil becomes a promo type, which is where the
+	// other games already keep a treatment - One Piece's pirate foil, jolly
+	// roger foil and textured foil are promo types beside a two-value
+	// finish, and these are the same kind of fact.
+	var named, withIDs, treatments, aliased int
 	for _, raw := range items {
 		item, ok := raw.(map[string]any)
 		if !ok {
 			continue
 		}
 		id, ok := cardID(item["id"])
-		sold := stringsOf(item["foilTypes"])
-		if !ok || len(sold) == 0 {
+		if !ok {
+			continue
+		}
+		sold := finishesSold(item)
+		if len(sold) == 0 {
 			continue
 		}
 		ids := make(map[string]any, len(sold))
-		for _, foilType := range sold {
-			ids[foilType] = printingUUID(id, foilType)
+		for _, finish := range sold {
+			ids[finish] = printingUUID(id, finish)
 		}
 		item["printingIds"] = ids
 		named += len(ids)
 		withIDs++
+
+		// The spelling upstream gives a foil, and the finish it is sold
+		// under. A storefront naming the treatment - "Rainbow Pillars" -
+		// is naming a printing, and without this it would land on the
+		// standard foil instead of the one it asked for.
+		aliases := map[string]any{}
+		for _, foilType := range stringsOf(item["foilTypes"]) {
+			finish := finishOf(foilType, sold)
+			name := canonicalFinish(foilType)
+			if finish == "" || name == "" || name == finish {
+				continue
+			}
+			aliases[name] = finish
+		}
+		if len(aliases) > 0 {
+			item["finishAliases"] = aliases
+			aliased += len(aliases)
+		}
+
+		// The treatment past the plain foil, named the way upstream names
+		// it. The plain one is not a treatment and carries no label.
+		for _, foilType := range stringsOf(item["foilTypes"]) {
+			label := treatmentLabel(foilType)
+			if label == "" {
+				continue
+			}
+			types := stringsOf(item["promoTypes"])
+			if slices.Contains(types, label) {
+				continue
+			}
+			item["promoTypes"] = append(types, label)
+			treatments++
+		}
 	}
 	log.Printf("printing ids: %d uuids named over %d cards, so the loader spells none", named, withIDs)
+	log.Printf("finishes: named in TCGplayer's words, %d foil treatments moved to a promo type, %d spellings kept reaching their printing", treatments, aliased)
 	log.Printf("promo types: %d labels over %d cards, and %d varnishes left off as their rarity's own",
 		len(vocabulary), labelled, len(universal))
 
