@@ -933,7 +933,7 @@ func main() {
 			"number":  u.Number,
 			"setCode": code,
 			"rarity":  rarity,
-			"finish":  "Normal",
+			"finish":  plainPrinting(),
 		}
 		if u.CardType != "" {
 			entry["type"] = u.CardType
@@ -1023,7 +1023,7 @@ func main() {
 			"number":  printing.number,
 			"setCode": promoSetCode,
 			"rarity":  base["rarity"],
-			"finish":  "Normal",
+			"finish":  plainPrinting(),
 			"variant": printing.label,
 		}
 		if tags := promoTypesOf([]string{printing.label}); len(tags) > 0 {
@@ -1454,4 +1454,17 @@ func orderedFinishes(names []string) []string {
 		return out[i] < out[j]
 	})
 	return out
+}
+
+// plainPrinting is the catalog's name for the printing a bare id belongs to,
+// read off the pins rather than written a second time. checkPinnedPrintings
+// has already established the catalog still lists it, so this is the same
+// name the emitted entries carry.
+func plainPrinting() string {
+	for name, suffix := range finishSuffix {
+		if suffix == "" {
+			return name
+		}
+	}
+	return ""
 }

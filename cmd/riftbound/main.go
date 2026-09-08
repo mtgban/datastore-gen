@@ -172,6 +172,30 @@ func finishesByProduct(c *tcgplayer.CatalogDump) map[int][]string {
 	return out
 }
 
+// catalogFinishes is the category's plain and foil printings, as the dump
+// names them. The pair is what a product the catalog prices nothing for
+// falls back to, and the names are the catalog's to choose: written here
+// they would be a second opinion about somebody else's data, and the wrong
+// one the day TCGplayer renames a printing.
+func catalogFinishes(c *tcgplayer.CatalogDump) []string {
+	seen := map[string]string{}
+	for _, printing := range c.Printings {
+		switch finish := canonicalFinish(printing.Name); finish {
+		case "nonfoil", "foil":
+			if _, found := seen[finish]; !found {
+				seen[finish] = printing.Name
+			}
+		}
+	}
+	var out []string
+	for _, finish := range []string{"nonfoil", "foil"} {
+		if name := seen[finish]; name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // canonicalFinish spells a finish the way the matcher spells it, which is
 // what a uuid carries. The datastore names a finish the way TCGplayer prices
 // it; the uuids were spelled this way before it did, and a uuid that moves
@@ -622,6 +646,7 @@ func main() {
 			catalog.Category.CategoryID, riftboundCategory)
 	}
 	finishes := finishesByProduct(&catalog)
+	bothFinishes := catalogFinishes(&catalog)
 	productsByGroup := map[int][]tcgplayer.Product{}
 	// The coverage contract: every product the catalog types as a card.
 	// validate reads it back off the encoded output, so a product no rule
@@ -959,8 +984,10 @@ func main() {
 		if len(sold) == 0 {
 			// A printing the catalog sells nothing for names no finish,
 			// and the loader reads it as sold in both. Saying so is what
-			// keeps the uuids it reaches for from being invented.
-			sold = []string{"Normal", "Foil"}
+			// keeps the uuids it reaches for from being invented - in the
+			// catalog's own words, since it is the catalog that names its
+			// printings.
+			sold = bothFinishes
 		}
 		// Keyed by the finish as TCGplayer prices it, that being the name
 		// the datastore uses for it everywhere else; the uuid keeps the

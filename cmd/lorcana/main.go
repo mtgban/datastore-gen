@@ -155,7 +155,7 @@ func foilOnly(printings []string) bool {
 		return false
 	}
 	for _, name := range printings {
-		if name == "Normal" {
+		if canonicalFinish(name) == finishNonfoil {
 			return false
 		}
 	}
@@ -310,8 +310,9 @@ func keptQual(qual string) string {
 		pieceCountRe.MatchString(qual) || pieceSetRe.MatchString(qual) {
 		return ""
 	}
-	// foilTypes names the finish already, on this very card.
-	if strings.EqualFold(qual, "Foil") {
+	// foilTypes names the finish already, on this very card - whichever of
+	// the catalog's foils the qualifier spells.
+	if canonicalFinish(qual) == finishFoil {
 		return ""
 	}
 	for _, trim := range qualTrims {
@@ -597,6 +598,11 @@ const (
 // "Cold Foil" in the catalog, the plain foil slot in the matcher.
 const upstreamStandardFoil = "silver"
 
+// upstreamNonfoil is LorcanaJSON's placeholder for a plain printing, the one
+// foil type that names no foil. It is upstream's word, not the catalog's:
+// the catalog calls that printing "Normal".
+const upstreamNonfoil = "None"
+
 // cardUUID is a card's uuid: its upstream id, and a minted card's negative
 // id written as the "m-" the loader reads it back from.
 func cardUUID(id int) string {
@@ -639,8 +645,8 @@ func canonicalFinish(name string) string {
 func foilTypes(printings []string) []string {
 	var types []string
 	for _, name := range printings {
-		if name == "Normal" {
-			types = append(types, "None")
+		if canonicalFinish(name) == finishNonfoil {
+			types = append(types, upstreamNonfoil)
 			continue
 		}
 		types = append(types, name)
@@ -1091,7 +1097,7 @@ func main() {
 		// Holofoil and Cold Foil, which can reproduce none of them.
 		var ljNonfoil, ljFoil bool
 		for _, t := range c.foilTypes {
-			if strings.EqualFold(t, "none") {
+			if canonicalFinish(t) == finishNonfoil {
 				ljNonfoil = true
 			} else {
 				ljFoil = true
@@ -1100,7 +1106,13 @@ func main() {
 		if len(c.foilTypes) == 0 {
 			ljNonfoil = true
 		}
-		tcgNonfoil := sliceContains(names, "Normal")
+		var tcgNonfoil bool
+		for _, name := range names {
+			if canonicalFinish(name) == finishNonfoil {
+				tcgNonfoil = true
+				break
+			}
+		}
 		tcgFoil := len(names) > 1 || !tcgNonfoil
 
 		if ljNonfoil == tcgNonfoil && ljFoil == tcgFoil {
@@ -1108,11 +1120,11 @@ func main() {
 		}
 		reconciled := []string{}
 		if tcgNonfoil {
-			reconciled = append(reconciled, "None")
+			reconciled = append(reconciled, upstreamNonfoil)
 		}
 		if tcgFoil {
 			for _, t := range c.foilTypes {
-				if !strings.EqualFold(t, "none") {
+				if canonicalFinish(t) != finishNonfoil {
 					reconciled = append(reconciled, t)
 				}
 			}
@@ -1120,7 +1132,7 @@ func main() {
 			// so the catalog's own printing name is all there is to call it.
 			if len(reconciled) == 0 || (tcgNonfoil && len(reconciled) == 1) {
 				for _, n := range names {
-					if n != "Normal" {
+					if canonicalFinish(n) != finishNonfoil {
 						reconciled = append(reconciled, n)
 					}
 				}
