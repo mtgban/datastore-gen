@@ -699,6 +699,7 @@ func main() {
 	}
 	codes := setCodes(catalog.Groups)
 	checkPinnedPrintings(&catalog)
+	checkFabFinishNames()
 	printings := printingNames(&catalog)
 
 	// Split the products: every single becomes printings, the non-single
@@ -1117,10 +1118,22 @@ func main() {
 			}
 		}
 		if len(finishes) == 0 {
-			finishes = []string{"Normal"}
+			finishes = []string{plainPrinting()}
 		}
-		sort.Slice(finishes, func(i, j int) bool {
-			return slices.Index(finishOrder, finishes[i]) < slices.Index(finishOrder, finishes[j])
+		// slices.Index answers -1 for a printing finishOrder does not name,
+		// which would sort one TCGplayer has added ahead of the plain
+		// printing rather than after the ones this build names.
+		rank := func(name string) int {
+			if i := slices.Index(finishOrder, name); i >= 0 {
+				return i
+			}
+			return len(finishOrder)
+		}
+		sort.SliceStable(finishes, func(i, j int) bool {
+			if ri, rj := rank(finishes[i]), rank(finishes[j]); ri != rj {
+				return ri < rj
+			}
+			return finishes[i] < finishes[j]
 		})
 
 		for _, finish := range finishes {
@@ -1560,6 +1573,32 @@ func checkPinnedPrintings(c *tcgplayer.CatalogDump) {
 		if !listed[name] {
 			log.Fatalf("the catalog no longer lists printing %q, which this build pins the id suffix %q for: every id built from it would move",
 				name, suffix)
+		}
+	}
+}
+
+// plainPrinting is the catalog's name for the printing a bare id belongs to,
+// read off the pins rather than written a second time. checkPinnedPrintings
+// has already established the catalog still lists it, so this is the same
+// name the emitted entries carry.
+func plainPrinting() string {
+	for name, suffix := range finishSuffix {
+		if suffix == "" {
+			return name
+		}
+	}
+	return ""
+}
+
+// checkFabFinishNames refuses a translation table naming a printing the pins
+// do not. fabFinish crosses upstream's edition and foiling codes onto the
+// catalog's printing names, so it holds a second copy of that vocabulary,
+// and two copies drift. The pins are checked against the catalog itself, so
+// checking this against the pins reaches the catalog too.
+func checkFabFinishNames() {
+	for code, name := range fabFinish {
+		if _, pinned := finishSuffix[name]; !pinned {
+			log.Fatalf("fabFinish maps %q to printing %q, which no id suffix is pinned for", code, name)
 		}
 	}
 }
