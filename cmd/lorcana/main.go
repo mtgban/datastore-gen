@@ -366,41 +366,61 @@ func promoTypesOf(item map[string]any, universal map[string]bool) []string {
 // TCGplayer does with the three that exist.
 func finishesSold(item map[string]any) []string {
 	var out []string
+	seen := map[string]bool{}
 	if links, ok := item["externalLinks"].(map[string]any); ok {
 		for _, name := range stringsOf(links["tcgPrintings"]) {
-			if finish := canonicalFinish(name); finish != "" && !slices.Contains(out, finish) {
-				out = append(out, finish)
+			// Kept in TCGplayer's own spelling, deduplicated by the finish
+			// it names: two printings the matcher folds together are one
+			// printing, and listing both would give the card two uuids
+			// for one sku.
+			finish := canonicalFinish(name)
+			if finish == "" || seen[finish] {
+				continue
 			}
+			seen[finish] = true
+			out = append(out, name)
 		}
 	}
 	if len(out) > 0 {
 		return out
 	}
+	// The printings TCGplayer sells none of are named in its vocabulary
+	// too, so one spelling reaches a finish whether the catalog placed it
+	// or the rule below did.
 	var holo int
 	for _, foilType := range stringsOf(item["foilTypes"]) {
-		finish := finishNonfoil
+		name := tcgNormal
 		switch {
 		case canonicalFinish(foilType) == finishNonfoil:
 		case isStandardFoil(foilType):
-			finish = finishFoil
+			name = tcgColdFoil
 		default:
-			finish = finishHolofoil
+			name = tcgHolofoil
 			holo++
 		}
-		if !slices.Contains(out, finish) {
-			out = append(out, finish)
+		if !slices.Contains(out, name) {
+			out = append(out, name)
 		}
 	}
-	if holo > 1 && !slices.Contains(out, finishFoil) {
-		for i, finish := range out {
-			if finish == finishHolofoil {
-				out[i] = finishFoil
+	if holo > 1 && !slices.Contains(out, tcgColdFoil) {
+		for i, name := range out {
+			if name == tcgHolofoil {
+				out[i] = tcgColdFoil
 				break
 			}
 		}
 	}
 	return out
 }
+
+// The names TCGplayer prices a Lorcana printing under, which is the whole of
+// its vocabulary for the category: the plain printing, the cold foil almost
+// every card is foiled in, and the treatment past it.
+const (
+	tcgNormal   = "Normal"
+	tcgColdFoil = "Cold Foil"
+	tcgHolofoil = "Holofoil"
+)
 
 // finishOf is the finish a foil type is sold under: the standard foil where
 // it is the standard one, and the treatment slot otherwise - unless the card
@@ -417,20 +437,24 @@ func finishesSold(item map[string]any) []string {
 // finishesSold applies where the catalog names nothing.
 func finishOf(foilType string, foilTypes, sold []string) string {
 	if canonicalFinish(foilType) == finishNonfoil {
-		return finishNonfoil
+		return tcgNormal
 	}
 	want := finishHolofoil
 	if isStandardFoil(foilType) || standsInForStandard(foilType, foilTypes) {
 		want = finishFoil
 	}
-	if slices.Contains(sold, want) {
-		return want
+	// Answered with a name the card is sold under, spelled the way the
+	// datastore spells it, rather than with one of ours.
+	for _, name := range sold {
+		if canonicalFinish(name) == want {
+			return name
+		}
 	}
 	// One finish and two names for it: whichever the card is sold in
 	// answers, because there is nothing else for the name to reach.
-	for _, finish := range sold {
-		if finish != finishNonfoil {
-			return finish
+	for _, name := range sold {
+		if canonicalFinish(name) != finishNonfoil {
+			return name
 		}
 	}
 	return ""
@@ -517,7 +541,10 @@ func stringsOf(value any) []string {
 }
 
 // printingUUID is the uuid a printing prices: the card's for the plain
-// printing, and the card's with the foil type on the end for a foil. It has
+// printing, and the card's with the finish on the end for a foil. The finish
+// is the matcher's spelling of it rather than TCGplayer's - a uuid that
+// moves resolves to nothing rather than erroring, so the name the datastore
+// publishes for a finish and the name a uuid carries are kept apart. It has
 // to agree with the loader exactly - a uuid spelled differently is a
 // printing nothing resolves - so the two helpers below duplicate
 // go-mtgban's, the way this repository duplicates every helper it shares
@@ -1209,9 +1236,12 @@ func main() {
 		if len(sold) == 0 {
 			continue
 		}
+		// Keyed by the finish as TCGplayer prices it, that being the name
+		// the datastore uses for it everywhere else; the uuid keeps the
+		// matcher's spelling, which is the one already in circulation.
 		ids := make(map[string]any, len(sold))
 		for _, finish := range sold {
-			ids[finish] = printingUUID(id, finish)
+			ids[finish] = printingUUID(id, canonicalFinish(finish))
 		}
 		item["printingIds"] = ids
 		named += len(ids)
@@ -1225,7 +1255,9 @@ func main() {
 		for _, foilType := range stringsOf(item["foilTypes"]) {
 			finish := finishOf(foilType, stringsOf(item["foilTypes"]), sold)
 			name := canonicalFinish(foilType)
-			if finish == "" || name == "" || name == finish {
+			// A spelling that already is the finish's own name reaches it
+			// without an alias, whichever vocabulary each is written in.
+			if finish == "" || name == "" || canonicalFinish(finish) == name {
 				continue
 			}
 			aliases[name] = finish

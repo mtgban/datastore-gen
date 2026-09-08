@@ -41,6 +41,13 @@ and every product the catalog types as a card. `validate` re-reads the
 encoded output and refuses to publish if any catalog card product carries
 no card.
 
+The finishes a card is sold in are named the way TCGplayer names them
+("Normal", "Cold Foil", "Holofoil"), as the other games name theirs, and
+LorcanaJSON's own richer foil types reach them two ways: as a promo type
+naming the treatment, and as a spelling filed under `finishAliases` so a
+storefront asking for one lands on the printing it means rather than on the
+standard foil beside it.
+
 Card identity is left entirely to LorcanaJSON: its integer card ids are the
 matcher's uuids, and its foil sub-type names are what storefront wording
 resolves against. Set codes are LorcanaJSON's too; a catalog group whose

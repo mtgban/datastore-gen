@@ -37,9 +37,13 @@ while every card naming it still resolved.
 
 The gallery says nothing about finish, and most of Riftbound is sold in one
 finish only - promotional printings foil, starter cards plain - so the
-finishes come from the printings the catalog lists for a product. The dump is
-used rather than a price feed because it names a printing whether or not
-anyone is selling it today.
+finishes come from the printings the catalog lists for a product, named the
+way TCGplayer names them ("Normal", "Foil") as the other games name theirs.
+The vocabulary is open: a printing TCGplayer adds to the category is carried
+under its own name rather than dropped, and the matcher places it by
+normalizing, so a third finish arrives as data rather than as a release. The
+dump is used rather than a price feed because it names a printing whether or
+not anyone is selling it today.
 
 The output is the gallery payload itself with the extra data merged into the
 gallery blade, so the loader reads it unchanged. Before writing anything the
