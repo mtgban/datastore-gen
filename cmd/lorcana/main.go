@@ -1198,7 +1198,7 @@ func main() {
 	// other games already keep a treatment - One Piece's pirate foil, jolly
 	// roger foil and textured foil are promo types beside a two-value
 	// finish, and these are the same kind of fact.
-	var named, withIDs, treatments, aliased int
+	var named, withIDs, treatments int
 	for _, raw := range items {
 		item, ok := raw.(map[string]any)
 		if !ok {
@@ -1212,54 +1212,53 @@ func main() {
 		if len(sold) == 0 {
 			continue
 		}
-		// Keyed by the finish as TCGplayer prices it, that being the name
-		// the datastore uses for it everywhere else; the uuid keeps the
-		// matcher's spelling, which is the one already in circulation.
-		ids := make(map[string]any, len(sold))
+		// One entry per printing, carrying what is true of that printing
+		// alone: the finish TCGplayer prices it under, the uuid it is
+		// quoted by, and the treatments it is the printing of. The three parallel
+		// structures this replaces - printingIds, finishAliases and
+		// upstream's foilTypes - said the same things about a card and left
+		// a reader to join them by finish name.
+		//
+		// The uuid keeps the matcher's spelling, which is the one already in
+		// circulation, so nothing a consumer has stored moves.
+		printings := make([]any, 0, len(sold))
 		for _, finish := range sold {
-			ids[finish] = printingUUID(id, canonicalFinish(finish))
+			printing := map[string]any{
+				"finish": finish,
+				"id":     printingUUID(id, canonicalFinish(finish)),
+			}
+			// The treatment past the plain foil, which is a fact about this
+			// printing rather than about the card: a card sold plain and in
+			// Rainbow Pillars is not a Rainbow Pillars card. The plain
+			// printing is not a treatment and carries none.
+			var labels []any
+			for _, foilType := range stringsOf(item["foilTypes"]) {
+				if finishOf(foilType, stringsOf(item["foilTypes"]), sold) != finish {
+					continue
+				}
+				label := treatmentLabel(foilType)
+				if label == "" || slices.Contains(labels, any(label)) {
+					continue
+				}
+				labels = append(labels, label)
+				treatments++
+			}
+			if len(labels) > 0 {
+				printing["promoTypes"] = labels
+			}
+			printings = append(printings, printing)
 		}
-		item["printingIds"] = ids
-		named += len(ids)
+		item["printings"] = printings
+		named += len(printings)
 		withIDs++
 
-		// The spelling upstream gives a foil, and the finish it is sold
-		// under. A storefront naming the treatment - "Rainbow Pillars" -
-		// is naming a printing, and without this it would land on the
-		// standard foil instead of the one it asked for.
-		aliases := map[string]any{}
-		for _, foilType := range stringsOf(item["foilTypes"]) {
-			finish := finishOf(foilType, stringsOf(item["foilTypes"]), sold)
-			name := canonicalFinish(foilType)
-			// A spelling that already is the finish's own name reaches it
-			// without an alias, whichever vocabulary each is written in.
-			if finish == "" || name == "" || canonicalFinish(finish) == name {
-				continue
-			}
-			aliases[name] = finish
-		}
-		if len(aliases) > 0 {
-			item["finishAliases"] = aliases
-			aliased += len(aliases)
-		}
-
-		// The treatment past the plain foil, named the way upstream names
-		// it. The plain one is not a treatment and carries no label.
-		for _, foilType := range stringsOf(item["foilTypes"]) {
-			label := treatmentLabel(foilType)
-			if label == "" {
-				continue
-			}
-			types := stringsOf(item["promoTypes"])
-			if slices.Contains(types, label) {
-				continue
-			}
-			item["promoTypes"] = append(types, label)
-			treatments++
-		}
+		// Upstream's own list of finishes, which this has just said better:
+		// it names them in TCGplayer's words, beside the uuid each is quoted
+		// by. Leaving it would be the same card twice in two vocabularies.
+		delete(item, "foilTypes")
 	}
-	log.Printf("printing ids: %d uuids named over %d cards, so the loader spells none", named, withIDs)
-	log.Printf("finishes: named in TCGplayer's words, %d foil treatments moved to a promo type, %d spellings kept reaching their printing", treatments, aliased)
+	log.Printf("printings: %d named over %d cards, so the loader spells no uuid and joins no finish by name", named, withIDs)
+	log.Printf("finishes: named in TCGplayer's words, %d foil treatments carried by the printing that has them", treatments)
 	log.Printf("promo types: %d labels over %d cards, and %d varnishes left off as their rarity's own",
 		len(vocabulary), labelled, len(universal))
 
