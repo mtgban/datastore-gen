@@ -1261,13 +1261,13 @@ func main() {
 		}
 		if *baselineFit != "" {
 			if !fit {
-				log.Printf("baseline: unchanged, this build holds less than it does")
+				log.Print("baseline: unchanged, this build holds less than it does")
 			} else {
 				note := fmt.Sprintf("cards=%d sealed=%d\n", current.cards, current.sealed)
 				if err := os.WriteFile(*baselineFit, []byte(note), 0o644); err != nil {
 					log.Fatalln("baseline:", err)
 				}
-				log.Printf("baseline: this build becomes the one the next is measured against")
+				log.Print("baseline: this build becomes the one the next is measured against")
 			}
 		}
 	}
@@ -1354,7 +1354,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Variant       string `json:"variant"`
 			Finish        string `json:"finish"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
 		} `json:"cards"`
 		Sealed []struct {
@@ -1362,7 +1362,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Name          string `json:"name"`
 			SetCode       string `json:"setCode"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
 		} `json:"sealed"`
 	}
@@ -1405,7 +1405,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// The identity check below still refuses two products that are
 		// indistinguishable without it.
 		if card.ID == "" || card.Name == "" ||
-			card.Finish == "" || card.ExternalLinks.TcgPlayerId == 0 {
+			card.Finish == "" || card.ExternalLinks.TcgPlayerID == 0 {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
 		}
 		if !idShape.MatchString(card.ID) {
@@ -1423,15 +1423,15 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		cardIDs[card.ID] = true
 		identity := strings.Join([]string{
 			card.Name, card.Number, card.SetCode, card.Rarity, card.Variant}, "|")
-		if other, seen := identities[identity]; seen && other != card.ExternalLinks.TcgPlayerId {
+		if other, seen := identities[identity]; seen && other != card.ExternalLinks.TcgPlayerID {
 			return out, fmt.Errorf("products %d and %d wear one identity: %s",
-				other, card.ExternalLinks.TcgPlayerId, identity)
+				other, card.ExternalLinks.TcgPlayerID, identity)
 		}
-		identities[identity] = card.ExternalLinks.TcgPlayerId
+		identities[identity] = card.ExternalLinks.TcgPlayerID
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
-		productID := card.ExternalLinks.TcgPlayerId
+		productID := card.ExternalLinks.TcgPlayerID
 		if sliceContains(gotFinishes[productID], card.Finish) {
 			return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 		}
@@ -1452,7 +1452,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	}
 	sealedIDs := map[string]bool{}
 	for _, product := range doc.Sealed {
-		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerId == 0 {
+		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
 			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
 		}
 		if !idShape.MatchString(product.ID) {
