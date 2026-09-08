@@ -112,11 +112,6 @@ func imageURL(url string) string {
 // tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
 // for a category, published next to the datastore it describes.
 
-// finishesByProduct maps each product to the finishes it is sold in, named as
-// the matcher names them. TCGplayer calls them Normal and Foil, and a
-// printing it does not list is one that does not exist: most of Riftbound is
-// sold in a single finish, promotional printings being foil and starter
-// cards plain.
 // stringsOf reads a list of strings back off a decoded document: this build
 // carries the gallery payload as generic JSON, so a slice it wrote itself
 // comes back as []any.
@@ -136,48 +131,67 @@ func stringsOf(value any) []string {
 	return nil
 }
 
+// finishesByProduct maps each product to the finishes it is sold in, named
+// as TCGplayer names them - which is how the other six games name theirs,
+// and what lets a consumer read the datastore's word back against a sku.
+// Normal and Foil are this category's whole vocabulary today, and a printing
+// TCGplayer adds later is carried under its own name rather than dropped:
+// the loader places an unrecognized name by normalizing it, so a third
+// finish arrives as data rather than as a release of either side. A printing
+// TCGplayer does not list is one that does not exist: most of Riftbound is
+// sold in a single finish, promotional printings being foil and starter
+// cards plain.
 func finishesByProduct(c *tcgplayer.CatalogDump) map[int][]string {
 	printing := map[int]string{}
+	// The catalog's own order for the printings, which puts Normal before
+	// Foil. Ordered rather than as encountered, so unchanged data keeps
+	// producing byte-identical output.
+	rank := map[string]int{}
 	for _, p := range c.Printings {
-		switch p.Name {
-		case "Normal":
-			printing[p.PrintingID] = "nonfoil"
-		case "Foil":
-			printing[p.PrintingID] = "foil"
-		default:
-			// Normal and Foil are the category's whole vocabulary today;
-			// a printing TCGplayer adds later must be mapped here, not
-			// silently skipped (its skus would count for no finish and
-			// the loader would fall back to both).
-			log.Printf("unknown printing %q (%d): skus under it are ignored", p.Name, p.PrintingID)
-		}
+		printing[p.PrintingID] = p.Name
+		rank[p.Name] = p.PrintingID
 	}
 
 	out := map[int][]string{}
 	for _, product := range c.Products {
-		var nonfoil, foil bool
-		for _, sku := range product.Skus {
-			switch printing[sku.PrintingID] {
-			case "nonfoil":
-				nonfoil = true
-			case "foil":
-				foil = true
-			}
-		}
-		// Ordered rather than as encountered, so unchanged data keeps
-		// producing byte-identical output.
 		var finishes []string
-		if nonfoil {
-			finishes = append(finishes, "nonfoil")
+		for _, sku := range product.Skus {
+			name := printing[sku.PrintingID]
+			if name == "" || slices.Contains(finishes, name) {
+				continue
+			}
+			finishes = append(finishes, name)
 		}
-		if foil {
-			finishes = append(finishes, "foil")
-		}
+		sort.Slice(finishes, func(i, j int) bool {
+			return rank[finishes[i]] < rank[finishes[j]]
+		})
 		if len(finishes) > 0 {
 			out[product.ProductID] = finishes
 		}
 	}
 	return out
+}
+
+// canonicalFinish spells a finish the way the matcher spells it, which is
+// what a uuid carries. The datastore names a finish the way TCGplayer prices
+// it; the uuids were spelled this way before it did, and a uuid that moves
+// resolves to nothing rather than erroring, so the two vocabularies are kept
+// apart here rather than merged. It has to agree with go-mtgban's
+// CanonicalFinish exactly, the way this repository duplicates every helper
+// it shares rather than depending on it.
+func canonicalFinish(name string) string {
+	var out strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			out.WriteRune(r)
+		}
+	}
+	folded := out.String()
+	// "Normal" is what TCGplayer calls a plain printing in every category
+	if folded == "normal" {
+		return "nonfoil"
+	}
+	return folded
 }
 
 // isPromoGroup reports whether a TCGplayer group holds promotional printings
@@ -946,11 +960,14 @@ func main() {
 			// A printing the catalog sells nothing for names no finish,
 			// and the loader reads it as sold in both. Saying so is what
 			// keeps the uuids it reaches for from being invented.
-			sold = []string{"nonfoil", "foil"}
+			sold = []string{"Normal", "Foil"}
 		}
+		// Keyed by the finish as TCGplayer prices it, that being the name
+		// the datastore uses for it everywhere else; the uuid keeps the
+		// matcher's spelling, which is the one already in circulation.
 		ids := make(map[string]any, len(sold))
 		for _, finish := range sold {
-			ids[finish] = fmt.Sprintf("%v_%s", item["id"], finish)
+			ids[finish] = fmt.Sprintf("%v_%s", item["id"], canonicalFinish(finish))
 		}
 		item["printingIds"] = ids
 		printings += len(ids)
