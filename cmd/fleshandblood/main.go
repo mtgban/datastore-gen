@@ -1271,13 +1271,13 @@ func main() {
 		}
 		if *baselineFit != "" {
 			if !fit {
-				log.Printf("baseline: unchanged, this build holds less than it does")
+				log.Print("baseline: unchanged, this build holds less than it does")
 			} else {
 				note := fmt.Sprintf("cards=%d sealed=%d\n", current.cards, current.sealed)
 				if err := os.WriteFile(*baselineFit, []byte(note), 0o644); err != nil {
 					log.Fatalln("baseline:", err)
 				}
-				log.Printf("baseline: this build becomes the one the next is measured against")
+				log.Print("baseline: this build becomes the one the next is measured against")
 			}
 		}
 	}
@@ -1362,7 +1362,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Language      string `json:"language"`
 			Finish        string `json:"finish"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
 		} `json:"cards"`
 		Sealed []struct {
@@ -1370,7 +1370,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Name          string `json:"name"`
 			SetCode       string `json:"setCode"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
 		} `json:"sealed"`
 	}
@@ -1428,7 +1428,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// printing of a card is not the English one wearing its name.
 		identity := strings.Join([]string{
 			card.Name, card.Number, card.SetCode, card.Variant, card.Language}, "|")
-		productID := card.ExternalLinks.TcgPlayerId
+		productID := card.ExternalLinks.TcgPlayerID
 		discriminator := fmt.Sprint(productID)
 		if productID == 0 {
 			discriminator = "minted:" + card.SetCode + "|" + card.Number
@@ -1468,7 +1468,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	}
 	sealedIDs := map[string]bool{}
 	for _, product := range doc.Sealed {
-		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerId == 0 {
+		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
 			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
 		}
 		if !idShape.MatchString(product.ID) {

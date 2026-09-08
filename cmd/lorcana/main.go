@@ -786,8 +786,8 @@ func main() {
 			continue
 		}
 		names := append([]string(nil), printings[c.tcgID]...)
-		if extraIds, ok := c.links["tcgPlayerExtraIds"].([]int); ok {
-			for _, id := range extraIds {
+		if extraIDs, ok := c.links["tcgPlayerExtraIds"].([]int); ok {
+			for _, id := range extraIDs {
 				for _, n := range printings[id] {
 					if !sliceContains(names, n) {
 						names = append(names, n)
@@ -1132,13 +1132,13 @@ func main() {
 		}
 		if *baselineFit != "" {
 			if !fit {
-				log.Printf("baseline: unchanged, this build holds less than it does")
+				log.Print("baseline: unchanged, this build holds less than it does")
 			} else {
 				note := fmt.Sprintf("cards=%d sealed=%d\n", current.cards, current.sealed)
 				if err := os.WriteFile(*baselineFit, []byte(note), 0o644); err != nil {
 					log.Fatalln("baseline:", err)
 				}
-				log.Printf("baseline: this build becomes the one the next is measured against")
+				log.Print("baseline: this build becomes the one the next is measured against")
 			}
 		}
 	}
@@ -1183,7 +1183,7 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 			FullName      string `json:"fullName"`
 			SetCode       string `json:"setCode"`
 			ExternalLinks struct {
-				TcgPlayerId     int   `json:"tcgPlayerId"`
+				TcgPlayerID     int   `json:"tcgPlayerId"`
 				TcgPlayerExtras []int `json:"tcgPlayerExtraIds"`
 			} `json:"externalLinks"`
 		} `json:"cards"`
@@ -1192,7 +1192,7 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 			Name          string `json:"name"`
 			SetCode       string `json:"setCode"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
 		} `json:"sealed"`
 	}
@@ -1230,7 +1230,7 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 			return out, fmt.Errorf("card %q in unknown set %s", card.FullName, card.SetCode)
 		}
 		claimant := fmt.Sprintf("%q (%d)", card.FullName, card.ID)
-		for _, id := range append([]int{card.ExternalLinks.TcgPlayerId}, card.ExternalLinks.TcgPlayerExtras...) {
+		for _, id := range append([]int{card.ExternalLinks.TcgPlayerID}, card.ExternalLinks.TcgPlayerExtras...) {
 			if id == 0 {
 				continue
 			}
@@ -1239,7 +1239,7 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 			}
 			claimedBy[id] = claimant
 		}
-		if card.ExternalLinks.TcgPlayerId != 0 {
+		if card.ExternalLinks.TcgPlayerID != 0 {
 			out.identified++
 		}
 	}
@@ -1271,7 +1271,7 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 	}
 	sealedIDs := map[string]bool{}
 	for _, product := range doc.Sealed {
-		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerId == 0 {
+		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
 			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
 		}
 		if sealedIDs[product.ID] {

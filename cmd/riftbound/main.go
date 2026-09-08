@@ -32,6 +32,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/mtgban/go-tcgplayer"
@@ -62,7 +63,7 @@ const (
 // sealed side where it is noticed instead of silently passing as a single.
 var tcgSingles = tcgplayer.SinglesProductTypes(riftboundCategory)
 
-var buildIdRe = regexp.MustCompile(`"buildId":"([^"]+)"`)
+var buildIDRe = regexp.MustCompile(`"buildId":"([^"]+)"`)
 
 // galleryPayload reads the card-gallery payload: a local file when one is
 // named, the live site otherwise, resolving the build id the data URL is
@@ -75,7 +76,7 @@ func galleryPayload(location string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := buildIdRe.FindSubmatch(page)
+	m := buildIDRe.FindSubmatch(page)
 	if m == nil {
 		return nil, fmt.Errorf("%s: no buildId in the page", galleryPageURL)
 	}
@@ -452,7 +453,7 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 		}
 		return len(blade.Sets.Items), len(blade.Cards.Items), len(blade.Sealed.Items), identified, nil
 	}
-	return 0, 0, 0, 0, fmt.Errorf("no card gallery blade in the output")
+	return 0, 0, 0, 0, errors.New("no card gallery blade in the output")
 }
 
 // datastoreCounts is what a datastore holds: the two totals, and the printing
@@ -501,7 +502,7 @@ func countDatastore(data []byte) (datastoreCounts, error) {
 		}
 		return out, nil
 	}
-	return out, fmt.Errorf("no card gallery blade")
+	return out, errors.New("no card gallery blade")
 }
 
 // regression compares this build against the datastore it is about to
@@ -637,10 +638,25 @@ func main() {
 	if gallery == nil {
 		log.Fatalln("no card gallery blade in the payload")
 	}
-	sets := gallery["sets"].(map[string]any)
-	cards := gallery["cards"].(map[string]any)
-	setItems := sets["items"].([]any)
-	cardItems := cards["items"].([]any)
+	// The gallery's two tables are the shape the whole build reads; a
+	// payload without them is not one we can go on from, so say which is
+	// missing rather than panicking several lines later.
+	sets, ok := gallery["sets"].(map[string]any)
+	if !ok {
+		log.Fatalln("the card gallery blade carries no sets table")
+	}
+	cards, ok := gallery["cards"].(map[string]any)
+	if !ok {
+		log.Fatalln("the card gallery blade carries no cards table")
+	}
+	setItems, ok := sets["items"].([]any)
+	if !ok {
+		log.Fatalln("the gallery's sets table carries no items")
+	}
+	cardItems, ok := cards["items"].([]any)
+	if !ok {
+		log.Fatalln("the gallery's cards table carries no items")
+	}
 
 	// Index the gallery sets so the groups can stamp their release dates
 	setByID := map[string]map[string]any{}
@@ -656,13 +672,28 @@ func main() {
 	// Index the gallery printings by set and canonical collector number, the
 	// identity TCGplayer products are mapped back onto.
 	galleryByNumber := map[string]map[string]map[string]any{}
+	var galleryUnnamed int
 	for _, c := range cardItems {
-		item := c.(map[string]any)
-		setID := item["set"].(map[string]any)["value"].(map[string]any)["id"].(string)
+		item, ok := c.(map[string]any)
+		if !ok {
+			galleryUnnamed++
+			continue
+		}
+		set, _ := item["set"].(map[string]any)
+		value, _ := set["value"].(map[string]any)
+		setID, _ := value["id"].(string)
+		code, _ := item["publicCode"].(string)
+		if setID == "" || code == "" {
+			galleryUnnamed++
+			continue
+		}
 		if galleryByNumber[setID] == nil {
 			galleryByNumber[setID] = map[string]map[string]any{}
 		}
-		galleryByNumber[setID][numberOf(item["publicCode"].(string))] = item
+		galleryByNumber[setID][numberOf(code)] = item
+	}
+	if galleryUnnamed > 0 {
+		log.Printf("gallery: %d printings name no set and number, and index nothing", galleryUnnamed)
 	}
 
 	// Process in a stable order so unchanged data produces byte-identical
@@ -743,7 +774,9 @@ func main() {
 			}
 			number := numberFor(product)
 			collector := 0
-			fmt.Sscanf(strings.TrimLeft(product.Extended("Number"), "0"), "%d", &collector)
+			// A number that is not a bare ordinal leaves collector at
+			// zero, which simply does not raise the maximum.
+			_, _ = fmt.Sscanf(strings.TrimLeft(product.Extended("Number"), "0"), "%d", &collector)
 			if collector > maxNum {
 				maxNum = collector
 			}
@@ -897,15 +930,15 @@ func main() {
 		if !ok {
 			continue
 		}
-		switch max := set["collectorNumberMax"].(type) {
+		switch maxNumber := set["collectorNumberMax"].(type) {
 		case float64:
-			if max > 0 {
-				set["baseSetSize"] = int(max)
+			if maxNumber > 0 {
+				set["baseSetSize"] = int(maxNumber)
 				sized++
 			}
 		case int:
-			if max > 0 {
-				set["baseSetSize"] = max
+			if maxNumber > 0 {
+				set["baseSetSize"] = maxNumber
 				sized++
 			}
 		}
@@ -989,13 +1022,13 @@ func main() {
 		}
 		if *baselineFit != "" {
 			if !fit {
-				log.Printf("baseline: unchanged, this build holds less than it does")
+				log.Print("baseline: unchanged, this build holds less than it does")
 			} else {
 				note := fmt.Sprintf("cards=%d sealed=%d\n", current.cards, current.sealed)
 				if err := os.WriteFile(*baselineFit, []byte(note), 0o644); err != nil {
 					log.Fatalln("baseline:", err)
 				}
-				log.Printf("baseline: this build becomes the one the next is measured against")
+				log.Print("baseline: this build becomes the one the next is measured against")
 			}
 		}
 	}

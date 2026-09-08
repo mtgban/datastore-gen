@@ -75,6 +75,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/mtgban/go-cardmarket"
@@ -341,7 +342,7 @@ func decodeEnvelope(data []byte, into any) error {
 		return fmt.Errorf("graphql errors: %s", env.Errors)
 	}
 	if len(env.Data) == 0 || string(env.Data) == "null" {
-		return fmt.Errorf("graphql response carries no data")
+		return errors.New("graphql response carries no data")
 	}
 	return json.Unmarshal(env.Data, into)
 }
@@ -478,8 +479,8 @@ func emitNumber(entry map[string]any, number string) {
 // absent rather than guessed at, because there is no one size to report.
 func totalsBySet(cards []any) map[string]string {
 	seen := map[string]map[string]bool{}
-	for _, any_ := range cards {
-		entry, isMap := any_.(map[string]any)
+	for _, item := range cards {
+		entry, isMap := item.(map[string]any)
 		if !isMap {
 			continue
 		}
@@ -3501,13 +3502,13 @@ func main() {
 		}
 		if *baselineFit != "" {
 			if !fit {
-				log.Printf("baseline: unchanged, this build holds less than it does")
+				log.Print("baseline: unchanged, this build holds less than it does")
 			} else {
 				note := fmt.Sprintf("cards=%d sealed=%d\n", current.cards, current.sealed)
 				if err := os.WriteFile(*baselineFit, []byte(note), 0o644); err != nil {
 					log.Fatalln("baseline:", err)
 				}
-				log.Printf("baseline: this build becomes the one the next is measured against")
+				log.Print("baseline: this build becomes the one the next is measured against")
 			}
 		}
 	}
@@ -3605,7 +3606,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Finish        string `json:"finish"`
 			Image         string `json:"image"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
 		} `json:"cards"`
 		Sealed []struct {
@@ -3613,7 +3614,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Name          string `json:"name"`
 			SetCode       string `json:"setCode"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
 		} `json:"sealed"`
 	}
@@ -3663,7 +3664,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// An entry that names a product is one TCGplayer sells, and it
 		// always has the catalog's image. A minted entry has whatever
 		// tcgdex holds, which for some cards is no art at all.
-		if card.Image == "" && card.ExternalLinks.TcgPlayerId != 0 {
+		if card.Image == "" && card.ExternalLinks.TcgPlayerID != 0 {
 			return out, fmt.Errorf("card %q (%s) carries no image", card.Name, card.ID)
 		}
 		if !idShape.MatchString(card.ID) {
@@ -3688,7 +3689,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// "053", and only the set size on the face says which is which.
 		identity := strings.Join([]string{
 			card.Name, card.Number, card.Total, card.SetCode, card.Variant, card.Rarity}, "|")
-		productID := card.ExternalLinks.TcgPlayerId
+		productID := card.ExternalLinks.TcgPlayerID
 		discriminator := fmt.Sprint(productID)
 		if productID == 0 {
 			discriminator = "minted:" + card.SetCode + "|" + card.Number
@@ -3728,7 +3729,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	}
 	sealedIDs := map[string]bool{}
 	for _, product := range doc.Sealed {
-		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerId == 0 {
+		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
 			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
 		}
 		if !idShape.MatchString(product.ID) {

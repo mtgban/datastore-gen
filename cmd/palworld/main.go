@@ -918,13 +918,13 @@ func main() {
 		}
 		if *baselineFit != "" {
 			if !fit {
-				log.Printf("baseline: unchanged, this build holds less than it does")
+				log.Print("baseline: unchanged, this build holds less than it does")
 			} else {
 				note := fmt.Sprintf("cards=%d sealed=%d\n", current.cards, current.sealed)
 				if err := os.WriteFile(*baselineFit, []byte(note), 0o644); err != nil {
 					log.Fatalln("baseline:", err)
 				}
-				log.Printf("baseline: this build becomes the one the next is measured against")
+				log.Print("baseline: this build becomes the one the next is measured against")
 			}
 		}
 	}
@@ -1007,7 +1007,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Variant       string `json:"variant"`
 			Finish        string `json:"finish"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
 		} `json:"cards"`
 		Sealed []struct {
@@ -1015,7 +1015,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Name          string `json:"name"`
 			SetCode       string `json:"setCode"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
 		} `json:"sealed"`
 	}
@@ -1074,8 +1074,8 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// under its own uuid; keying those on the absent product id would
 		// make every one of them the same card and wave through exactly
 		// the collision this catches.
-		bearer := fmt.Sprintf("product %d", card.ExternalLinks.TcgPlayerId)
-		if card.ExternalLinks.TcgPlayerId == 0 {
+		bearer := fmt.Sprintf("product %d", card.ExternalLinks.TcgPlayerID)
+		if card.ExternalLinks.TcgPlayerID == 0 {
 			bearer = "card " + card.ID
 		}
 		if other, seen := identities[identity]; seen && other != bearer {
@@ -1089,7 +1089,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// printing answers to no product and would otherwise pile its
 		// finish under product 0, which coverage would then have to
 		// explain.
-		if productID := card.ExternalLinks.TcgPlayerId; productID != 0 {
+		if productID := card.ExternalLinks.TcgPlayerID; productID != 0 {
 			if sliceContains(gotFinishes[productID], card.Finish) {
 				return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 			}
@@ -1110,7 +1110,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	}
 	sealedIDs := map[string]bool{}
 	for _, product := range doc.Sealed {
-		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerId == 0 {
+		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
 			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
 		}
 		if !idShape.MatchString(product.ID) {

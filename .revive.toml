@@ -1,0 +1,59 @@
+# Style rules the tree already satisfies, so that a regression is caught at
+# review time rather than found in a later sweep.
+#
+# Deliberately absent, each with a reason:
+#   unnecessary-stmt - its 22 findings are all one-case switches on a card
+#                  name. The preprocessors hold 73 of those switches, 54 with
+#                  more than one case and the largest with 39: a one-case
+#                  block is an edition needing one exception today, not a
+#                  different construct.
+
+ignoreGeneratedHeader = false
+severity = "error"
+confidence = 0.8
+errorCode = 1
+warningCode = 1
+
+[rule.blank-imports]
+[rule.context-as-argument]
+[rule.context-keys-type]
+[rule.dot-imports]
+[rule.empty-block]
+[rule.error-naming]
+[rule.error-return]
+[rule.error-strings]
+[rule.exported]
+[rule.errorf]
+[rule.increment-decrement]
+[rule.indent-error-flow]
+[rule.package-comments]
+[rule.range]
+[rule.receiver-naming]
+[rule.redefines-builtin-id]
+[rule.superfluous-else]
+[rule.time-naming]
+[rule.unexported-return]
+[rule.unnecessary-format]
+# datastore-gen is a JSON transformer: every row is a map[string]any and
+# "value, _ := row[key].(string)" is the house idiom, several hundred times
+# over. A missing key yielding the zero value is what the code around it
+# already handles, so requiring the comma-ok form there would be a very
+# large diff buying nothing. The single-value form still reports, which is
+# the one that panics.
+[rule.unchecked-type-assertion]
+  arguments = [{acceptIgnoredAssertionResult = true}]
+[rule.use-any]
+[rule.use-waitgroup-go]
+[rule.use-errors-new]
+# The families named here report nothing a caller could act on: a failed
+# write to stderr, a Builder and a hash that both document a nil error, a
+# Close on a body already read, and a Discard the Peek before it just proved
+# will fit. The buffering writers are here for the same reason - a command
+# printing a report to stdout has already shown a short one by the time the
+# flush says so, and the writes into them are ignored anyway. Naming them
+# keeps a real unhandled error from being lost among the sixty that are not.
+[rule.unhandled-error]
+  arguments = ["fmt.Fprint.*", "strings.Builder.*", "io.Writer.Write", "io.Closer.Close", "os.File.Close", "bufio.Reader.Discard", "encoding/csv.Writer.Write", "text/tabwriter.Writer.Flush", "os.Setenv"]
+[rule.unreachable-code]
+[rule.var-declaration]
+[rule.var-naming]
