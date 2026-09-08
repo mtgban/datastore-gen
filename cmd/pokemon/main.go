@@ -77,6 +77,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/mtgban/go-cardmarket"
 	"github.com/mtgban/go-tcgplayer"
 	"io"
 	"log"
@@ -1846,26 +1847,6 @@ var cardmarketMintSets = map[string]string{
 // promo into the set it was reprinted from and the number it kept.
 var cardmarketSourceNumber = regexp.MustCompile(`^([A-Za-z0-9-]{2,6}) *([0-9]+[a-z]?)$`)
 
-// cardmarketProduct is one entry of the published Cardmarket catalog, which
-// mkmcatalog builds off the marketplace API. Only the fields a row is minted
-// from are read.
-type cardmarketProduct struct {
-	ExpansionID int    `json:"expansionId"`
-	Name        string `json:"name"`
-	Number      string `json:"number"`
-	Rarity      string `json:"rarity"`
-}
-
-// cardmarketCatalog is that file: the shelves and what they sell.
-type cardmarketCatalog struct {
-	Data struct {
-		Expansions map[string]struct {
-			Name string `json:"name"`
-		} `json:"expansions"`
-		Products map[string]cardmarketProduct `json:"products"`
-	} `json:"data"`
-}
-
 // mintFromCardmarket adds a row for every product of those shelves that no
 // catalog of ours carries. It answers how many it minted and how many it
 // passed over.
@@ -1887,25 +1868,21 @@ type cardmarketCatalog struct {
 // already carry, which is what keeps a mis-parsed number from inventing a
 // card. That row also lends the promo its printed total.
 func mintFromCardmarket(path string, cards []any) ([]any, int, int) {
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		log.Fatalln("cardmarket catalog:", err)
 	}
-	var catalog cardmarketCatalog
-	err = json.Unmarshal(data, &catalog)
+	defer file.Close()
+	catalog, err := cardmarket.LoadCatalog(file)
 	if err != nil {
 		log.Fatalln("cardmarket catalog:", err)
 	}
 
 	// The shelves we mint from, by the id the products name them with.
 	shelves := map[int]string{}
-	for key, expansion := range catalog.Data.Expansions {
+	for id, expansion := range catalog.Data.Expansions {
 		code, wanted := cardmarketMintSets[expansion.Name]
 		if !wanted {
-			continue
-		}
-		id, err := strconv.Atoi(key)
-		if err != nil {
 			continue
 		}
 		shelves[id] = code
@@ -1939,18 +1916,15 @@ func mintFromCardmarket(path string, cards []any) ([]any, int, int) {
 		sources[key] = append(sources[key], row)
 	}
 
-	var ids []int
-	for key := range catalog.Data.Products {
-		id, err := strconv.Atoi(key)
-		if err == nil {
-			ids = append(ids, id)
-		}
+	ids := make([]int, 0, len(catalog.Data.Products))
+	for id := range catalog.Data.Products {
+		ids = append(ids, id)
 	}
 	sort.Ints(ids)
 
 	var minted, passed int
 	for _, id := range ids {
-		product := catalog.Data.Products[strconv.Itoa(id)]
+		product := catalog.Data.Products[id]
 		code, wanted := shelves[product.ExpansionID]
 		if !wanted {
 			continue
