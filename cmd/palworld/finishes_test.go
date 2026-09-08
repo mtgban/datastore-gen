@@ -35,12 +35,12 @@ func TestNewPrintingNeedsNoRelease(t *testing.T) {
 		}
 	}
 
-	// And it is emitted, after the printings this build names.
-	got := orderedFinishes(append(slices.Clone(finishOrder), "Prismatic Foil"))
-	if got[len(got)-1] != "Prismatic Foil" {
-		t.Errorf("orderedFinishes = %v, want the added printing last", got)
-	}
-	if !slices.Equal(got[:len(finishOrder)], finishOrder) {
-		t.Errorf("orderedFinishes = %v, want the named printings first, in order", got)
+	// And it is emitted in the order the catalog displays its printings,
+	// with the name settling a tie.
+	rank := map[string]int{"Normal": 1, "Holofoil": 2, "Alpha Foil": 2, "Prismatic Foil": 9}
+	got := orderedFinishes([]string{"Prismatic Foil", "Holofoil", "Alpha Foil", "Normal"}, rank)
+	want := []string{"Normal", "Alpha Foil", "Holofoil", "Prismatic Foil"}
+	if !slices.Equal(got, want) {
+		t.Errorf("orderedFinishes = %v, want %v", got, want)
 	}
 }

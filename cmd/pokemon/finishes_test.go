@@ -41,17 +41,18 @@ func TestNewPrintingNeedsNoRelease(t *testing.T) {
 	// added after them by name.
 }
 
-// TestPrintingNamesRanksAddedPrintingsLast pins the order a product's
-// entries come out in when the category has grown a printing this build does
-// not name. Unranked names must not sort to the front - Normal is the bare
-// id and the entry a product is identified by.
-func TestPrintingNamesRanksAddedPrintingsLast(t *testing.T) {
+// TestPrintingNamesOrdersTheWayTheCatalogDisplays pins that a product's
+// entries come out in the order TCGplayer displays the category's printings,
+// with the name settling a tie - the catalog gives Flesh and Blood three
+// printings at displayOrder 2, so ties are real and the order has to stay
+// fixed for unchanged data.
+func TestPrintingNamesOrdersTheWayTheCatalogDisplays(t *testing.T) {
 	dump := &tcgplayer.CatalogDump{
 		Printings: []tcgplayer.Printing{
-			{PrintingID: 1, Name: "Normal"},
-			{PrintingID: 2, Name: "Holofoil"},
-			{PrintingID: 3, Name: "Prismatic Foil"},
-			{PrintingID: 4, Name: "Alpha Foil"},
+			{PrintingID: 3, Name: "Prismatic Foil", DisplayOrder: 9},
+			{PrintingID: 1, Name: "Normal", DisplayOrder: 1},
+			{PrintingID: 4, Name: "Alpha Foil", DisplayOrder: 2},
+			{PrintingID: 2, Name: "Holofoil", DisplayOrder: 2},
 		},
 		Products: []tcgplayer.Product{{ProductID: 7, Skus: []tcgplayer.SKU{
 			{PrintingID: 3, LanguageID: 1}, {PrintingID: 2, LanguageID: 1},
@@ -59,7 +60,7 @@ func TestPrintingNamesRanksAddedPrintingsLast(t *testing.T) {
 		}}},
 	}
 	got := printingNames(dump)[7]
-	want := []string{"Normal", "Holofoil", "Alpha Foil", "Prismatic Foil"}
+	want := []string{"Normal", "Alpha Foil", "Holofoil", "Prismatic Foil"}
 	if !slices.Equal(got, want) {
 		t.Errorf("printingNames = %v, want %v", got, want)
 	}

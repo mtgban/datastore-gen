@@ -117,23 +117,11 @@ var finishSuffix = map[string]string{
 	"Unlimited Edition Rainbow Foil": "_unlrainbow",
 }
 
-// finishOrder fixes the order a product's entries are emitted in.
-var finishOrder = []string{
-	"Normal",
-	"Rainbow Foil",
-	"Cold Foil",
-	"1st Edition Normal",
-	"1st Edition Rainbow Foil",
-	"1st Edition Cold Foil",
-	"Unlimited Edition Normal",
-	"Unlimited Edition Rainbow Foil",
-}
-
 // tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
 // for a category, published next to the datastore it describes.
 
 // printingNames maps each product to the distinct printing names its skus
-// carry, in finishOrder; a printing the catalog does not list for a product
+// carry, in the order the catalog displays them; a printing the catalog does not list for a product
 // is one that does not exist.
 
 func sliceContains(haystack []string, needle string) bool {
@@ -526,9 +514,14 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 		name[p.PrintingID] = p.Name
 	}
 
+	// The order TCGplayer displays a category's printings in, which is the
+	// catalog's to decide: a list written here would be a second opinion
+	// about somebody else's data. Two printings can share a displayOrder -
+	// Flesh and Blood has three at 2 - so the name settles a tie and the
+	// order stays fixed for unchanged data.
 	rank := map[string]int{}
-	for i, n := range finishOrder {
-		rank[n] = i
+	for _, p := range c.Printings {
+		rank[p.Name] = p.DisplayOrder
 	}
 
 	out := map[int][]string{}
@@ -541,14 +534,9 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 			}
 			names = append(names, n)
 		}
-		sort.Slice(names, func(i, j int) bool {
-			ri, iKnown := rank[names[i]]
-			rj, jKnown := rank[names[j]]
-			if iKnown && jKnown {
+		sort.SliceStable(names, func(i, j int) bool {
+			if ri, rj := rank[names[i]], rank[names[j]]; ri != rj {
 				return ri < rj
-			}
-			if iKnown != jKnown {
-				return iKnown
 			}
 			return names[i] < names[j]
 		})
@@ -701,6 +689,7 @@ func main() {
 	checkPinnedPrintings(&catalog)
 	checkFabFinishNames()
 	printings := printingNames(&catalog)
+	displayOrder := printingDisplayOrder(&catalog)
 
 	// Split the products: every single becomes printings, the non-single
 	// types become sealed.
@@ -1120,17 +1109,9 @@ func main() {
 		if len(finishes) == 0 {
 			finishes = []string{plainPrinting()}
 		}
-		// slices.Index answers -1 for a printing finishOrder does not name,
-		// which would sort one TCGplayer has added ahead of the plain
-		// printing rather than after the ones this build names.
-		rank := func(name string) int {
-			if i := slices.Index(finishOrder, name); i >= 0 {
-				return i
-			}
-			return len(finishOrder)
-		}
+		// The same display order the emitted entries are ranked by.
 		sort.SliceStable(finishes, func(i, j int) bool {
-			if ri, rj := rank(finishes[i]), rank(finishes[j]); ri != rj {
+			if ri, rj := displayOrder[finishes[i]], displayOrder[finishes[j]]; ri != rj {
 				return ri < rj
 			}
 			return finishes[i] < finishes[j]
@@ -1601,4 +1582,14 @@ func checkFabFinishNames() {
 			log.Fatalf("fabFinish maps %q to printing %q, which no id suffix is pinned for", code, name)
 		}
 	}
+}
+
+// printingDisplayOrder is where each of a category's printings sits in the
+// order TCGplayer displays them.
+func printingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
+	rank := map[string]int{}
+	for _, p := range c.Printings {
+		rank[p.Name] = p.DisplayOrder
+	}
+	return rank
 }
