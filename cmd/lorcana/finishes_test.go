@@ -3,6 +3,8 @@ package main
 import (
 	"slices"
 	"testing"
+
+	"github.com/mtgban/go-tcgplayer"
 )
 
 // The uuids this build publishes are spelled from a finish name, and
@@ -80,12 +82,12 @@ func TestFinishOfSeparatesTreatments(t *testing.T) {
 			// RainbowPillars the treatment past it.
 			desc:      "two treatments and no standard foil",
 			foilTypes: []string{"None", "FreeForm1", "RainbowPillars"},
-			sold:      []string{tcgNormal, tcgColdFoil, tcgHolofoil},
+			sold:      []string{"Normal", "Cold Foil", "Holofoil"},
 		},
 		{
 			desc:      "a standard foil beside one treatment",
 			foilTypes: []string{"None", "Silver", "RainbowPillars"},
-			sold:      []string{tcgNormal, tcgColdFoil, tcgHolofoil},
+			sold:      []string{"Normal", "Cold Foil", "Holofoil"},
 		},
 	} {
 		t.Run(test.desc, func(t *testing.T) {
@@ -114,6 +116,50 @@ func TestFinishOfSeparatesTreatments(t *testing.T) {
 	}
 }
 
+// catalogVocabulary is category 71's finish vocabulary as the dump carries
+// it today, which is what catalogFinishes reads out of it.
+var catalogVocabulary = map[string]string{
+	finishNonfoil:  "Normal",
+	finishFoil:     "Cold Foil",
+	finishHolofoil: "Holofoil",
+}
+
+// TestCatalogFinishes pins that the vocabulary is read from the dump rather
+// than named here: the category's printings are TCGplayer's to rename, and a
+// treatment it may add is not an answer to "what is the plain one called".
+func TestCatalogFinishes(t *testing.T) {
+	dump := &tcgplayer.CatalogDump{Printings: []tcgplayer.Printing{
+		{PrintingID: 132, Name: "Normal"},
+		{PrintingID: 133, Name: "Holofoil"},
+		{PrintingID: 141, Name: "Cold Foil"},
+	}}
+	got := catalogFinishes(dump)
+	for finish, want := range catalogVocabulary {
+		if got[finish] != want {
+			t.Errorf("catalogFinishes()[%q] = %q, want %q", finish, got[finish], want)
+		}
+	}
+
+	// A category renaming a printing is followed, not overruled.
+	renamed := &tcgplayer.CatalogDump{Printings: []tcgplayer.Printing{
+		{PrintingID: 132, Name: "Non-Foil"},
+		{PrintingID: 141, Name: "Foil"},
+	}}
+	got = catalogFinishes(renamed)
+	if got[finishNonfoil] != "Non-Foil" || got[finishFoil] != "Foil" {
+		t.Errorf("a renamed category reads as %v, want the names it now uses", got)
+	}
+
+	// A printing the shared vocabulary does not place answers for no finish
+	added := &tcgplayer.CatalogDump{Printings: []tcgplayer.Printing{
+		{PrintingID: 132, Name: "Normal"},
+		{PrintingID: 200, Name: "Rainbow Foil"},
+	}}
+	if got = catalogFinishes(added); len(got) != 1 || got[finishNonfoil] != "Normal" {
+		t.Errorf("a printing past the vocabulary reads as %v, want only the plain one", got)
+	}
+}
+
 // TestFinishesSoldNamesTheCatalog pins that the finishes come from the
 // catalog's own printing names where it lists them, in its vocabulary,
 // deduplicated by the finish they name rather than by spelling.
@@ -121,11 +167,11 @@ func TestFinishesSoldNamesTheCatalog(t *testing.T) {
 	item := map[string]any{
 		"foilTypes": []any{"None", "Silver", "RainbowPillars"},
 		"externalLinks": map[string]any{
-			"tcgPrintings": []any{tcgColdFoil, tcgHolofoil, tcgNormal},
+			"tcgPrintings": []any{"Cold Foil", "Holofoil", "Normal"},
 		},
 	}
-	got := finishesSold(item)
-	want := []string{tcgColdFoil, tcgHolofoil, tcgNormal}
+	got := finishesSold(item, catalogVocabulary)
+	want := []string{"Cold Foil", "Holofoil", "Normal"}
 	if !slices.Equal(got, want) {
 		t.Errorf("finishesSold = %v, want %v", got, want)
 	}
@@ -133,8 +179,8 @@ func TestFinishesSoldNamesTheCatalog(t *testing.T) {
 	// The catalog naming none is the only case the foil types decide, and
 	// they are spelled into the catalog's vocabulary too.
 	bare := map[string]any{"foilTypes": []any{"None", "Silver"}}
-	got = finishesSold(bare)
-	want = []string{tcgNormal, tcgColdFoil}
+	got = finishesSold(bare, catalogVocabulary)
+	want = []string{"Normal", "Cold Foil"}
 	if !slices.Equal(got, want) {
 		t.Errorf("finishesSold(no catalog) = %v, want %v", got, want)
 	}
