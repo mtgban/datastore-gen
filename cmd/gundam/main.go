@@ -459,12 +459,27 @@ func promoTypesOf(quals []string) []string {
 		if tag == "" || subjects[tag] || bareNumberingRe.MatchString(tag) {
 			continue
 		}
-		if slices.Contains(out, tag) {
+		// The words are read first, because subjects is keyed by them and a
+		// slug would not find "left hand" in it. What is published is the
+		// slug: a promo type is a token for a consumer to interpret and a
+		// query to carry, and the words a reader is shown are the variant
+		// beside it, which this build already writes.
+		tag = promoSlug(tag)
+		if tag == "" || slices.Contains(out, tag) {
 			continue
 		}
 		out = append(out, tag)
 	}
 	return out
+}
+
+// promoSlugRe is everything a promo type is spelled without.
+var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// promoSlug spells a label the way every promo type here is spelled: lower
+// case, letters and digits and nothing else.
+func promoSlug(label string) string {
+	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
 }
 
 // idStem spells a collector number for the inside of a uuid: every run of
