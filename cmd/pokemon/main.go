@@ -128,17 +128,6 @@ var finishSuffix = map[string]string{
 	"Unlimited Holofoil":   "_unlholo",
 }
 
-// finishOrder fixes the order a product's entries are emitted in.
-var finishOrder = []string{
-	"Normal",
-	"Holofoil",
-	"Reverse Holofoil",
-	"1st Edition",
-	"1st Edition Holofoil",
-	"Unlimited",
-	"Unlimited Holofoil",
-}
-
 // hasDate reports whether the group's publishedOn is a real date: the
 // catalog stamps the request time on groups it has no date for, so a genuine
 // value is always a bare midnight timestamp.
@@ -150,7 +139,7 @@ func hasDate(g tcgplayer.Group) bool {
 // for a category, published next to the datastore it describes.
 
 // printingNames maps each product to the distinct printing names its English
-// skus carry, in finishOrder; a printing the catalog does not list for a
+// skus carry, in the order the catalog displays them; a printing it does not list for a
 // product is one that does not exist.
 func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 	name := map[int]string{}
@@ -158,9 +147,14 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 		name[p.PrintingID] = p.Name
 	}
 
+	// The order TCGplayer displays a category's printings in, which is the
+	// catalog's to decide: a list written here would be a second opinion
+	// about somebody else's data. Two printings can share a displayOrder -
+	// Flesh and Blood has three at 2 - so the name settles a tie and the
+	// order stays fixed for unchanged data.
 	rank := map[string]int{}
-	for i, n := range finishOrder {
-		rank[n] = i
+	for _, p := range c.Printings {
+		rank[p.Name] = p.DisplayOrder
 	}
 
 	out := map[int][]string{}
@@ -176,14 +170,9 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 			}
 			names = append(names, n)
 		}
-		sort.Slice(names, func(i, j int) bool {
-			ri, iKnown := rank[names[i]]
-			rj, jKnown := rank[names[j]]
-			if iKnown && jKnown {
+		sort.SliceStable(names, func(i, j int) bool {
+			if ri, rj := rank[names[i]], rank[names[j]]; ri != rj {
 				return ri < rj
-			}
-			if iKnown != jKnown {
-				return iKnown
 			}
 			return names[i] < names[j]
 		})

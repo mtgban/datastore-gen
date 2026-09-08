@@ -188,12 +188,6 @@ var finishSuffix = map[string]string{
 	"Foil":   "_foil",
 }
 
-// finishOrder fixes the order a product's entries are emitted in.
-var finishOrder = []string{
-	"Normal",
-	"Foil",
-}
-
 // imageURL asks the catalog's CDN for the larger rendition. The dump
 // carries the thumbnail size; the same URL one size up is the card.
 func imageURL(url string) string {
@@ -539,6 +533,7 @@ func main() {
 	codes := setCodes(catalog.Groups)
 	checkPinnedPrintings(&catalog)
 	printings := catalog.PrintingNames()
+	displayOrder := printingDisplayOrder(&catalog)
 
 	// Split the products: every single becomes printings, the non-single
 	// types become sealed.
@@ -702,7 +697,7 @@ func main() {
 	var cards []any
 	for _, s := range singles {
 		productID := s.product.ProductID
-		for _, finish := range orderedFinishes(printings[productID]) {
+		for _, finish := range orderedFinishes(printings[productID], displayOrder) {
 			entry := map[string]any{
 				"id":      idBase(s.number, productID) + finishSuffixFor(finish),
 				"name":    s.baseName,
@@ -1212,24 +1207,28 @@ func checkPinnedPrintings(c *tcgplayer.CatalogDump) {
 }
 
 // orderedFinishes fixes the order a product's entries are emitted in: the
-// printings this build names, in the order it names them, and any TCGplayer
-// has added after them, by name so unchanged data keeps producing
-// byte-identical output.
-func orderedFinishes(names []string) []string {
+// order TCGplayer displays the category's printings in, which is the
+// catalog's to decide. Two printings can share a displayOrder, so the name
+// settles a tie and unchanged data keeps producing byte-identical output.
+func orderedFinishes(names []string, rank map[string]int) []string {
 	out := slices.Clone(names)
-	rank := func(name string) int {
-		if i := slices.Index(finishOrder, name); i >= 0 {
-			return i
-		}
-		return len(finishOrder)
-	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if ri, rj := rank(out[i]), rank(out[j]); ri != rj {
+		if ri, rj := rank[out[i]], rank[out[j]]; ri != rj {
 			return ri < rj
 		}
 		return out[i] < out[j]
 	})
 	return out
+}
+
+// printingDisplayOrder is where each of a category's printings sits in the
+// order TCGplayer displays them.
+func printingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
+	rank := map[string]int{}
+	for _, p := range c.Printings {
+		rank[p.Name] = p.DisplayOrder
+	}
+	return rank
 }
 
 // plainPrinting is the catalog's name for the printing a bare id belongs to,
