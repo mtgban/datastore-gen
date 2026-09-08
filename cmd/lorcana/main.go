@@ -407,12 +407,20 @@ func finishesSold(item map[string]any) []string {
 // has no treatment slot, in which case the treatment is what the standard
 // one holds. Read against the finishes the card is actually sold in rather
 // than assumed, so a card TCGplayer sells one way is not given two.
-func finishOf(foilType string, sold []string) string {
+//
+// The card's whole list of foil types decides, not the one name: three cards
+// are foiled two ways and in neither of the standard ones (Simba, Megara and
+// Robin Hood, all Whispers in the Well), so both names would claim the
+// treatment slot and merge onto one uuid while the standard foil TCGplayer
+// does sell went unreachable by any name upstream gives it. The first of
+// them stands in for the standard foil instead, which is the same rule
+// finishesSold applies where the catalog names nothing.
+func finishOf(foilType string, foilTypes, sold []string) string {
 	if canonicalFinish(foilType) == finishNonfoil {
 		return finishNonfoil
 	}
 	want := finishHolofoil
-	if isStandardFoil(foilType) {
+	if isStandardFoil(foilType) || standsInForStandard(foilType, foilTypes) {
 		want = finishFoil
 	}
 	if slices.Contains(sold, want) {
@@ -426,6 +434,27 @@ func finishOf(foilType string, sold []string) string {
 		}
 	}
 	return ""
+}
+
+// standsInForStandard reports whether a treatment is the one holding the
+// standard foil's place: the card names no standard foil of its own, names
+// more than one treatment, and this is the first of them. Upstream lists a
+// card's foil types in the order the catalog prices them, so the first is
+// the one TCGplayer sells as the plain foil - Whispers in the Well's own
+// "FreeForm1" beside the "RainbowPillars" past it.
+func standsInForStandard(foilType string, foilTypes []string) bool {
+	var treatments []string
+	for _, name := range foilTypes {
+		if canonicalFinish(name) == finishNonfoil {
+			continue
+		}
+		if isStandardFoil(name) {
+			// The card has a standard foil of its own to hold the slot.
+			return false
+		}
+		treatments = append(treatments, name)
+	}
+	return len(treatments) > 1 && treatments[0] == foilType
 }
 
 // isStandardFoil reports whether a foil type is the cold foil almost every
@@ -1194,7 +1223,7 @@ func main() {
 		// standard foil instead of the one it asked for.
 		aliases := map[string]any{}
 		for _, foilType := range stringsOf(item["foilTypes"]) {
-			finish := finishOf(foilType, sold)
+			finish := finishOf(foilType, stringsOf(item["foilTypes"]), sold)
 			name := canonicalFinish(foilType)
 			if finish == "" || name == "" || name == finish {
 				continue
