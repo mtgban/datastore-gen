@@ -485,7 +485,7 @@ func standsInForStandard(foilType string, foilTypes []string) bool {
 // Lorcana card is foiled in, which TCGplayer sells as "Cold Foil".
 func isStandardFoil(foilType string) bool {
 	switch canonicalFinish(foilType) {
-	case finishFoil, "silver":
+	case finishFoil, upstreamStandardFoil:
 		return true
 	}
 	return false
@@ -557,11 +557,22 @@ func printingUUID(id int, finish string) string {
 	return base
 }
 
+// The finishes as the matcher spells them, which is what a uuid carries.
+// There is no coldFoil here on purpose: every Lorcana foil is a cold foil,
+// so the name TCGplayer prices the standard one under is the shared foil
+// slot rather than a finish of its own - which is what lets a bare foil
+// flag, all most storefronts send, reach it. mtgmatcher/lorcana folds
+// "coldfoil" onto the same slot at the other end.
 const (
 	finishNonfoil  = "nonfoil"
 	finishFoil     = "foil"
 	finishHolofoil = "holofoil"
 )
+
+// upstreamStandardFoil is LorcanaJSON's name for that same printing. Three
+// vocabularies name it and only this one is a foil type: "Silver" upstream,
+// "Cold Foil" in the catalog, the plain foil slot in the matcher.
+const upstreamStandardFoil = "silver"
 
 // cardUUID is a card's uuid: its upstream id, and a minted card's negative
 // id written as the "m-" the loader reads it back from.
@@ -583,6 +594,11 @@ func canonicalFinish(name string) string {
 			normalized.WriteRune(r)
 		}
 	}
+	// The spellings below are the normalized forms of the names above -
+	// "none" is LorcanaJSON's placeholder for a plain printing, "normal"
+	// and "coldfoil" are tcgNormal and tcgColdFoil folded. A foil type
+	// neither vocabulary places is handed back as itself, because the
+	// vocabulary is data.
 	switch folded := normalized.String(); folded {
 	case "none", "normal":
 		return finishNonfoil
