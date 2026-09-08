@@ -248,11 +248,6 @@ func mintedNumber(code string) (int, string) {
 // normal card is numbered "1/204", and the grouping is the denominator.
 // Where a card is numbered is not what promoted it.
 
-// camelWordRe finds the seam between two words upstream ran together.
-// "MetallicHotFoil" is three words and one thing, and a label a query has
-// to spell without its spaces is a label a query will miss.
-var camelWordRe = regexp.MustCompile(`([a-z0-9])([A-Z])`)
-
 // nameQualRe finds the parentheticals a minted product's name carries. No
 // upstream name has one, so this reads the minted printings alone.
 var nameQualRe = regexp.MustCompile(`\(([^)]*)\)`)
@@ -332,7 +327,7 @@ func promoTypesOf(item map[string]any, universal map[string]bool) []string {
 	rarity, _ := item["rarity"].(string)
 	if varnish, _ := item["varnishType"].(string); varnish != "" &&
 		!universal[set+"|"+rarity+"|"+varnish] {
-		tags = append(tags, camelWordRe.ReplaceAllString(varnish, "$1 $2"))
+		tags = append(tags, varnish)
 	}
 	// "Promo" is every promo's category and no promo's promotion: the
 	// rarity and the set it is filed under say that much already.
@@ -348,10 +343,11 @@ func promoTypesOf(item map[string]any, universal map[string]bool) []string {
 	}
 	out := make([]string, 0, len(tags))
 	for _, tag := range tags {
-		tag = strings.ToLower(strings.Join(strings.Fields(tag), " "))
-		if !slices.Contains(out, tag) {
-			out = append(out, tag)
+		tag = promoSlug(tag)
+		if tag == "" || slices.Contains(out, tag) {
+			continue
 		}
+		out = append(out, tag)
 	}
 	return out
 }
@@ -525,14 +521,30 @@ func treatmentLabel(foilType string) string {
 		canonicalFinish(foilType) == finishHolofoil {
 		return ""
 	}
-	spaced := camelWordRe.ReplaceAllString(foilType, "$1 $2")
-	spaced = digitWordRe.ReplaceAllString(spaced, "$1 $2")
-	return strings.ToLower(strings.Join(strings.Fields(spaced), " "))
+	// No word seam is looked for: a slug drops the spaces a split would put
+	// in, so "VerticalWave" reaches "verticalwave" either way.
+	return promoSlug(runNumberRe.ReplaceAllString(foilType, ""))
 }
 
-// digitWordRe finds the seam between a word and the number it ends in, so
-// "FreeForm1" reads as three words rather than two.
-var digitWordRe = regexp.MustCompile(`([A-Za-z])([0-9])`)
+// promoSlugRe is everything a promo type is spelled without.
+var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// promoSlug spells a label the way every promo type here is spelled: lower
+// case, letters and digits and nothing else. It is a token for a consumer to
+// interpret and a query to carry, not words for a reader - what a promotion
+// is shown as is the loader's to decide, and a data file that spells one for
+// display has decided it for every consumer at once.
+func promoSlug(label string) string {
+	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
+}
+
+// runNumberRe finds the run number a treatment's name ends in. The same
+// pattern printed again is numbered rather than renamed - "FreeForm1" and
+// "FreeForm2" are one treatment over two runs, one in set 10 and one across
+// the D23 promos - and which run a card came from is not what its treatment
+// is. The number comes off, so both file under "free form" and a third run
+// joins them without anything here being told about it.
+var runNumberRe = regexp.MustCompile(`[0-9]+$`)
 
 // cardID reads a card's id back off a decoded document: a number comes back
 // as a float64, and a minted card's is negative.
