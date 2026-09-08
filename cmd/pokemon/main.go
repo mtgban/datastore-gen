@@ -1968,7 +1968,7 @@ func mintFromCardmarket(path string, cards []any) ([]any, int, int) {
 			rarity = "Promo"
 		}
 		entry := map[string]any{
-			"id":      fmt.Sprintf("%s_mkm%d%s", sanitizeID(number+"-"+total), id, finishSuffix[finish]),
+			"id":      fmt.Sprintf("%s_mkm%d%s", sanitizeID(number+"-"+total), id, finishSuffixFor(finish)),
 			"name":    name,
 			"setCode": code,
 			"number":  number,
@@ -2320,6 +2320,7 @@ func main() {
 	log.Printf("release dates: %d placeholders, %d filled, %d left empty",
 		placeholders, filled, placeholders-filled)
 
+	checkPinnedPrintings(&catalog)
 	printings := printingNames(&catalog)
 
 	// Split the products: every single becomes card entries per sku
@@ -3065,11 +3066,7 @@ func main() {
 			image = dex.Image + "/high.webp"
 		}
 		for _, finish := range printings[productID] {
-			suffix, known := finishSuffix[finish]
-			if !known {
-				log.Fatalf("product %d carries printing %q, not one of the seven this identity scheme knows",
-					productID, finish)
-			}
+			suffix := finishSuffixFor(finish)
 			entry := map[string]any{
 				"id":      idBase(s.number, productID) + suffix,
 				"name":    handName(s.product.ProductID, s.baseName),
@@ -3311,7 +3308,7 @@ func main() {
 		}
 		for _, finish := range finishes {
 			entry := map[string]any{
-				"id":       mintedIDBase(card.ID) + finishSuffix[finish],
+				"id":       mintedIDBase(card.ID) + finishSuffixFor(finish),
 				"name":     catalogSpelling(card.Name),
 				"setCode":  mintedSetCode[card.Set.ID],
 				"rarity":   rarity,
@@ -3676,8 +3673,8 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		if strings.ContainsAny(card.Number, " \t") {
 			return out, fmt.Errorf("card %q (%s) has a collector number a query cannot carry: %q", card.Name, card.ID, card.Number)
 		}
-		if _, known := finishSuffix[card.Finish]; !known {
-			return out, fmt.Errorf("card %q (%s) carries unknown finish %q", card.Name, card.ID, card.Finish)
+		if card.Finish == "" {
+			return out, fmt.Errorf("card %q (%s) carries no finish at all", card.Name, card.ID)
 		}
 		if cardIDs[card.ID] {
 			return out, fmt.Errorf("duplicate card id %s", card.ID)
@@ -3781,4 +3778,49 @@ func plainQuotes(v any) any {
 		}
 	}
 	return v
+}
+
+// finishSuffixFor is the id suffix a printing's entries carry: the pinned
+// one above where this build knows the printing, and one spelled from the
+// name where it does not. TCGplayer adds a printing to a category when it
+// likes and is selling the skus either way, so a build that stopped instead
+// would publish nothing at all rather than publish the new printing late.
+//
+// The pins are what keep an id still - they are the suffixes already in
+// circulation. The one thing this cannot absorb is a pinned printing being
+// renamed, which checkPinnedPrintings refuses.
+func finishSuffixFor(name string) string {
+	if suffix, known := finishSuffix[name]; known {
+		return suffix
+	}
+	return "_" + finishSlug(name)
+}
+
+// finishSlug spells a printing name the way an id carries it.
+func finishSlug(name string) string {
+	var out strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
+}
+
+// checkPinnedPrintings refuses a catalog that no longer lists a printing
+// this build pins an id suffix for. A printing TCGplayer adds is absorbed
+// above; one it renames is not and cannot be - every id built from the old
+// name would move to the new one, silently, since an id nobody stored
+// resolves to nothing rather than erroring.
+func checkPinnedPrintings(c *tcgplayer.CatalogDump) {
+	listed := map[string]bool{}
+	for _, printing := range c.Printings {
+		listed[printing.Name] = true
+	}
+	for name, suffix := range finishSuffix {
+		if !listed[name] {
+			log.Fatalf("the catalog no longer lists printing %q, which this build pins the id suffix %q for: every id built from it would move",
+				name, suffix)
+		}
+	}
 }

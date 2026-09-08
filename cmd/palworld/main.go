@@ -537,6 +537,7 @@ func main() {
 		groupByID[group.GroupID] = group
 	}
 	codes := setCodes(catalog.Groups)
+	checkPinnedPrintings(&catalog)
 	printings := catalog.PrintingNames()
 
 	// Split the products: every single becomes printings, the non-single
@@ -701,12 +702,9 @@ func main() {
 	var cards []any
 	for _, s := range singles {
 		productID := s.product.ProductID
-		for _, finish := range finishOrder {
-			if !sliceContains(printings[productID], finish) {
-				continue
-			}
+		for _, finish := range orderedFinishes(printings[productID]) {
 			entry := map[string]any{
-				"id":      idBase(s.number, productID) + finishSuffix[finish],
+				"id":      idBase(s.number, productID) + finishSuffixFor(finish),
 				"name":    s.baseName,
 				"setCode": codes[s.product.GroupID],
 				"rarity":  s.product.Extended("Rarity"),
@@ -1061,8 +1059,8 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			return out, fmt.Errorf("card %q (%s) has a collector number a query cannot carry: %q",
 				card.Name, card.ID, card.Number)
 		}
-		if _, known := finishSuffix[card.Finish]; !known {
-			return out, fmt.Errorf("card %q (%s) carries unknown finish %q", card.Name, card.ID, card.Finish)
+		if card.Finish == "" {
+			return out, fmt.Errorf("card %q (%s) carries no finish at all", card.Name, card.ID)
 		}
 		if cardIDs[card.ID] {
 			return out, fmt.Errorf("duplicate card id %s", card.ID)
@@ -1166,4 +1164,70 @@ func plainQuotes(v any) any {
 		}
 	}
 	return v
+}
+
+// finishSuffixFor is the id suffix a printing's entries carry: the pinned
+// one above where this build knows the printing, and one spelled from the
+// name where it does not. TCGplayer adds a printing to a category when it
+// likes and is selling the skus either way, so a build that stopped instead
+// would publish nothing at all rather than publish the new printing late.
+//
+// The pins are what keep an id still - they are the suffixes already in
+// circulation. The one thing this cannot absorb is a pinned printing being
+// renamed, which checkPinnedPrintings refuses.
+func finishSuffixFor(name string) string {
+	if suffix, known := finishSuffix[name]; known {
+		return suffix
+	}
+	return "_" + finishSlug(name)
+}
+
+// finishSlug spells a printing name the way an id carries it.
+func finishSlug(name string) string {
+	var out strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
+}
+
+// checkPinnedPrintings refuses a catalog that no longer lists a printing
+// this build pins an id suffix for. A printing TCGplayer adds is absorbed
+// above; one it renames is not and cannot be - every id built from the old
+// name would move to the new one, silently, since an id nobody stored
+// resolves to nothing rather than erroring.
+func checkPinnedPrintings(c *tcgplayer.CatalogDump) {
+	listed := map[string]bool{}
+	for _, printing := range c.Printings {
+		listed[printing.Name] = true
+	}
+	for name, suffix := range finishSuffix {
+		if !listed[name] {
+			log.Fatalf("the catalog no longer lists printing %q, which this build pins the id suffix %q for: every id built from it would move",
+				name, suffix)
+		}
+	}
+}
+
+// orderedFinishes fixes the order a product's entries are emitted in: the
+// printings this build names, in the order it names them, and any TCGplayer
+// has added after them, by name so unchanged data keeps producing
+// byte-identical output.
+func orderedFinishes(names []string) []string {
+	out := slices.Clone(names)
+	rank := func(name string) int {
+		if i := slices.Index(finishOrder, name); i >= 0 {
+			return i
+		}
+		return len(finishOrder)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if ri, rj := rank(out[i]), rank(out[j]); ri != rj {
+			return ri < rj
+		}
+		return out[i] < out[j]
+	})
+	return out
 }
