@@ -1825,6 +1825,191 @@ type datastoreCounts struct {
 	bySet         map[string]int
 }
 
+// cardmarketMintSets names the promo shelves whose Cardmarket catalog runs
+// wider than every catalog we build from, mapped to the set of ours their
+// products belong to. Both are stamp programmes: a card is reprinted with a
+// programme's stamp and keeps the number it had in the set it came from, so
+// Cardmarket writes the number as that set's code and number ("SVI 081").
+//
+// TCGplayer lists 35 of Cardmarket's 85 Southeast Asia products and 57 of
+// its 66 Professor Program ones, and the two catalogs barely overlap - 17 of
+// our 32 Southeast Asia cards are on no Cardmarket shelf at all. tcgdex and
+// pokemontcg.io carry neither set in any language, and CardTrader, which
+// carries both, bridges none of the missing products to a TCGplayer id. So
+// this is the only source there is for them.
+var cardmarketMintSets = map[string]string{
+	"Southeast Asia Promos": "SEA",
+	"Professor Program":     "PPP",
+}
+
+// cardmarketSourceNumber splits the number Cardmarket writes on a stamped
+// promo into the set it was reprinted from and the number it kept.
+var cardmarketSourceNumber = regexp.MustCompile(`^([A-Za-z0-9-]{2,6}) *([0-9]+[a-z]?)$`)
+
+// cardmarketProduct is one entry of the published Cardmarket catalog, which
+// mkmcatalog builds off the marketplace API. Only the fields a row is minted
+// from are read.
+type cardmarketProduct struct {
+	ExpansionID int    `json:"expansionId"`
+	Name        string `json:"name"`
+	Number      string `json:"number"`
+	Rarity      string `json:"rarity"`
+}
+
+// cardmarketCatalog is that file: the shelves and what they sell.
+type cardmarketCatalog struct {
+	Data struct {
+		Expansions map[string]struct {
+			Name string `json:"name"`
+		} `json:"expansions"`
+		Products map[string]cardmarketProduct `json:"products"`
+	} `json:"data"`
+}
+
+// mintFromCardmarket adds a row for every product of those shelves that no
+// catalog of ours carries. It answers how many it minted and how many it
+// passed over.
+//
+// THE FINISH ON THESE ROWS IS A DEFAULT, NOT A FACT. Nothing publishes it:
+// Cardmarket's record has no finish field, its rarity is the constant
+// "Promo" on these shelves, and CardTrader's `pokemon_reverse` says whether
+// a reverse variant is sellable rather than what the card is. Nor is it
+// derivable from the card being stamped: measured against the 32 Southeast
+// Asia cards we do carry, the source printing's own finishes predict the
+// promo's on 5 of them, and the 21 whose source comes in all three finishes
+// split 9 Holofoil, 9 Normal and 3 both. The rule below - holo when the
+// source printing is sold in no other finish, plain otherwise - is right on
+// 21 of those 32, which is the best any rule managed. Vittorio's call on
+// 2026-09-07 was that a card priced with a guessed finish beats a card not
+// priced at all, to be corrected case by case as any row is found wrong.
+//
+// A product is minted only where the printing it was stamped from is one we
+// already carry, which is what keeps a mis-parsed number from inventing a
+// card. That row also lends the promo its printed total.
+func mintFromCardmarket(path string, cards []any) ([]any, int, int) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Fatalln("cardmarket catalog:", err)
+	}
+	var catalog cardmarketCatalog
+	err = json.Unmarshal(data, &catalog)
+	if err != nil {
+		log.Fatalln("cardmarket catalog:", err)
+	}
+
+	// The shelves we mint from, by the id the products name them with.
+	shelves := map[int]string{}
+	for key, expansion := range catalog.Data.Expansions {
+		code, wanted := cardmarketMintSets[expansion.Name]
+		if !wanted {
+			continue
+		}
+		id, err := strconv.Atoi(key)
+		if err != nil {
+			continue
+		}
+		shelves[id] = code
+	}
+	for name := range cardmarketMintSets {
+		var found bool
+		for _, expansion := range catalog.Data.Expansions {
+			if expansion.Name == name {
+				found = true
+			}
+		}
+		if !found {
+			log.Printf("cardmarket: no shelf named %q any more; its products mint nothing", name)
+		}
+	}
+
+	// What we already hold, so a product the catalog covers is passed over,
+	// and what each printing was sold as, so a promo can take its total.
+	held := map[string]bool{}
+	sources := map[string][]map[string]any{}
+	for _, entry := range cards {
+		row, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := row["name"].(string)
+		number, _ := row["number"].(string)
+		code, _ := row["setCode"].(string)
+		held[code+"|"+strings.ToLower(name)+"|"+unpad(number)] = true
+		key := strings.ToLower(name) + "|" + unpad(number)
+		sources[key] = append(sources[key], row)
+	}
+
+	var ids []int
+	for key := range catalog.Data.Products {
+		id, err := strconv.Atoi(key)
+		if err == nil {
+			ids = append(ids, id)
+		}
+	}
+	sort.Ints(ids)
+
+	var minted, passed int
+	for _, id := range ids {
+		product := catalog.Data.Products[strconv.Itoa(id)]
+		code, wanted := shelves[product.ExpansionID]
+		if !wanted {
+			continue
+		}
+		fields := cardmarketSourceNumber.FindStringSubmatch(strings.TrimSpace(product.Number))
+		if fields == nil {
+			passed++
+			continue
+		}
+		name := catalogSpelling(strings.TrimSpace(product.Name))
+		number := fields[2]
+		if held[code+"|"+strings.ToLower(name)+"|"+unpad(number)] {
+			continue
+		}
+		// The printing it was stamped from, which has to be one of ours.
+		from := sources[strings.ToLower(name)+"|"+unpad(number)]
+		if len(from) == 0 {
+			passed++
+			continue
+		}
+		total, _ := from[0]["total"].(string)
+		finishes := map[string]bool{}
+		for _, row := range from {
+			finish, _ := row["finish"].(string)
+			finishes[finish] = true
+		}
+		finish := "Normal"
+		if len(finishes) == 1 && finishes["Holofoil"] {
+			finish = "Holofoil"
+		}
+
+		// A catalog written before mkmcatalog carried the rarity says
+		// nothing of it, and both shelves are promo programmes whole - the
+		// marketplace calls all 85 Southeast Asia products and all 66
+		// Professor Program ones "Promo" - so that is what a silent catalog
+		// means here. A shelf added to the table that is not a promo
+		// programme wants a catalog new enough to say so.
+		rarity := product.Rarity
+		if rarity == "" {
+			rarity = "Promo"
+		}
+		entry := map[string]any{
+			"id":      fmt.Sprintf("%s_mkm%d%s", sanitizeID(number+"-"+total), id, finishSuffix[finish]),
+			"name":    name,
+			"setCode": code,
+			"number":  number,
+			"rarity":  rarity,
+			"finish":  finish,
+		}
+		if total != "" {
+			entry["total"] = total
+		}
+		cards = append(cards, entry)
+		held[code+"|"+strings.ToLower(name)+"|"+unpad(number)] = true
+		minted++
+	}
+	return cards, minted, passed
+}
+
 func countDatastore(data []byte) (datastoreCounts, error) {
 	var doc struct {
 		Cards []struct {
@@ -1910,6 +2095,7 @@ func main() {
 	tcgdexCards := flag.String("tcgdex-cards", "", "tcgdex cards GraphQL response file (default: query the live API)")
 	pokemontcgSets := flag.String("pokemontcg-sets", "", "pokemontcg.io sets response file, read for the symbols tcgdex has none of (default: query the live API)")
 	tcgdexCache := flag.String("tcgdex-cache", "", "directory holding the last good tcgdex responses, refreshed on a live fetch and read back when the live API is unreachable")
+	cardmarketCatalogPath := flag.String("cardmarket-catalog", "", "published Cardmarket catalog, read for the stamped promos no other catalog lists (required)")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -1917,6 +2103,15 @@ func main() {
 
 	if *catalogPath == "" {
 		log.Fatalln("-tcg-catalog is required: the dump carries the printings and the ids")
+	}
+	// The stamped promos are the only rows of theirs anyone publishes, and
+	// losing them is not a failure this build would otherwise notice: 83
+	// cards out of 44,190 is a fifth of a percent, well inside the 1% the
+	// -against guard allows, so a run without the catalog would publish a
+	// datastore quietly missing them and unprice 92 products of a vendor
+	// that sells them. It refuses instead.
+	if *cardmarketCatalogPath == "" {
+		log.Fatalln("-cardmarket-catalog is required: nothing else lists the stamped promos, and their loss is too small for the baseline guard to catch")
 	}
 	catalogData, err := os.ReadFile(*catalogPath)
 	if err != nil {
@@ -3245,6 +3440,15 @@ func main() {
 		linked++
 	}
 	log.Printf("external links: %d cards carry their tcgdexId under externalLinks as well", linked)
+
+	// The stamp programmes Cardmarket shelves wider than anyone else.
+	var mkmMinted, mkmPassed int
+	cards, mkmMinted, mkmPassed = mintFromCardmarket(*cardmarketCatalogPath, cards)
+	log.Printf("cardmarket: minted %d stamped promos no other catalog lists, passed over %d whose stamped-from printing we do not carry",
+		mkmMinted, mkmPassed)
+	if mkmMinted == 0 {
+		log.Fatalln("cardmarket: the catalog minted nothing; either the shelves were renamed or the file is not the Pokemon one")
+	}
 
 	doc := map[string]any{
 		"game":   "pokemon",

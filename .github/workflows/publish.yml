@@ -164,6 +164,14 @@ jobs:
                 echo "no cached $f yet; the live fetch has to answer"
               fi
             done
+            # The Cardmarket catalog mkmcatalog publishes, read for the
+            # stamped promo shelves no other catalog lists. The builder
+            # refuses without it rather than publish a datastore quietly
+            # missing them, so the download failing has to fail the run.
+            b2 file download --no-progress \
+              b2://mtgban-datastore/pokemon/cardmarket_catalog.json.xz \
+              cardmarket_catalog.json.xz
+            xz -d cardmarket_catalog.json.xz
           fi
 
       - name: Build the datastore
@@ -185,6 +193,7 @@ jobs:
           fi
           if [ "${{ matrix.game }}" = pokemon ]; then
             args="$args -tcgdex-cache ."
+            args="$args -cardmarket-catalog cardmarket_catalog.json"
           fi
           go run ./cmd/${{ matrix.game }} -tcg-catalog tcgplayer-catalog.json \
             $args -baseline-fit baseline.fit -o ${{ matrix.game }}.json
