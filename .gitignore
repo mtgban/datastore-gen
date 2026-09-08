@@ -21,6 +21,7 @@
 !/.github/
 !/cmd/
 !/.gitignore
+!/.revive.toml
 !/LICENSE
 !/README.md
 !/go.mod

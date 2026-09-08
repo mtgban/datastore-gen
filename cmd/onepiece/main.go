@@ -192,9 +192,9 @@ func imageURL(url string) string {
 // art is at least the right one, and so does every DON!! card: the number
 // they are filed under is this builder's, not a printing id the mirror
 // could know.
-func cardImage(s single, bandaiId string) string {
-	if bandaiId != "" {
-		return "https://static.dotgg.gg/onepiece/card/" + bandaiId + ".webp"
+func cardImage(s single, bandaiID string) string {
+	if bandaiID != "" {
+		return "https://static.dotgg.gg/onepiece/card/" + bandaiID + ".webp"
 	}
 	if len(s.quals) == 0 && s.number != donNumber {
 		return "https://static.dotgg.gg/onepiece/card/" + s.number + ".webp"
@@ -1302,7 +1302,7 @@ func main() {
 		log.Printf("punk-records printings this datastore does not carry: %d over %d collector numbers, first is %s",
 			uncarriedPrintings, len(numbers), numbers[0])
 	} else {
-		log.Printf("punk-records printings this datastore does not carry: none")
+		log.Print("punk-records printings this datastore does not carry: none")
 	}
 
 	// Emit. Sets are the catalog groups that hold anything; ids embed the
@@ -1438,7 +1438,10 @@ func main() {
 	// and the set is settled below.
 	printed := map[string][]map[string]any{}
 	for _, entry := range cards {
-		e := entry.(map[string]any)
+		e, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
 		variant, _ := e["variant"].(string)
 		number, _ := e["number"].(string)
 		setCode := fmt.Sprint(e["setCode"])
@@ -1669,13 +1672,13 @@ func main() {
 		}
 		if *baselineFit != "" {
 			if !fit {
-				log.Printf("baseline: unchanged, this build holds less than it does")
+				log.Print("baseline: unchanged, this build holds less than it does")
 			} else {
 				note := fmt.Sprintf("cards=%d sealed=%d\n", current.cards, current.sealed)
 				if err := os.WriteFile(*baselineFit, []byte(note), 0o644); err != nil {
 					log.Fatalln("baseline:", err)
 				}
-				log.Printf("baseline: this build becomes the one the next is measured against")
+				log.Print("baseline: this build becomes the one the next is measured against")
 			}
 		}
 	}
@@ -1761,7 +1764,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Language      string `json:"language"`
 			Finish        string `json:"finish"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
 		} `json:"cards"`
 		Sealed []struct {
@@ -1769,7 +1772,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Name          string `json:"name"`
 			SetCode       string `json:"setCode"`
 			ExternalLinks struct {
-				TcgPlayerId int `json:"tcgPlayerId"`
+				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
 		} `json:"sealed"`
 	}
@@ -1832,8 +1835,8 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// for itself under its own uuid - keying those on the absent
 		// product id would make every one of them the same card and wave
 		// through exactly the collision this catches.
-		bearer := fmt.Sprintf("product %d", card.ExternalLinks.TcgPlayerId)
-		if card.ExternalLinks.TcgPlayerId == 0 {
+		bearer := fmt.Sprintf("product %d", card.ExternalLinks.TcgPlayerID)
+		if card.ExternalLinks.TcgPlayerID == 0 {
 			bearer = "card " + card.ID
 		}
 		if other, seen := identities[identity]; seen && other != bearer {
@@ -1848,7 +1851,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// hand-carried printing answers to no product and would otherwise
 		// pile every one of its finishes under product 0, which the
 		// coverage check would then have to explain.
-		if productID := card.ExternalLinks.TcgPlayerId; productID != 0 {
+		if productID := card.ExternalLinks.TcgPlayerID; productID != 0 {
 			if sliceContains(gotFinishes[productID], card.Finish) {
 				return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 			}
@@ -1870,7 +1873,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	}
 	sealedIDs := map[string]bool{}
 	for _, product := range doc.Sealed {
-		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerId == 0 {
+		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
 			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
 		}
 		if !idShape.MatchString(product.ID) {
