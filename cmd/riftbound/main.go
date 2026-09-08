@@ -377,6 +377,21 @@ func promoTypesOf(qualifiers []string, number string) []string {
 	return out
 }
 
+// printingUUID is the uuid a printing is quoted by: the card's id with the
+// finish spelled onto it, and the bare id for the plain printing.
+//
+// Every other datastore here leaves the plain printing unsuffixed - pokemon's
+// "100-102_42348", lorcana's "1" against its "1_foil" - and this one alone
+// wrote "_nonfoil" out. A reader holding eight games should not have to know
+// which one it is looking at to know what a plain printing is called.
+func printingUUID(id, finish string) string {
+	canonical := canonicalFinish(finish)
+	if canonical == "" || canonical == "nonfoil" {
+		return id
+	}
+	return id + "_" + canonical
+}
+
 // promoSlugRe is everything a promo type is spelled without.
 var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
@@ -1015,7 +1030,7 @@ func main() {
 		for _, finish := range sold {
 			sequence = append(sequence, map[string]any{
 				"finish": finish,
-				"id":     fmt.Sprintf("%v_%s", item["id"], canonicalFinish(finish)),
+				"id":     printingUUID(fmt.Sprint(item["id"]), finish),
 			})
 		}
 		item["printings"] = sequence
