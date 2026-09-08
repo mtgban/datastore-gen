@@ -368,11 +368,25 @@ func keptQualifiers(qualifiers []string, number string) []string {
 // spells a promo type.
 func promoTypesOf(qualifiers []string, number string) []string {
 	kept := keptQualifiers(qualifiers, number)
-	out := make([]string, len(kept))
-	for i, qualifier := range kept {
-		out[i] = strings.ToLower(qualifier)
+	out := make([]string, 0, len(kept))
+	for _, qualifier := range kept {
+		if slug := promoSlug(qualifier); slug != "" && !slices.Contains(out, slug) {
+			out = append(out, slug)
+		}
 	}
 	return out
+}
+
+// promoSlugRe is everything a promo type is spelled without.
+var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// promoSlug spells a qualifier the way every promo type here is spelled:
+// lower case, letters and digits and nothing else. It is a token for a
+// consumer to interpret and a query to carry, not words for a reader - what
+// a promotion is shown as is the loader's to decide, and a data file that
+// spells one for display has decided it for every consumer at once.
+func promoSlug(label string) string {
+	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
 }
 
 func splitQualifiers(name string) (string, []string) {
@@ -989,20 +1003,29 @@ func main() {
 			// printings.
 			sold = bothFinishes
 		}
-		// Keyed by the finish as TCGplayer prices it, that being the name
-		// the datastore uses for it everywhere else; the uuid keeps the
+		// One entry per printing, carrying the finish as TCGplayer prices
+		// it - that being the name the datastore uses for it everywhere
+		// else - beside the uuid it is quoted by. The uuid keeps the
 		// matcher's spelling, which is the one already in circulation.
-		ids := make(map[string]any, len(sold))
+		//
+		// It replaces the printingIds map and the finishes list both, which
+		// were the same set of printings said twice: one naming them, the
+		// other naming what each is called.
+		sequence := make([]any, 0, len(sold))
 		for _, finish := range sold {
-			ids[finish] = fmt.Sprintf("%v_%s", item["id"], canonicalFinish(finish))
+			sequence = append(sequence, map[string]any{
+				"finish": finish,
+				"id":     fmt.Sprintf("%v_%s", item["id"], canonicalFinish(finish)),
+			})
 		}
-		item["printingIds"] = ids
-		printings += len(ids)
+		item["printings"] = sequence
+		delete(item, "finishes")
+		printings += len(sequence)
 		stamped++
 	}
 	log.Printf("common fields: %d cards given a setCode, number, image and product link; %d given a variant",
 		stamped, variants)
-	log.Printf("printing ids: %d uuids named over %d cards, so the loader spells none", printings, stamped)
+	log.Printf("printings: %d named over %d cards, so the loader spells no uuid and reads no finish list beside them", printings, stamped)
 
 	// The base run's size, under the name Pokemon and mtgjson give it. The
 	// gallery calls it collectorNumberMax and Lorcana's upstream calls it
