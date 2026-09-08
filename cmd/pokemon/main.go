@@ -287,25 +287,28 @@ func loadTcgdex(path, query string) ([]byte, error) {
 	return nil, lastErr
 }
 
-// loadTcgdexCached is loadTcgdex behind the last-good cache. An explicit
-// response file bypasses everything, as it always has. Otherwise the live
-// API is asked first and its answer refreshes the cache, so the cache is
-// always the newest response that ever arrived; when the API is
-// unreachable - it sits on one host, and a stale DNS record once kept the
-// nightly dialing a dead server for three days - the cached response
-// stands in, dated out loud, rather than the whole publish being lost.
-// Annotation a day old is strictly better than no datastore at all, and
-// the baseline the build is compared against does not move on a cached
-// run unless the build still grew.
-func loadTcgdexCached(path, cacheDir, cacheName, query string) ([]byte, error) {
-	if path != "" {
-		return os.ReadFile(path)
-	}
-	data, err := loadTcgdex("", query)
+// cachedFetch puts a last-good cache in front of a live fetch. The fetcher
+// is asked first and its answer refreshes the cache, so the cache is always
+// the newest response that ever arrived; when the fetch fails the cached
+// response stands in, dated out loud, rather than the annotation being
+// lost. Annotation a day old is strictly better than none, and the
+// baseline the build is compared against does not move on a cached run
+// unless the build still grew.
+//
+// Both upstreams this build annotates from need it, for the same reason
+// from opposite directions: tcgdex sits on one host, where a stale DNS
+// record once kept the nightly dialing a dead server for three days, and
+// pokemontcg.io answers 5xx often enough that a run can lose it outright.
+//
+// The cache only spans runs if the directory does. On a fresh CI workspace
+// it is empty every time, so the file has to be carried in and out for this
+// to be worth anything there; locally the directory simply persists.
+func cachedFetch(source, cacheDir, cacheName string, fetch func() ([]byte, error)) ([]byte, error) {
+	data, err := fetch()
 	if err == nil {
 		if cacheDir != "" {
 			if werr := os.WriteFile(filepath.Join(cacheDir, cacheName), data, 0o644); werr != nil {
-				log.Printf("tcgdex cache: %v (the build continues on the live answer)", werr)
+				log.Printf("%s cache: %v (the build continues on the live answer)", source, werr)
 			}
 		}
 		return data, nil
@@ -318,13 +321,24 @@ func loadTcgdexCached(path, cacheDir, cacheName, query string) ([]byte, error) {
 	if serr != nil {
 		return nil, err
 	}
-	data, rerr := os.ReadFile(cached)
+	blob, rerr := os.ReadFile(cached)
 	if rerr != nil {
 		return nil, err
 	}
-	log.Printf("tcgdex unreachable (%v); using the cached response from %s",
-		err, info.ModTime().UTC().Format("2006-01-02 15:04"))
-	return data, nil
+	log.Printf("%s unreachable (%v); using the cached response from %s",
+		source, err, info.ModTime().UTC().Format("2006-01-02 15:04"))
+	return blob, nil
+}
+
+// loadTcgdexCached is loadTcgdex behind that cache. An explicit response
+// file bypasses everything, as it always has.
+func loadTcgdexCached(path, cacheDir, cacheName, query string) ([]byte, error) {
+	if path != "" {
+		return os.ReadFile(path)
+	}
+	return cachedFetch("tcgdex", cacheDir, cacheName, func() ([]byte, error) {
+		return loadTcgdex("", query)
+	})
 }
 
 // decodeEnvelope unwraps a GraphQL response: any errors key is a hard
@@ -1610,24 +1624,64 @@ type pokemontcgSet struct {
 	} `json:"images"`
 }
 
-// loadPokemontcgSets reads the set list from a path or the live API. A
-// failure is reported and not fatal: this fills a field 162 of 255 sets
-// already have from tcgdex, and no build is worth losing over the rest.
-func loadPokemontcgSets(path string) ([]pokemontcgSet, error) {
+// pokemontcgClient bounds every pokemontcg.io call, the way tcgdexClient
+// bounds tcgdex's: without a deadline a host that has stopped answering
+// holds the build for the platform's dial timeout.
+var pokemontcgClient = &http.Client{Timeout: 30 * time.Second}
+
+// fetchPokemontcgSets asks the live API, retried the way tcgdex is. One
+// attempt was losing the symbols to blips that clear on their own: three
+// consecutive requests one afternoon answered 500, then 502, then 200. A
+// status the server will give again on a retry is not retried.
+func fetchPokemontcgSets() ([]byte, error) {
+	var lastErr error
+	for attempt, wait := 0, 2*time.Second; attempt < 4; attempt, wait = attempt+1, wait*2 {
+		if attempt > 0 {
+			log.Printf("pokemontcg.io: %v; retrying in %v", lastErr, wait)
+			time.Sleep(wait)
+		}
+		req, err := http.NewRequest(http.MethodGet, pokemontcgSetsURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", "datastore-gen/1.0 (+https://github.com/mtgban/datastore-gen)")
+		resp, err := pokemontcgClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("%s: HTTP %d", pokemontcgSetsURL, resp.StatusCode)
+			// A client-side status will not change on a retry.
+			if resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
+				return nil, lastErr
+			}
+			continue
+		}
+		return data, nil
+	}
+	return nil, lastErr
+}
+
+// loadPokemontcgSets reads the set list from a path, or from the live API
+// behind the last-good cache. A failure is reported and not fatal: this
+// fills the symbol of 20 sets the other 255 do not need, and no build is
+// worth losing over it. What the cache buys is that those 20 keep the
+// symbol they had last time instead of silently going blank.
+func loadPokemontcgSets(path, cacheDir string) ([]pokemontcgSet, error) {
 	var data []byte
 	var err error
 	if path != "" {
 		data, err = os.ReadFile(path)
 	} else {
-		var resp *http.Response
-		resp, err = http.Get(pokemontcgSetsURL)
-		if err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				return nil, fmt.Errorf("%s: %s", pokemontcgSetsURL, resp.Status)
-			}
-			data, err = io.ReadAll(resp.Body)
-		}
+		data, err = cachedFetch("pokemontcg.io", cacheDir, "pokemontcg-sets.json", fetchPokemontcgSets)
 	}
 	if err != nil {
 		return nil, err
@@ -2069,7 +2123,7 @@ func main() {
 	tcgdexSets := flag.String("tcgdex-sets", "", "tcgdex sets GraphQL response file (default: query the live API)")
 	tcgdexCards := flag.String("tcgdex-cards", "", "tcgdex cards GraphQL response file (default: query the live API)")
 	pokemontcgSets := flag.String("pokemontcg-sets", "", "pokemontcg.io sets response file, read for the symbols tcgdex has none of (default: query the live API)")
-	tcgdexCache := flag.String("tcgdex-cache", "", "directory holding the last good tcgdex responses, refreshed on a live fetch and read back when the live API is unreachable")
+	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good tcgdex and pokemontcg.io responses, refreshed on a live fetch and read back when an API is unreachable")
 	cardmarketCatalogPath := flag.String("cardmarket-catalog", "", "published Cardmarket catalog, read for the stamped promos no other catalog lists (required)")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
@@ -2102,7 +2156,7 @@ func main() {
 			catalog.Category.CategoryID, pokemonCategory)
 	}
 
-	setsData, err := loadTcgdexCached(*tcgdexSets, *tcgdexCache, "tcgdex-sets.json", tcgdexSetsQuery)
+	setsData, err := loadTcgdexCached(*tcgdexSets, *upstreamCache, "tcgdex-sets.json", tcgdexSetsQuery)
 	if err != nil {
 		log.Fatalln("tcgdex sets:", err)
 	}
@@ -2131,7 +2185,7 @@ func main() {
 				len(setsResponse.Sets))
 		}
 	}
-	cardsData, err := loadTcgdexCached(*tcgdexCards, *tcgdexCache, "tcgdex-cards.json", tcgdexCardsQuery)
+	cardsData, err := loadTcgdexCached(*tcgdexCards, *upstreamCache, "tcgdex-cards.json", tcgdexCardsQuery)
 	if err != nil {
 		log.Fatalln("tcgdex cards:", err)
 	}
@@ -2966,7 +3020,7 @@ func main() {
 	// PNG where tcgdex serves webp, four of its symbols sit on another host
 	// entirely, and asking its path for a webp answers 404 with a 186KB
 	// body typed image/png.
-	if ptcg, err := loadPokemontcgSets(*pokemontcgSets); err != nil {
+	if ptcg, err := loadPokemontcgSets(*pokemontcgSets, *upstreamCache); err != nil {
 		log.Printf("pokemontcg.io: %v; the sets tcgdex has no symbol for keep none", err)
 	} else {
 		byName := map[string]*pokemontcgSet{}
