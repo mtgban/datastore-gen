@@ -151,12 +151,18 @@ jobs:
             done
           fi
 
-          # The last tcgdex responses a build fetched live, kept beside the
-          # datastore so a run that cannot reach the API builds on them
-          # instead of publishing nothing. The builder asks the live API
-          # first and refreshes these whenever it answers.
+          # The last responses a build fetched live from the two upstreams
+          # this game annotates from, kept beside the datastore so a run
+          # that cannot reach one builds on them instead of publishing
+          # without. The builder asks each live API first and refreshes
+          # these whenever it answers.
+          #
+          # A runner's workspace is new every time, so this is the whole of
+          # what makes the builder's cache mean anything here: without the
+          # round trip the cache is written to a directory that is thrown
+          # away, and only a local build ever reads one back.
           if [ "${{ matrix.game }}" = pokemon ]; then
-            for f in tcgdex-sets tcgdex-cards; do
+            for f in tcgdex-sets tcgdex-cards pokemontcg-sets; do
               if b2 file download --no-progress \
                 b2://mtgban-datastore/pokemon/$f.json.xz $f.json.xz; then
                 xz -d $f.json.xz
@@ -230,11 +236,15 @@ jobs:
             echo "baseline left where it was; this build holds less than it does"
           fi
 
-          # Keep the tcgdex responses this build ran on, live-fetched or
+          # Keep the upstream responses this build ran on, live-fetched or
           # cached alike: what built a published datastore is always fit
-          # to be the fallback for the next run.
+          # to be the fallback for the next run. Re-uploading a response
+          # that was itself cached is deliberate - it keeps the object the
+          # next run reads identical to the one this run built from, so a
+          # long outage degrades by standing still rather than by the
+          # fallback quietly aging out from under the runs using it.
           if [ "${{ matrix.game }}" = pokemon ]; then
-            for f in tcgdex-sets tcgdex-cards; do
+            for f in tcgdex-sets tcgdex-cards pokemontcg-sets; do
               if [ -f $f.json ]; then
                 xz -9 -f $f.json
                 b2 file upload --no-progress mtgban-datastore \
