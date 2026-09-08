@@ -364,7 +364,7 @@ func promoTypesOf(item map[string]any, universal map[string]bool) []string {
 // foil and everything else is the treatment past it; a card with two
 // treatments and no standard has its first stand in for one, which is what
 // TCGplayer does with the three that exist.
-func finishesSold(item map[string]any) []string {
+func finishesSold(item map[string]any, finishNames map[string]string) []string {
 	var out []string
 	seen := map[string]bool{}
 	if links, ok := item["externalLinks"].(map[string]any); ok {
@@ -386,26 +386,32 @@ func finishesSold(item map[string]any) []string {
 	}
 	// The printings TCGplayer sells none of are named in its vocabulary
 	// too, so one spelling reaches a finish whether the catalog placed it
-	// or the rule below did.
+	// or the rule below did - and the names come from the same dump either
+	// way rather than from a list written here.
 	var holo int
 	for _, foilType := range stringsOf(item["foilTypes"]) {
-		name := tcgNormal
+		want := finishNonfoil
 		switch {
 		case canonicalFinish(foilType) == finishNonfoil:
 		case isStandardFoil(foilType):
-			name = tcgColdFoil
+			want = finishFoil
 		default:
-			name = tcgHolofoil
+			want = finishHolofoil
 			holo++
 		}
-		if !slices.Contains(out, name) {
-			out = append(out, name)
+		// A finish the category does not sell names nothing: this rule is
+		// for the printings the catalog lists no sku for, not a licence to
+		// invent a printing it has no name for.
+		name := finishNames[want]
+		if name == "" || slices.Contains(out, name) {
+			continue
 		}
+		out = append(out, name)
 	}
-	if holo > 1 && !slices.Contains(out, tcgColdFoil) {
+	if standard := finishNames[finishFoil]; holo > 1 && standard != "" && !slices.Contains(out, standard) {
 		for i, name := range out {
-			if name == tcgHolofoil {
-				out[i] = tcgColdFoil
+			if name == finishNames[finishHolofoil] {
+				out[i] = standard
 				break
 			}
 		}
@@ -413,14 +419,28 @@ func finishesSold(item map[string]any) []string {
 	return out
 }
 
-// The names TCGplayer prices a Lorcana printing under, which is the whole of
-// its vocabulary for the category: the plain printing, the cold foil almost
-// every card is foiled in, and the treatment past it.
-const (
-	tcgNormal   = "Normal"
-	tcgColdFoil = "Cold Foil"
-	tcgHolofoil = "Holofoil"
-)
+// catalogFinishes is the category's finish vocabulary, read from the dump:
+// the name TCGplayer prices each finish under, keyed by the finish that name
+// places to. Today that is Normal, Cold Foil and Holofoil, and this build is
+// not the place that decides so - the category names its own printings, the
+// dump carries them, and cmd/riftbound reads the same list the same way. A
+// name neither vocabulary places is skipped rather than filed under itself:
+// this map answers "what does the catalog call the plain one", and a
+// treatment is not an answer to that.
+func catalogFinishes(c *tcgplayer.CatalogDump) map[string]string {
+	out := map[string]string{}
+	for _, printing := range c.Printings {
+		switch finish := canonicalFinish(printing.Name); finish {
+		case finishNonfoil, finishFoil, finishHolofoil:
+			// First seen wins, so a category that grows a second name for
+			// one finish keeps answering with the one already published.
+			if _, found := out[finish]; !found {
+				out[finish] = printing.Name
+			}
+		}
+	}
+	return out
+}
 
 // finishOf is the finish a foil type is sold under: the standard foil where
 // it is the standard one, and the treatment slot otherwise - unless the card
@@ -436,11 +456,11 @@ const (
 // them stands in for the standard foil instead, which is the same rule
 // finishesSold applies where the catalog names nothing.
 func finishOf(foilType string, foilTypes, sold []string) string {
-	if canonicalFinish(foilType) == finishNonfoil {
-		return tcgNormal
-	}
 	want := finishHolofoil
-	if isStandardFoil(foilType) || standsInForStandard(foilType, foilTypes) {
+	switch {
+	case canonicalFinish(foilType) == finishNonfoil:
+		want = finishNonfoil
+	case isStandardFoil(foilType) || standsInForStandard(foilType, foilTypes):
 		want = finishFoil
 	}
 	// Answered with a name the card is sold under, spelled the way the
@@ -450,7 +470,10 @@ func finishOf(foilType string, foilTypes, sold []string) string {
 			return name
 		}
 	}
-	// One finish and two names for it: whichever the card is sold in
+	if want == finishNonfoil {
+		return ""
+	}
+	// One finish and two names for it: whichever foil the card is sold in
 	// answers, because there is nothing else for the name to reach.
 	for _, name := range sold {
 		if canonicalFinish(name) != finishNonfoil {
@@ -596,7 +619,7 @@ func canonicalFinish(name string) string {
 	}
 	// The spellings below are the normalized forms of the names above -
 	// "none" is LorcanaJSON's placeholder for a plain printing, "normal"
-	// and "coldfoil" are tcgNormal and tcgColdFoil folded. A foil type
+	// and "coldfoil" are the catalog's own names folded. A foil type
 	// neither vocabulary places is handed back as itself, because the
 	// vocabulary is data.
 	switch folded := normalized.String(); folded {
@@ -873,6 +896,7 @@ func main() {
 		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
 	}
 	printings := printingNames(&catalog)
+	finishNames := catalogFinishes(&catalog)
 	log.Printf("catalog: %d groups, %d products (%d singles)",
 		len(catalog.Groups), len(catalog.Products), singles)
 
@@ -1248,7 +1272,7 @@ func main() {
 		if !ok {
 			continue
 		}
-		sold := finishesSold(item)
+		sold := finishesSold(item, finishNames)
 		if len(sold) == 0 {
 			continue
 		}
