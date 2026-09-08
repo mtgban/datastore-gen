@@ -2004,6 +2004,12 @@ func mintFromCardmarket(path string, cards []any) ([]any, int, int) {
 			"number":  number,
 			"rarity":  rarity,
 			"finish":  finish,
+			// The product this was minted from, and the only id it can be
+			// priced by: no TCGplayer product sells a stamped promo. It
+			// was legible only inside the uuid until now - the one fact
+			// about these entries that had to be read out of an id rather
+			// than off a field.
+			"externalLinks": map[string]any{"cardmarketId": id},
 		}
 		if total != "" {
 			entry["total"] = total

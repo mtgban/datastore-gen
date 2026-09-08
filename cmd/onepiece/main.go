@@ -1522,12 +1522,18 @@ func main() {
 				entry["promoTypes"] = labels
 			}
 		}
+		// The blueprint is what this printing was minted from, and until
+		// now it was legible only inside the uuid - the one fact about a
+		// hand-carried entry that had to be read out of an id rather than
+		// off a field. It is published here so nothing has to.
+		links := map[string]any{"cardTraderId": printing.blueprint}
 		// No TCGplayer product sells it, so the Cardmarket one is the only
 		// id it can be priced by; a printing Cardmarket does not sell
 		// either carries none, and is carried for resolution alone.
 		if printing.cardmarket != 0 {
-			entry["externalLinks"] = map[string]any{"cardmarketId": printing.cardmarket}
+			links["cardmarketId"] = printing.cardmarket
 		}
+		entry["externalLinks"] = links
 		cards = append(cards, entry)
 		minted++
 	}
