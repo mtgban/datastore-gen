@@ -77,16 +77,6 @@ const (
 // catalog names them for this game; everything else is sealed by exclusion.
 var tcgSingles = tcgplayer.SinglesProductTypes(yugiohCategory)
 
-// finishSuffix maps each sku printing name to the suffix its entry's id
-// carries. Any other printing name is a hard failure, because a suffix
-// invented on the fly would not be a stable identity — the category's
-// fourth printing, Normal, appears only on sealed skus and stays out.
-var finishSuffix = map[string]string{
-	"1st Edition": "_1e",
-	"Unlimited":   "_unl",
-	"Limited":     "_lim",
-}
-
 // hasDate reports whether the group's publishedOn is a real date: the
 // catalog stamps the request time on groups it has no date for, so a
 // genuine value is always a bare midnight timestamp.
@@ -895,7 +885,6 @@ func main() {
 		joinedByCode+joinedByName, len(groups), joinedByCode, joinedByName,
 		placeholders, filled, unfilled)
 
-	checkPinnedPrintings(&catalog)
 	printings := printingNames(&catalog)
 
 	// Split the products: every single becomes card entries, the
@@ -1106,7 +1095,7 @@ func main() {
 		}
 		productID := s.product.ProductID
 		for _, finish := range printings[productID] {
-			suffix := finishSuffixFor(finish)
+			suffix := finishSuffix(finish)
 			links := map[string]any{"tcgPlayerId": productID}
 			// The passcode the collector number names, and where the
 			// number names several cards, the one its rarity picks out.
@@ -1505,20 +1494,17 @@ func plainQuotes(v any) any {
 	return v
 }
 
-// finishSuffixFor is the id suffix a printing's entries carry: the pinned
-// one above where this build knows the printing, and one spelled from the
-// name where it does not. TCGplayer adds a printing to a category when it
-// likes and is selling the skus either way, so a build that stopped instead
-// would publish nothing at all rather than publish the new printing late.
-//
-// The pins are what keep an id still - they are the suffixes already in
-// circulation. The one thing this cannot absorb is a pinned printing being
-// renamed, which checkPinnedPrintings refuses.
-func finishSuffixFor(name string) string {
-	if suffix, known := finishSuffix[name]; known {
-		return suffix
+// finishSuffix is the id suffix a printing's entries carry: nothing for the
+// plain printing, and the printing's own name for every other. TCGplayer
+// calls a plain printing "Normal" in every category, which is the one
+// convention here rather than a list of this category's printings - those
+// are the catalog's to name, to add to and to rename, and every one of them
+// reaches an id without a release.
+func finishSuffix(name string) string {
+	if slug := finishSlug(name); slug != "" && slug != "normal" {
+		return "_" + slug
 	}
-	return "_" + finishSlug(name)
+	return ""
 }
 
 // finishSlug spells a printing name the way an id carries it.
@@ -1532,20 +1518,14 @@ func finishSlug(name string) string {
 	return out.String()
 }
 
-// checkPinnedPrintings refuses a catalog that no longer lists a printing
-// this build pins an id suffix for. A printing TCGplayer adds is absorbed
-// above; one it renames is not and cannot be - every id built from the old
-// name would move to the new one, silently, since an id nobody stored
-// resolves to nothing rather than erroring.
-func checkPinnedPrintings(c *tcgplayer.CatalogDump) {
-	listed := map[string]bool{}
+// plainPrinting is the catalog's name for the printing a bare id belongs to,
+// or "" where the category has none - Yu-Gi-Oh prices its cards by print run
+// and sells no printing it calls plain.
+func plainPrinting(c *tcgplayer.CatalogDump) string {
 	for _, printing := range c.Printings {
-		listed[printing.Name] = true
-	}
-	for name, suffix := range finishSuffix {
-		if !listed[name] {
-			log.Fatalf("the catalog no longer lists printing %q, which this build pins the id suffix %q for: every id built from it would move",
-				name, suffix)
+		if finishSlug(printing.Name) == "normal" {
+			return printing.Name
 		}
 	}
+	return ""
 }
