@@ -192,7 +192,7 @@ jobs:
             args="$args -against previous.json"
           fi
           if [ "${{ matrix.game }}" = pokemon ]; then
-            args="$args -tcgdex-cache ."
+            args="$args -upstream-cache ."
             args="$args -cardmarket-catalog cardmarket_catalog.json"
           fi
           go run ./cmd/${{ matrix.game }} -tcg-catalog tcgplayer-catalog.json \
