@@ -364,6 +364,24 @@ func keptQualifiers(qualifiers []string, number string) []string {
 	return out
 }
 
+// unnamedQualifiers drops the qualifiers the gallery's own name already
+// carries. Riot names the starter-deck printings "Lady of Luminosity -
+// Starter" and the catalog writes "Lux, Lady of Luminosity (Starter)" beside
+// them, so the word is the card's name rather than a promotion of it -
+// stamping it would put "Starter" in a variant as well, and a storefront
+// that named it once would have to name it twice to be found.
+func unnamedQualifiers(qualifiers []string, name string) []string {
+	folded := promoSlug(name)
+	out := make([]string, 0, len(qualifiers))
+	for _, qualifier := range qualifiers {
+		if slug := promoSlug(qualifier); slug != "" && strings.Contains(folded, slug) {
+			continue
+		}
+		out = append(out, qualifier)
+	}
+	return out
+}
+
 // promoTypesOf is those labels lowercased, the way every datastore here
 // spells a promo type.
 func promoTypesOf(qualifiers []string, number string) []string {
@@ -830,6 +848,23 @@ func main() {
 				}
 				stampedBy[key] = product.ProductID
 				item["tcgplayerProductId"] = product.ProductID
+				// The qualifiers the catalog writes on the product, which
+				// the gallery row has none of: Riot publishes a card under
+				// its plain name, and what tells one printing of it from
+				// another is written by whoever sells them. Adopted
+				// printings have carried these all along; a printing the
+				// gallery happened to publish was losing them for no reason
+				// but the branch it arrived on - 91 overnumbered printings
+				// and 102 alternate arts among them.
+				if _, qualifiers := splitQualifiers(product.Name); len(qualifiers) > 0 {
+					number := numberFor(product)
+					named, _ := item["name"].(string)
+					qualifiers = unnamedQualifiers(qualifiers, named)
+					if promoTypes := promoTypesOf(qualifiers, number); len(promoTypes) > 0 {
+						item["promoTypes"] = promoTypes
+						item["variant"] = strings.Join(keptQualifiers(qualifiers, number), " ")
+					}
+				}
 				// The catalog decides which finishes exist: a printing it
 				// prices a sku for is one that exists, and the gallery says
 				// nothing about finish at all. It can only fall back to the
