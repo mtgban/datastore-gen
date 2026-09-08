@@ -66,8 +66,11 @@ supplies both annotation - a printing id, a clean image, a release date -
 and the cards the catalog has no product for, which are minted from it.
 
 A minted entry names no TCGplayer product, because none exists; nothing
-prices it, and the loaders group an entry without a product id by its own
-id with the finish suffix stripped. Where the upstream set has no catalog
+prices it, and the loaders group its printings by the upstream id it was
+minted from - `tcgdexId` for pokemon, `fabId` for fleshandblood - which is
+published on the entry like any other identifier. Ids are opaque: a
+consumer reads the fields, never the shape of an id, and the builders are
+free to respell one. Where the upstream set has no catalog
 group at all, the set is minted too, from upstream's own code, name and
 release date, deduplicated against the codes the catalog groups already
 hold. Current counts:
