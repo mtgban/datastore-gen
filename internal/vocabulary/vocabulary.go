@@ -59,8 +59,16 @@ type Problems struct {
 	// the words.
 	NotSlugs []string
 
-	// TooLong are tokens past TokenLimit, which are a shelf's product name
-	// rather than a promotion's.
+	// TooLong are tokens past TokenLimit that hold a set this datastore
+	// publishes, which is a promotion with a fact stuck to it: "Twilight
+	// Masquerade Stamped" is the set a promo reprints beside the stamp
+	// that promoted it, and the set belongs in the mark.
+	//
+	// A long token holding no such fact is left alone. Some promotions are
+	// named after a championship or a shelf whose name is simply long -
+	// "North America International Championship", "Build-A-Bear Workshop
+	// Exclusive" - and folding those would leave a worse token than the
+	// one it took away.
 	TooLong []string
 
 	// RarityEchoes are tokens saying what the rarity field says. A rarity
@@ -97,7 +105,7 @@ func (p Problems) Lines() []string {
 		out = append(out, fmt.Sprintf("%d %s: %s", len(found), what, strings.Join(shown, ", ")))
 	}
 	say("tokens are not slugs", p.NotSlugs)
-	say(fmt.Sprintf("tokens read past %d characters", TokenLimit), p.TooLong)
+	say(fmt.Sprintf("tokens read past %d characters and hold a set this datastore publishes", TokenLimit), p.TooLong)
 	say("tokens say what the rarity field says", p.RarityEchoes)
 	say("tokens say what the finish field says", p.FinishEchoes)
 	if len(p.Alike) > 0 {
@@ -115,9 +123,17 @@ func (p Problems) Lines() []string {
 	return out
 }
 
-// Check reads a datastore's printings against the rules.
-func Check(printings []Printing) Problems {
+// Check reads a datastore's printings against the rules. sets are the names
+// this datastore publishes, which a token past the limit is measured
+// against: one holding a set name is a promotion with a fact stuck to it.
+func Check(printings []Printing, sets []string) Problems {
 	var found Problems
+	published := make([]string, 0, len(sets))
+	for _, name := range sets {
+		if slug := Slug(name); len(slug) > 3 {
+			published = append(published, slug)
+		}
+	}
 	seen := map[string]bool{}
 	alike := map[string][]string{}
 	var order []string
@@ -129,7 +145,7 @@ func Check(printings []Printing) Problems {
 					seen["slug:"+token] = true
 					found.NotSlugs = append(found.NotSlugs, token)
 				}
-			case len(token) > TokenLimit:
+			case len(token) > TokenLimit && holdsASet(token, published):
 				if !seen["long:"+token] {
 					seen["long:"+token] = true
 					found.TooLong = append(found.TooLong, token)
@@ -175,4 +191,16 @@ func (p Printing) identity() string {
 		fmt.Fprintf(&out, "%s=%v|", key, p.Facts[key])
 	}
 	return out.String()
+}
+
+// holdsASet reports whether a token carries the name of a set the datastore
+// publishes, which is what makes a long token a fold that was not made
+// rather than a name that is simply long.
+func holdsASet(token string, published []string) bool {
+	for _, name := range published {
+		if name != token && strings.Contains(token, name) {
+			return true
+		}
+	}
+	return false
 }

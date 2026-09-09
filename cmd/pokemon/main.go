@@ -1125,9 +1125,61 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 				continue
 			}
 		}
+		// A label too long to be a name is usually a fact this datastore
+		// already publishes with a promotion stuck to it: "Prismatic
+		// Evolutions Stamped" is the set the promo reprints beside the
+		// stamp, and "Alolan Ninetales Half Deck" the Pokemon beside the
+		// deck. The fact becomes the mark it is everywhere else and the
+		// promotion keeps the token.
+		//
+		// Only where the token is too long. The rest of what this game
+		// promotes is named after a championship or a shelf whose name is
+		// simply long - "North America International Championship",
+		// "Build-A-Bear Workshop Exclusive" - and folding those would
+		// leave a worse token than the one it took away.
+		if len(promoSlug(text)) > promoTypeLimit {
+			// A label that is a set and nothing else is which set this
+			// reprints, whole. The shelf test above asks the same thing of
+			// the shelves that hold a card from everywhere; this asks it of
+			// a label too long to be a promotion's name wherever it sits.
+			if namesASet(text, setNames) {
+				left = append(left, strings.ToLower(text))
+				if found == "" && mark == "" {
+					found = strings.ToLower(text)
+				}
+				continue
+			}
+			if stem, rest := publishedPrefix(text, pokemon, setNames); rest != "" {
+				left = append(left, strings.ToLower(stem))
+				if found == "" && mark == "" {
+					found = strings.ToLower(stem)
+				}
+				text = rest
+			}
+		}
 		out = append(out, promoSlug(text))
 	}
 	return out, left, year, found, spoken
+}
+
+// promoTypeLimit is how long a promo type may read before it stops being a
+// name and starts being a sentence. A query carries a token, and a token
+// nobody can type is one nobody will.
+const promoTypeLimit = 22
+
+// publishedPrefix is the run of words a label opens with that this datastore
+// states elsewhere - the set a promo reprints, or the Pokemon it pictures -
+// beside what is left once it is taken off. The longest such run is read, so
+// that a set whose name opens with a Pokemon's is read as the set.
+func publishedPrefix(label string, pokemon, setNames map[string]bool) (stem, rest string) {
+	fields := strings.Fields(label)
+	for i := len(fields) - 1; i > 0; i-- {
+		head := strings.Join(fields[:i], " ")
+		if namesASet(head, setNames) || pokemon[mtgmatcherNormalize(head)] {
+			return head, strings.Join(fields[i:], " ")
+		}
+	}
+	return "", ""
 }
 
 // pokemonNames are the Pokemon tcgdex files as Pokemon, 2,842 of them
@@ -3436,6 +3488,12 @@ func main() {
 		// "Ruby & Sapphire" for our "EX Ruby and Sapphire". The same head
 		// test namesASet uses to read past one.
 		if head, rest, found := strings.Cut(name, " "); found && len(head) <= 4 && strings.Contains(rest, " ") {
+			setNames[mtgmatcherNormalize(rest)] = true
+		}
+		// And without its code, which this datastore writes in front with
+		// a colon and a label never writes at all: "Twilight Masquerade
+		// Stamped" for our "SV06: Twilight Masquerade".
+		if _, rest, found := strings.Cut(name, ": "); found && rest != "" {
 			setNames[mtgmatcherNormalize(rest)] = true
 		}
 		if strings.HasSuffix(name, "Exclusives") {
