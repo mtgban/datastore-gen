@@ -64,6 +64,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 const (
@@ -1611,6 +1612,30 @@ var printColors = map[string]bool{
 	"white": true, "teal": true,
 }
 
+// numberSays reports whether a collector number already carries a qualifier,
+// which makes the qualifier no promotion but the number said twice.
+//
+// A number is read a part at a time rather than as one run of characters.
+// The parts are what mean anything - "DOCS-ENSP1" is the set and then the
+// Sneak Peek number, and a card labelled "(ENSP1)" is labelled with the
+// second of them - and a run of characters says yes to any run inside it.
+// That cost the Super Edition promos of Secrets of Eternity their label:
+// "SECE-ENS03" contains an "se", so all fourteen were read as restating a
+// number that says nothing of the kind.
+func numberSays(number, slug string) bool {
+	if number == "" || slug == "" {
+		return false
+	}
+	for _, part := range strings.FieldsFunc(number, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if promoSlug(part) == slug {
+			return true
+		}
+	}
+	return false
+}
+
 // languages a qualifier may name. The advent calendars are sold in German
 // and their cards say so: "Junk Synchron (German)" is AC11-DE001, printed
 // in German and named in it. A language is a fact about the printing and
@@ -1798,7 +1823,7 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int, 
 			continue
 		}
 		row := held{item: item}
-		number := promoSlug(fmt.Sprint(item["number"]))
+		number := fmt.Sprint(item["number"])
 		rarity := fmt.Sprint(item["rarity"])
 		set := fmt.Sprint(item["setCode"])
 		setDate := ""
@@ -1849,7 +1874,7 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int, 
 			// back whatever turns out to be doing the distinguishing.
 			case artworkLetter(slug):
 				row.marks = append(row.marks, slug)
-			case numberish.MatchString(slug) || (number != "" && strings.Contains(number, slug)),
+			case numberish.MatchString(slug) || numberSays(number, slug),
 				slug == promoSlug(rarity) || slug == initials(rarity),
 				subjects[tag]:
 				row.dropped = append(row.dropped, slug)
