@@ -703,8 +703,19 @@ var variantOnlyQuals = map[string]bool{
 	"2015": true,
 	"2016": true,
 	// "Gym Badge (Giovanni)" is one badge of eight, each named for the
-	// leader who awards it. Which badge, not what promoted it.
-	"giovanni": true,
+	// leader who awards it. Which badge, not what promoted it - and all
+	// eight, one card name and one number between them, where only the
+	// last was named here and the other seven read as promotions. The
+	// guard cannot find them: they are told apart by these very labels,
+	// so nothing collides for it to repair.
+	"brock":     true,
+	"misty":     true,
+	"lt. surge": true,
+	"erika":     true,
+	"koga":      true,
+	"sabrina":   true,
+	"blaine":    true,
+	"giovanni":  true,
 }
 
 // namesASet reports whether a label names one of the sets this datastore
@@ -900,11 +911,16 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 		// Nothing promoted a slip, but which slip it is has to survive:
 		// "Code Card - Evolving Skies Single Pack Blister" is sold with an
 		// Eevee on it and with a Galarian Slowpoke, one name and one rarity
-		// between them. The label is handed back as the mark it is.
+		// between them. The label is the mark it is, wherever it appears
+		// rather than only where the guard asks - a slip nothing else is
+		// sold beside came out of one blister just the same.
 		for _, q := range s.quals {
 			left = append(left, strings.ToLower(q.text))
+			if found == "" {
+				found = strings.ToLower(q.text)
+			}
 		}
-		return nil, left, "", ""
+		return nil, left, "", found
 	}
 	// What is left out is handed back rather than forgotten: a label that
 	// says nothing about what promoted a printing may still be the only
@@ -932,6 +948,12 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 			left = append(left, lowered)
 			continue
 		}
+		// What the card pictures, and which shape it is in. Neither
+		// promoted anything - a Pokemon on a promo says which artwork or
+		// which deck a copy came from, and a forme says which shape the
+		// Pokemon is in - so each is the mark of a copy rather than a
+		// promotion, and is published as one wherever it appears.
+		//
 		// Which shape the Pokemon is in, which no card was promoted for:
 		// Deoxys in its Normal, Attack, Defense and Speed Formes at four
 		// numbers of its own, Shaymin Lv.X in its Land and Sky, and the two
@@ -939,10 +961,16 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 		// say a bare X and Y this already leaves out.
 		if formeRe.MatchString(q.text) {
 			left = append(left, lowered)
+			if found == "" {
+				found = lowered
+			}
 			continue
 		}
 		if pokemon[mtgmatcherNormalize(q.text)] || bareNumberingRe.MatchString(q.text) {
 			left = append(left, lowered)
+			if found == "" {
+				found = lowered
+			}
 			continue
 		}
 		// A Pokemon and a number is a deck and a place in it. Battle
@@ -951,6 +979,9 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 		// Armarouge deck, and the card's own number is 105.
 		if m := deckPlaceRe.FindStringSubmatch(q.text); m != nil && pokemon[mtgmatcherNormalize(m[1])] {
 			left = append(left, lowered)
+			if found == "" {
+				found = lowered
+			}
 			continue
 		}
 		// And a list of them is still them. A blister naming what is inside
@@ -960,6 +991,9 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 		// is. Every part has to be a Pokemon before any of it is taken.
 		if allPokemon(q.text, pokemon) {
 			left = append(left, lowered)
+			if found == "" {
+				found = lowered
+			}
 			continue
 		}
 		text := q.text
