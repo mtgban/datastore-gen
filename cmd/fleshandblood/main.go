@@ -1596,6 +1596,19 @@ func promoSlug(label string) string {
 // apart by. A number is what the number field says.
 var numberish = regexp.MustCompile(`^[a-z]{0,4}[0-9]{1,4}(-[a-z])?$|^[a-z]$`)
 
+// says reports whether a field's own slug holds a label's, which is how a
+// qualifier naming part of what the field already says is recognised: the
+// finish "Cold Foil" says the label "Cold".
+//
+// A label of one or two letters is never read this way. "coldfoil" holds a
+// "c" and "fab470" holds an "a", and reading those as the field speaking
+// deleted the artwork letter that was the only thing telling three
+// printings of Lightning Flow apart - and deleted it from some of them and
+// not others, depending on which letters their number happened to contain.
+func says(field, label string) bool {
+	return field != "" && len(label) > 2 && strings.Contains(field, label)
+}
+
 // promoTypeNames folds the spellings the catalog writes one promotion under.
 // Three ways of saying a Japanese alternate art is one promotion, and a query
 // naming it should not have to guess which the product name used.
@@ -1639,6 +1652,7 @@ func foldPromoTypes(cards []any) (int, int) {
 		item    map[string]any
 		kept    []string
 		dropped []string
+		marks   []string
 	}
 	var rows []held
 	var dropped int
@@ -1652,6 +1666,7 @@ func foldPromoTypes(cards []any) (int, int) {
 		finish := promoSlug(fmt.Sprint(item["finish"]))
 		number := promoSlug(fmt.Sprint(item["number"]))
 		color := promoSlug(fmt.Sprint(item["color"]))
+		rarity := promoSlug(fmt.Sprint(item["rarity"]))
 		for _, tag := range stringsOf(item["promoTypes"]) {
 			if name, found := promoTypeNames[tag]; found {
 				tag = name
@@ -1661,15 +1676,27 @@ func foldPromoTypes(cards []any) (int, int) {
 			case slug == "":
 			// A qualifier repeating the number, or naming the finish the
 			// card already carries, says nothing the card has not said.
-			case numberish.MatchString(tag) || slug == number ||
-				(number != "" && strings.Contains(number, slug)):
+			case slug == number || says(number, slug):
 				dropped++
-			case slug == finish || strings.Contains(finish, slug):
+			case slug == finish || says(finish, slug):
 				dropped++
 			// The pitch value is the card's own, published as its colour,
 			// and a product name repeating it names no promotion.
 			case color != "" && slug == color:
 				dropped++
+			// Nor does one repeating the rarity. The catalog writes
+			// "Marvel" in the product name of the printings it also files
+			// at rarity Marvel, and as a tag that declares a printing
+			// promotional for being the rarity it is.
+			case rarity != "" && slug == rarity:
+				dropped++
+			// An artwork letter is which copy of the number this is, and
+			// nothing promoted a card for being the second drawing of it.
+			// Deleting it outright left three printings of Lightning Flow
+			// at OMN203 told apart by nothing at all, so it is published
+			// as the mark it is.
+			case numberish.MatchString(tag):
+				row.marks = append(row.marks, strings.ToLower(tag))
 			case subjects[tag]:
 				row.dropped = append(row.dropped, slug)
 			case !slices.Contains(row.kept, slug):
@@ -1696,6 +1723,9 @@ func foldPromoTypes(cards []any) (int, int) {
 			kept = append(slices.Clone(kept), r.dropped...)
 		} else {
 			dropped += len(r.dropped)
+		}
+		if len(r.marks) > 0 {
+			r.item["watermark"] = strings.Join(r.marks, " ")
 		}
 		if len(kept) == 0 {
 			delete(r.item, "promoTypes")

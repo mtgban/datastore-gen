@@ -3511,6 +3511,14 @@ func main() {
 				if mark == "" && found != "" {
 					entry["watermark"] = found
 				}
+				// A label saying what the finish field says names no
+				// promotion: the catalog writes "Reverse Holofoil" into
+				// the product name of a printing it also prices as one,
+				// and as a tag that declares a printing promotional for
+				// being the finish it is.
+				tags = slices.DeleteFunc(tags, func(tag string) bool {
+					return tag == promoSlug(finish)
+				})
 				if len(tags) > 0 {
 					entry["promoTypes"] = tags
 				}
