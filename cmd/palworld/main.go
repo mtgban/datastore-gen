@@ -210,6 +210,15 @@ func palNames(singles []single) map[string]bool {
 	return out
 }
 
+// promoSlugRe is everything a promo type is spelled without.
+var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// promoSlug spells a label the way every promo type here is spelled: lower
+// case, letters and digits and nothing else.
+func promoSlug(label string) string {
+	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
+}
+
 // promoTypesOf is the labels a printing carries, one at a time and
 // lowercased the way every datastore here spells a promo type. The Pal a
 // Soul card pictures is not one: nothing promoted a Soul for having Nox on
@@ -218,13 +227,19 @@ func promoTypesOf(name string, quals []string, pals map[string]bool) []string {
 	out := make([]string, 0, len(quals))
 	for _, qual := range quals {
 		tag := strings.ToLower(strings.Join(strings.Fields(qual), " "))
-		if tag == "" || slices.Contains(out, tag) {
+		if tag == "" {
 			continue
 		}
 		if name == soulCardName && pals[tag] {
 			continue
 		}
-		out = append(out, tag)
+		// The token is the slug: a promo type is what a query carries and a
+		// consumer keys on, and the words a reader is shown are the variant
+		// beside it, which this build already writes. The Pal check above
+		// reads the words, so the slugging happens after it.
+		if slug := promoSlug(tag); slug != "" && !slices.Contains(out, slug) {
+			out = append(out, slug)
+		}
 	}
 	return out
 }
