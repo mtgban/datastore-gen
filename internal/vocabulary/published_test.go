@@ -37,8 +37,12 @@ func TestPublishedVocabulary(t *testing.T) {
 			case err != nil:
 				t.Fatal(err)
 			}
+			sets, err := SetNames(path)
+			if err != nil {
+				t.Fatal(err)
+			}
 			read++
-			found := Check(printings)
+			found := Check(printings, sets)
 			if !found.Any() {
 				return
 			}
