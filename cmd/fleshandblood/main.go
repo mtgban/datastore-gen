@@ -1609,6 +1609,10 @@ func says(field, label string) bool {
 	return field != "" && len(label) > 2 && strings.Contains(field, label)
 }
 
+// artworkLetter matches a label that is one letter: which drawing of the
+// number this printing carries, where the catalog files several.
+var artworkLetter = regexp.MustCompile(`^[A-Za-z]$`)
+
 // promoTypeNames folds the spellings the catalog writes one promotion under.
 // Three ways of saying a Japanese alternate art is one promotion, and a query
 // naming it should not have to guess which the product name used.
@@ -1695,8 +1699,16 @@ func foldPromoTypes(cards []any) (int, int) {
 			// Deleting it outright left three printings of Lightning Flow
 			// at OMN203 told apart by nothing at all, so it is published
 			// as the mark it is.
-			case numberish.MatchString(tag):
+			//
+			// Only a letter. The rest of what numberish matches carries
+			// digits, and a label carrying digits is a number - often
+			// another printing's, which the catalog writes beside a pitch
+			// value to say where that version is filed. Marking a printing
+			// with a number that is not its own says the wrong thing.
+			case artworkLetter.MatchString(tag):
 				row.marks = append(row.marks, strings.ToLower(tag))
+			case numberish.MatchString(tag):
+				dropped++
 			case subjects[tag]:
 				row.dropped = append(row.dropped, slug)
 			case !slices.Contains(row.kept, slug):
