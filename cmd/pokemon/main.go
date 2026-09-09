@@ -803,6 +803,12 @@ func markPrintings(cards []any, leftOut map[string][]string) (int, int) {
 	return marked, alike
 }
 
+// runSeries splits the instalment off a promotion that runs in numbered
+// ones. "Prize Pack Series 1" and its Series 2 are one promotion run twice,
+// and which running a card came from is a mark rather than a promotion -
+// the same shape as a printing's version.
+var runSeries = regexp.MustCompile(`(?i)^(.*\bseries)\s+([0-9]{1,2})$`)
+
 // runYear is a year a qualifier states, and runSpan the two a season is
 // written with. A season is not a date - "2004-2005" is a year and the next
 // one, and no single day stands for both - so a label naming one keeps it.
@@ -882,7 +888,7 @@ func printMark(s *single, setCode string) string {
 	return strings.ToLower(strings.TrimSpace(match[1]))
 }
 
-func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, mark string) (kept, left []string, year string) {
+func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, mark string) (kept, left []string, year, found string) {
 	// A code card is a redemption slip, and its label names what the code
 	// unlocks or the box it came in: "Code Card - Steam Siege Collectible
 	// Pin 3 Pack Blister [Shiny Mega Gardevoir]", "[Ballonea Gym]",
@@ -898,7 +904,7 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 		for _, q := range s.quals {
 			left = append(left, strings.ToLower(q.text))
 		}
-		return nil, left, ""
+		return nil, left, "", ""
 	}
 	// What is left out is handed back rather than forgotten: a label that
 	// says nothing about what promoted a printing may still be the only
@@ -910,8 +916,16 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 		if mark != "" && lowered == mark {
 			continue
 		}
+		// A qualifier that tells two printings apart without saying
+		// anything promoted either is a mark, and is one wherever it
+		// appears rather than only where the guard asks for it: CLB, CLC
+		// and CLV say which of the three Classic decks a copy came from,
+		// and a copy that happens to need no telling apart came from one
+		// just the same.
 		if variantOnlyQuals[lowered] {
-			left = append(left, lowered)
+			if found == "" {
+				found = lowered
+			}
 			continue
 		}
 		if onShelf && namesASet(q.text, setNames) {
@@ -957,6 +971,12 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 			text = m[1]
 			left = append(left, strings.TrimPrefix(strings.Fields(q.text)[0], "#"))
 		}
+		if m := runSeries.FindStringSubmatch(text); m != nil {
+			text = m[1]
+			if found == "" {
+				found = "series " + m[2]
+			}
+		}
 		if rest, stated := promoYear(text); stated != "" {
 			year, text = stated, rest
 			if text == "" {
@@ -965,7 +985,7 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 		}
 		out = append(out, promoSlug(text))
 	}
-	return out, left, year
+	return out, left, year, found
 }
 
 // pokemonNames are the Pokemon tcgdex files as Pokemon, 2,842 of them
@@ -3337,9 +3357,12 @@ func main() {
 				// A printing whose only label was a Pokemon has a variant
 				// and no promo types, so the key stays off rather than
 				// carrying an empty list.
-				tags, left, year := promoTypesOf(s, pokemon, setNames, exclusiveShelf[setCodeFor(s.product)], mark)
+				tags, left, year, found := promoTypesOf(s, pokemon, setNames, exclusiveShelf[setCodeFor(s.product)], mark)
 				if year != "" {
 					stated[fmt.Sprint(entry["id"])] = year
+				}
+				if mark == "" && found != "" {
+					entry["watermark"] = found
 				}
 				if len(tags) > 0 {
 					entry["promoTypes"] = tags
