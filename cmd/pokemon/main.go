@@ -708,6 +708,13 @@ var variantOnlyQuals = map[string]bool{
 	// last was named here and the other seven read as promotions. The
 	// guard cannot find them: they are told apart by these very labels,
 	// so nothing collides for it to repair.
+	// A LEGEND card is printed in two halves and sold as two cards, and
+	// "Top" and "Bottom" say which half. Which piece, not what promoted
+	// it - and they sit beside the placings "Top 8", "Top 16" and "Top 32",
+	// which are three different achievements and stay the promotions they
+	// are.
+	"top":       true,
+	"bottom":    true,
 	"brock":     true,
 	"misty":     true,
 	"lt. surge": true,
@@ -818,7 +825,11 @@ func markPrintings(cards []any, leftOut map[string][]string) (int, int) {
 // ones. "Prize Pack Series 1" and its Series 2 are one promotion run twice,
 // and which running a card came from is a mark rather than a promotion -
 // the same shape as a printing's version.
-var runSeries = regexp.MustCompile(`(?i)^(.*\bseries)\s+([0-9]{1,2})$`)
+//
+// A season is an instalment written as two years: "Asia Championship Series
+// 23-24" and its 24-25 are that promotion run twice, and the two digits are
+// too few for the year rule to see.
+var runSeries = regexp.MustCompile(`(?i)^(.*\bseries)\s+([0-9]{1,2}\s*[-/]\s*[0-9]{1,2}|[0-9]{1,2})$`)
 
 // runYear is a year a qualifier states, and runSpan the two a season is
 // written with. A season is not a date - "2004-2005" is a year and the next
@@ -896,7 +907,27 @@ func printMark(s *single, setCode string) string {
 	if match == nil {
 		return ""
 	}
-	return strings.ToLower(strings.TrimSpace(match[1]))
+	// Spelled the one way this datastore spells it. The catalog writes
+	// "Jeremy Moran" where the player is Jeremy Maron, and the qualifier
+	// beside this is already corrected - so a mark taken raw would be the
+	// same name twice, once each way, and the qualifier would go on
+	// reading as a promotion for failing to match.
+	named := strings.ToLower(respellQual(strings.TrimSpace(match[1])))
+	if fixed, hand := qualSpellings[named]; hand {
+		named = strings.ToLower(fixed)
+	}
+	// And without whatever is written beside it. The 2024 decks put the
+	// player and the treatment in one parenthetical - "(Jesse Parker Gold
+	// Signature)" - where every other year keeps them apart, so the
+	// qualifier the name opens with is the player and the rest of it is
+	// the promotion it was sold with.
+	for _, q := range s.quals {
+		text := strings.ToLower(q.text)
+		if text != named && strings.HasPrefix(named, text) {
+			return text
+		}
+	}
+	return named
 }
 
 func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, mark string) (kept, left []string, year, found string) {
