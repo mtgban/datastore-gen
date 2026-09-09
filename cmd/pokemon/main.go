@@ -725,6 +725,31 @@ func namesASet(label string, setNames map[string]bool) bool {
 	return setNames[mtgmatcherNormalize(rest)]
 }
 
+// datePrintings gives a printing the date its labels stated, where its set
+// does not already state it. See promoReleaseDate.
+func datePrintings(cards []any, sets map[string]any, stated map[string]string) int {
+	var dated int
+	for _, raw := range cards {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		year := stated[fmt.Sprint(item["id"])]
+		if year == "" {
+			continue
+		}
+		setDate := ""
+		if held, ok := sets[fmt.Sprint(item["setCode"])].(map[string]any); ok {
+			setDate = fmt.Sprint(held["releaseDate"])
+		}
+		if date := promoReleaseDate(year, setDate); date != "" {
+			item["originalReleaseDate"] = date
+			dated++
+		}
+	}
+	return dated
+}
+
 // markPrintings gives a printing the mark saying which copy of its collector
 // number it is, where nothing else says. The labels it marks with are the
 // ones promoTypesOf left out - a Pokemon it pictures, a set it was reprinted
@@ -740,8 +765,9 @@ func namesASet(label string, setNames map[string]bool) bool {
 // printings read as duplicates of each other.
 func markPrintings(cards []any, leftOut map[string][]string) (int, int) {
 	identity := func(item map[string]any) string {
-		return fmt.Sprint(item["name"], "|", item["number"], "|", item["setCode"], "|",
-			item["rarity"], "|", item["finish"], "|", item["promoTypes"], "|", item["watermark"])
+		return fmt.Sprint(item["name"], "|", item["number"], "|", item["total"], "|", item["setCode"], "|",
+			item["rarity"], "|", item["finish"], "|", item["promoTypes"], "|", item["watermark"], "|",
+			item["originalReleaseDate"])
 	}
 	shared := map[string]int{}
 	for _, raw := range cards {
@@ -775,6 +801,46 @@ func markPrintings(cards []any, leftOut map[string][]string) (int, int) {
 		}
 	}
 	return marked, alike
+}
+
+// runYear is a year a qualifier states, and runSpan the two a season is
+// written with. A season is not a date - "2004-2005" is a year and the next
+// one, and no single day stands for both - so a label naming one keeps it.
+var runYear = regexp.MustCompile(`\b(19|20)[0-9]{2}\b`)
+var runSpan = regexp.MustCompile(`\b(?:19|20)[0-9]{2}\s*-\s*(?:19|20)[0-9]{2}\b`)
+
+// promoYear takes the year off a label and hands back what the label says
+// besides. When a promotion ran is not what it is: "World Championships
+// 2005" and its 2013 are one promotion run twice, and eighteen of these
+// labels were the same promotion written with eighteen different years.
+//
+// A label that is a year and nothing else says only when, so nothing is
+// left of it and the date carries the whole of what it said.
+func promoYear(label string) (rest, year string) {
+	if runSpan.MatchString(label) {
+		return label, ""
+	}
+	match := runYear.FindString(label)
+	if match == "" {
+		return label, ""
+	}
+	return strings.Join(strings.Fields(runYear.ReplaceAllString(label, " ")), " "), match
+}
+
+// promoReleaseDate is the date a year states, published only where the set
+// does not already state it. The promo shelves are why it is worth stating:
+// "League & Championship Cards" is one set holding cards handed out from
+// 2006 to 2011, and the shelf is dated 2016. 262 of the 344 printings whose
+// label names a year name one their set disagrees with.
+//
+// A year names no day, so the first of January stands in - as much as the
+// label knows. Where the set's year agrees, the set's own day is better and
+// nothing is published.
+func promoReleaseDate(year, setDate string) string {
+	if year == "" || len(setDate) >= 4 && setDate[:4] == year {
+		return ""
+	}
+	return year + "-01-01"
 }
 
 // promoSlugRe is everything a token is not: a promo type reaches a query as
@@ -816,7 +882,7 @@ func printMark(s *single, setCode string) string {
 	return strings.ToLower(strings.TrimSpace(match[1]))
 }
 
-func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, mark string) (kept, left []string) {
+func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, mark string) (kept, left []string, year string) {
 	// A code card is a redemption slip, and its label names what the code
 	// unlocks or the box it came in: "Code Card - Steam Siege Collectible
 	// Pin 3 Pack Blister [Shiny Mega Gardevoir]", "[Ballonea Gym]",
@@ -832,7 +898,7 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 		for _, q := range s.quals {
 			left = append(left, strings.ToLower(q.text))
 		}
-		return nil, left
+		return nil, left, ""
 	}
 	// What is left out is handed back rather than forgotten: a label that
 	// says nothing about what promoted a printing may still be the only
@@ -891,9 +957,15 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 			text = m[1]
 			left = append(left, strings.TrimPrefix(strings.Fields(q.text)[0], "#"))
 		}
+		if rest, stated := promoYear(text); stated != "" {
+			year, text = stated, rest
+			if text == "" {
+				continue
+			}
+		}
 		out = append(out, promoSlug(text))
 	}
-	return out, left
+	return out, left, year
 }
 
 // pokemonNames are the Pokemon tcgdex files as Pokemon, 2,842 of them
@@ -3212,6 +3284,9 @@ func main() {
 	// for markPrintings to put back where it turns out to be doing the
 	// distinguishing.
 	leftOut := map[string][]string{}
+	// The year each entry's labels stated, keyed by the entry's id, for
+	// datePrintings to publish where the set does not already state it.
+	stated := map[string]string{}
 	for i := range singles {
 		s := &singles[i]
 		productID := s.product.ProductID
@@ -3262,7 +3337,10 @@ func main() {
 				// A printing whose only label was a Pokemon has a variant
 				// and no promo types, so the key stays off rather than
 				// carrying an empty list.
-				tags, left := promoTypesOf(s, pokemon, setNames, exclusiveShelf[setCodeFor(s.product)], mark)
+				tags, left, year := promoTypesOf(s, pokemon, setNames, exclusiveShelf[setCodeFor(s.product)], mark)
+				if year != "" {
+					stated[fmt.Sprint(entry["id"])] = year
+				}
 				if len(tags) > 0 {
 					entry["promoTypes"] = tags
 				}
@@ -3586,6 +3664,8 @@ func main() {
 		log.Fatalln("cardmarket: the catalog minted nothing; either the shelves were renamed or the file is not the Pokemon one")
 	}
 
+	log.Printf("release dates: %d printings dated by a year their label stated, where the set states another",
+		datePrintings(cards, sets, stated))
 	marked, alike := markPrintings(cards, leftOut)
 
 	log.Printf("watermarks: %d printings marked by which copy of the number they are, %d still alike", marked, alike)
