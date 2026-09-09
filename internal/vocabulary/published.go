@@ -68,6 +68,35 @@ func objects(value any) []map[string]any {
 	return out
 }
 
+// SetNames reads the names a datastore gives its sets, and the name behind
+// a code where it writes one in front: a label says "Twilight Masquerade"
+// for a set this datastore calls "SV06: Twilight Masquerade".
+func SetNames(path string) ([]string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Sets map[string]struct {
+			Name string `json:"name"`
+		} `json:"sets"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, set := range payload.Sets {
+		if set.Name == "" {
+			continue
+		}
+		names = append(names, set.Name)
+		if _, rest, found := strings.Cut(set.Name, ": "); found && rest != "" {
+			names = append(names, rest)
+		}
+	}
+	return names, nil
+}
+
 // ReadDatastore reads a published datastore as the printings it holds.
 func ReadDatastore(path string) ([]Printing, error) {
 	raw, err := os.ReadFile(path)

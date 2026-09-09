@@ -22,8 +22,13 @@ func TestCheckReadsTheRules(t *testing.T) {
 			want:      func(p Problems) int { return len(p.NotSlugs) },
 		},
 		{
-			desc:      "a shelf's whole product name is not a promotion's",
-			printings: []Printing{{ID: "a", PromoTypes: []string{"premiumcardcollectionbestselection"}}},
+			desc:      "a long token holding a set is a fold that was not made",
+			printings: []Printing{{ID: "a", PromoTypes: []string{"twilightmasqueradestamped"}}},
+			want:      func(p Problems) int { return len(p.TooLong) },
+		},
+		{
+			desc:      "and a long token holding none is a name that is simply long",
+			printings: []Printing{{ID: "a", PromoTypes: []string{"northamericainternationalchampionship"}}},
 			want:      func(p Problems) int { return len(p.TooLong) },
 		},
 		{
@@ -62,7 +67,7 @@ func TestCheckReadsTheRules(t *testing.T) {
 		},
 	} {
 		t.Run(test.desc, func(t *testing.T) {
-			found := Check(test.printings)
+			found := Check(test.printings, []string{"SV06: Twilight Masquerade", "Twilight Masquerade"})
 			// The last case of each pair is the clean one, named "and".
 			clean := strings.HasPrefix(test.desc, "and ")
 			if got := test.want(found); (got == 0) != clean {
@@ -84,7 +89,7 @@ func TestCheckCountsOnce(t *testing.T) {
 			PromoTypes: []string{"event pack"},
 		})
 	}
-	if found := Check(printings); len(found.NotSlugs) != 1 {
+	if found := Check(printings, nil); len(found.NotSlugs) != 1 {
 		t.Errorf("Check() found %d tokens, want the one", len(found.NotSlugs))
 	}
 }
@@ -125,7 +130,7 @@ func TestFinishesAreReadFromEitherShape(t *testing.T) {
 		t.Errorf("read number %v set %v, want the numbers said as themselves",
 			printings[0].Facts["number"], printings[0].Facts["setCode"])
 	}
-	if found := Check(printings); len(found.Alike) != 0 {
+	if found := Check(printings, nil); len(found.Alike) != 0 {
 		t.Errorf("two finishes of one card read as alike: %v", found.Lines())
 	}
 }
