@@ -725,7 +725,86 @@ func namesASet(label string, setNames map[string]bool) bool {
 	return setNames[mtgmatcherNormalize(rest)]
 }
 
-func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool) []string {
+// markPrintings gives a printing the mark saying which copy of its collector
+// number it is, where nothing else says. The labels it marks with are the
+// ones promoTypesOf left out - a Pokemon it pictures, a set it was reprinted
+// from, the deck code CLB, CLC or CLV - each of which is rightly no
+// promotion, and any of which may still be the whole of what tells two
+// printings apart.
+//
+// "Energy Search" is card 9 of two Latias and Latios theme decks, one number
+// and one rarity between them; "Sceptile" 010 was reprinted from EX Emerald
+// and from DP Stormfront. The builder's own guard already keeps these apart
+// in the joined variant, so nothing was lost - but a consumer reading the
+// fields rather than the sentence had no way to tell them apart, and 582
+// printings read as duplicates of each other.
+func markPrintings(cards []any, leftOut map[string][]string) (int, int) {
+	identity := func(item map[string]any) string {
+		return fmt.Sprint(item["name"], "|", item["number"], "|", item["setCode"], "|",
+			item["rarity"], "|", item["finish"], "|", item["promoTypes"], "|", item["watermark"])
+	}
+	shared := map[string]int{}
+	for _, raw := range cards {
+		if item, ok := raw.(map[string]any); ok {
+			shared[identity(item)]++
+		}
+	}
+	var marked int
+	for _, raw := range cards {
+		item, ok := raw.(map[string]any)
+		if !ok || shared[identity(item)] < 2 {
+			continue
+		}
+		left := leftOut[fmt.Sprint(item["id"])]
+		if len(left) == 0 {
+			continue
+		}
+		item["watermark"] = strings.Join(left, " ")
+		marked++
+	}
+	left := map[string]int{}
+	for _, raw := range cards {
+		if item, ok := raw.(map[string]any); ok {
+			left[identity(item)]++
+		}
+	}
+	var alike int
+	for _, n := range left {
+		if n > 1 {
+			alike += n - 1
+		}
+	}
+	return marked, alike
+}
+
+// wcdPlayerRe reads the player whose deck a World Championship card came
+// in. The catalog writes the year and then the name, last of all: "Dark
+// Tyranitar (19) - 2005 (Takashi Yoneda)", on 1,953 of the 1,968 singles
+// the shelf sells.
+var wcdPlayerRe = regexp.MustCompile(`-\s*[0-9]{4}\s*\(([^()]*)\)`)
+
+// worldsSetStem opens the set codes the championship shelf is split into,
+// WCD2004 through WCD2025.
+const worldsSetStem = "WCD"
+
+// printMark is the mark saying which copy of a collector number a printing
+// is, rather than what promoted it. A World Championship card is one of a
+// player's deck, and the same card at the same number is in several
+// players' decks: the name is what tells those copies apart and nothing
+// promoted any of them, so it is published as a mark of its own rather than
+// counted among the promotions.
+func printMark(s *single, setCode string) string {
+	if !strings.HasPrefix(setCode, worldsSetStem) {
+		return ""
+	}
+	match := wcdPlayerRe.FindStringSubmatch(s.product.Name)
+	if match == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(match[1]))
+}
+
+func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, mark string) (kept, left []string) {
 	// A code card is a redemption slip, and its label names what the code
 	// unlocks or the box it came in: "Code Card - Steam Siege Collectible
 	// Pin 3 Pack Blister [Shiny Mega Gardevoir]", "[Ballonea Gym]",
@@ -734,14 +813,31 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool) []
 	// anybody plays, and each still tells its own slip from the others as a
 	// variant.
 	if s.product.Extended("Rarity") == codeCardRarity {
-		return nil
+		// Nothing promoted a slip, but which slip it is has to survive:
+		// "Code Card - Evolving Skies Single Pack Blister" is sold with an
+		// Eevee on it and with a Galarian Slowpoke, one name and one rarity
+		// between them. The label is handed back as the mark it is.
+		for _, q := range s.quals {
+			left = append(left, strings.ToLower(q.text))
+		}
+		return nil, left
 	}
+	// What is left out is handed back rather than forgotten: a label that
+	// says nothing about what promoted a printing may still be the only
+	// thing telling it from a sibling, and markPrintings puts those back as
+	// the mark they are.
 	out := make([]string, 0, len(s.quals))
 	for _, q := range s.quals {
-		if variantOnlyQuals[strings.ToLower(q.text)] {
+		lowered := strings.ToLower(q.text)
+		if mark != "" && lowered == mark {
+			continue
+		}
+		if variantOnlyQuals[lowered] {
+			left = append(left, lowered)
 			continue
 		}
 		if onShelf && namesASet(q.text, setNames) {
+			left = append(left, lowered)
 			continue
 		}
 		// Which shape the Pokemon is in, which no card was promoted for:
@@ -750,9 +846,11 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool) []
 		// M Charizard EX that say Form X and Form Y where the four others
 		// say a bare X and Y this already leaves out.
 		if formeRe.MatchString(q.text) {
+			left = append(left, lowered)
 			continue
 		}
 		if pokemon[mtgmatcherNormalize(q.text)] || bareNumberingRe.MatchString(q.text) {
+			left = append(left, lowered)
 			continue
 		}
 		// A Pokemon and a number is a deck and a place in it. Battle
@@ -760,6 +858,7 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool) []
 		// within each - "Armarouge ex (Armarouge 60)" is card 60 of the
 		// Armarouge deck, and the card's own number is 105.
 		if m := deckPlaceRe.FindStringSubmatch(q.text); m != nil && pokemon[mtgmatcherNormalize(m[1])] {
+			left = append(left, lowered)
 			continue
 		}
 		// And a list of them is still them. A blister naming what is inside
@@ -768,15 +867,21 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool) []
 		// and every one is a variant for the same reason a single Pokemon
 		// is. Every part has to be a Pokemon before any of it is taken.
 		if allPokemon(q.text, pokemon) {
+			left = append(left, lowered)
 			continue
 		}
 		text := q.text
 		if m := stampPlaceRe.FindStringSubmatch(text); m != nil {
+			// The stamp is the promotion and the place in the deck is the
+			// mark: Battle Academy stamps all sixty cards of a deck alike,
+			// so "#1 Charizard Stamped" and its "#16" are one promotion
+			// and two printings.
 			text = m[1]
+			left = append(left, strings.TrimPrefix(strings.Fields(q.text)[0], "#"))
 		}
 		out = append(out, strings.ToLower(text))
 	}
-	return out
+	return out, left
 }
 
 // pokemonNames are the Pokemon tcgdex files as Pokemon, 2,842 of them
@@ -3091,6 +3196,10 @@ func main() {
 	}
 
 	var cards []any
+	// What promoTypesOf left out of each entry, keyed by the entry's id,
+	// for markPrintings to put back where it turns out to be doing the
+	// distinguishing.
+	leftOut := map[string][]string{}
 	for i := range singles {
 		s := &singles[i]
 		productID := s.product.ProductID
@@ -3128,6 +3237,10 @@ func main() {
 			if cardType != "" {
 				entry["type"] = cardType
 			}
+			mark := printMark(s, setCodeFor(s.product))
+			if mark != "" {
+				entry["watermark"] = mark
+			}
 			variant := variantOf(s)
 			if variant != "" {
 				entry["variant"] = variant
@@ -3137,8 +3250,12 @@ func main() {
 				// A printing whose only label was a Pokemon has a variant
 				// and no promo types, so the key stays off rather than
 				// carrying an empty list.
-				if tags := promoTypesOf(s, pokemon, setNames, exclusiveShelf[setCodeFor(s.product)]); len(tags) > 0 {
+				tags, left := promoTypesOf(s, pokemon, setNames, exclusiveShelf[setCodeFor(s.product)], mark)
+				if len(tags) > 0 {
 					entry["promoTypes"] = tags
+				}
+				if len(left) > 0 {
+					leftOut[fmt.Sprint(entry["id"])] = left
 				}
 			}
 			if dex != nil {
@@ -3456,6 +3573,10 @@ func main() {
 	if mkmMinted == 0 {
 		log.Fatalln("cardmarket: the catalog minted nothing; either the shelves were renamed or the file is not the Pokemon one")
 	}
+
+	marked, alike := markPrintings(cards, leftOut)
+
+	log.Printf("watermarks: %d printings marked by which copy of the number they are, %d still alike", marked, alike)
 
 	doc := map[string]any{
 		"game":   "pokemon",
