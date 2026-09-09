@@ -777,6 +777,18 @@ func markPrintings(cards []any, leftOut map[string][]string) (int, int) {
 	return marked, alike
 }
 
+// promoSlugRe is everything a token is not: a promo type reaches a query as
+// one word, because a search splits its words apart before a filter sees
+// them.
+var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// promoSlug is a label as the token a query can carry. The words are the
+// loader's business - it keeps a table of them, spelled the way the catalog
+// spells them - and what is published here is the token they make.
+func promoSlug(label string) string {
+	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
+}
+
 // wcdPlayerRe reads the player whose deck a World Championship card came
 // in. The catalog writes the year and then the name, last of all: "Dark
 // Tyranitar (19) - 2005 (Takashi Yoneda)", on 1,953 of the 1,968 singles
@@ -879,7 +891,7 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 			text = m[1]
 			left = append(left, strings.TrimPrefix(strings.Fields(q.text)[0], "#"))
 		}
-		out = append(out, strings.ToLower(text))
+		out = append(out, promoSlug(text))
 	}
 	return out, left
 }
