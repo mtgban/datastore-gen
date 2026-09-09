@@ -1158,7 +1158,8 @@ func main() {
 		})
 	}
 	log.Printf("konami passcodes: %d of %d entries annotated", passcoded, len(cards))
-	dropped, tokens, dated, marked, doubled := foldPromoTypes(cards, sets)
+	dropped, tokens, dated, marked, doubled, spoken := foldPromoTypes(cards, sets)
+	log.Printf("languages: %d printings printed in a language of their own", spoken)
 	log.Printf("watermarks: %d printings marked by which printing of the number they are", marked)
 	if doubled > 0 {
 		log.Printf("watermarks: %d printings named a second mark, kept as promo types", doubled)
@@ -1610,6 +1611,20 @@ var printColors = map[string]bool{
 	"white": true, "teal": true,
 }
 
+// languages a qualifier may name. The advent calendars are sold in German
+// and their cards say so: "Junk Synchron (German)" is AC11-DE001, printed
+// in German and named in it. A language is a fact about the printing and
+// not a thing that promoted it, so it is published as one.
+//
+// Only a qualifier that is a language entire counts. "Japanese Art" and
+// "Japanese Exclusive" name an artwork and a market, not the words on the
+// card, and stay the promotions they are.
+var languages = map[string]string{
+	"german": "German", "french": "French", "italian": "Italian",
+	"spanish": "Spanish", "portuguese": "Portuguese", "japanese": "Japanese",
+	"korean": "Korean",
+}
+
 // A printing's version, the other qualifier that says which of a number's
 // printings this is rather than what promoted it: four of "Blue-Eyes White
 // Dragon" at LCKC-EN001, one number and one rarity between them.
@@ -1765,7 +1780,7 @@ func shorterName(tag string, named map[string]bool) string {
 // printing is told from its siblings by the foil colour alone: "Blue-Eyes
 // White Dragon" is DL09-EN001 in silver and in bronze, one number and one
 // rarity between them, so the colour is what a promo type is for.
-func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int) {
+func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int, int) {
 	type held struct {
 		item    map[string]any
 		kept    []string
@@ -1773,7 +1788,7 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int) 
 		marks   []string
 	}
 	var rows []held
-	var dropped, dated, marked, doubled int
+	var dropped, dated, marked, doubled, spoken int
 	// Where each token appears. A token seen only in the video-game promo
 	// sets is the title of the release it came with, which the set says.
 	seenIn := map[string]map[string]bool{}
@@ -1797,6 +1812,11 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int) 
 			// Not in the sets whose qualifiers name a release: "Azure-Eyes
 			// Silver Dragon (Oversized) (Silver Dragon)" came in the Silver
 			// Dragon Value Box, and its silver is a box, not an ink.
+			if named, found := languages[strings.ToLower(strings.TrimSpace(tag))]; found {
+				item["language"] = named
+				spoken++
+				continue
+			}
 			if mark, rest := printMark(tag); mark != "" && !videoGameSets[set] {
 				if held, worn := item["watermark"]; worn && held != mark {
 					// Nothing wears two marks today. If a catalog ever
@@ -1872,7 +1892,7 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int) 
 
 	identity := func(r held) string {
 		return fmt.Sprint(r.item["name"], "|", r.item["number"], "|", r.item["setCode"],
-			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", r.item["watermark"], "|", r.kept)
+			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", r.item["watermark"], "|", r.item["language"], "|", r.kept)
 	}
 	shared := map[string]int{}
 	for _, r := range rows {
@@ -1898,7 +1918,7 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int) 
 		}
 		slices.Sort(out)
 		return fmt.Sprint(r.item["name"], "|", r.item["number"], "|", r.item["setCode"],
-			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", r.item["watermark"], "|", out)
+			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", r.item["watermark"], "|", r.item["language"], "|", out)
 	}
 	joined := map[string]int{}
 	for _, r := range rows {
@@ -1953,7 +1973,7 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int) 
 		}
 		r.item["promoTypes"] = out
 	}
-	return dropped, len(tokens), dated, marked, doubled
+	return dropped, len(tokens), dated, marked, doubled, spoken
 }
 
 // stringsOf reads a list of strings back off an entry, which holds them as
