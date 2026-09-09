@@ -713,16 +713,34 @@ var variantOnlyQuals = map[string]bool{
 	// it - and they sit beside the placings "Top 8", "Top 16" and "Top 32",
 	// which are three different achievements and stay the promotions they
 	// are.
-	"top":       true,
-	"bottom":    true,
-	"brock":     true,
-	"misty":     true,
-	"lt. surge": true,
-	"erika":     true,
-	"koga":      true,
-	"sabrina":   true,
-	"blaine":    true,
-	"giovanni":  true,
+	"top":    true,
+	"bottom": true,
+	// The people a Supporter is named for. "Professor's Research
+	// [Professor Rowan]" and its Sada, Turo, Willow, Elm, Sycamore, Kukui
+	// and Birch are one card name and eight versions; "Boss's Orders
+	// [Cyrus]" and its Ghetsis and Corbeau are one and three. Which
+	// version, not what promoted it - the same shape as a badge, and
+	// unlike a badge each has a collector number of its own, so these are
+	// marks by what they are rather than by what would otherwise collide.
+	"professor rowan":    true,
+	"professor sada":     true,
+	"professor turo":     true,
+	"professor willow":   true,
+	"professor elm":      true,
+	"professor sycamore": true,
+	"professor kukui":    true,
+	"professor birch":    true,
+	"cyrus":              true,
+	"ghetsis":            true,
+	"corbeau":            true,
+	"brock":              true,
+	"misty":              true,
+	"lt. surge":          true,
+	"erika":              true,
+	"koga":               true,
+	"sabrina":            true,
+	"blaine":             true,
+	"giovanni":           true,
 }
 
 // namesASet reports whether a label names one of the sets this datastore
@@ -992,9 +1010,15 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 			continue
 		}
 		if variantOnlyQuals[lowered] {
-			if found == "" {
+			if found == "" && mark == "" {
 				found = lowered
+				continue
 			}
+			// Another mark holds the slot - a World Championship player on
+			// "Boss's Orders [Cyrus]" from somebody's deck - and a printing
+			// wears one. Rather than lose which version it is, it stays a
+			// label here, which is where it was before any of this.
+			out = append(out, promoSlug(q.text))
 			continue
 		}
 		if onShelf && namesASet(q.text, setNames) {
@@ -1084,9 +1108,11 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 //
 // The category is what makes this safe to do by name. "Poke Ball", "Dusk
 // Ball" and "Love Ball" are card names too and they say which pattern a
-// reverse holo wears; "Cyrus", "Ghetsis" and "Professor Rowan" are card
-// names and they say which Supporter. tcgdex files all six as Trainers, so
-// none of them is touched.
+// reverse holo wears, and tcgdex files them as Trainers, so none of them is
+// touched here. "Cyrus", "Ghetsis" and "Professor Rowan" are Trainers too
+// and are equally untouched by this - they are marks, named one by one in
+// variantOnlyQuals, because they say which version of one Supporter a
+// printing is.
 func pokemonNames(cards []tcgdexCard) map[string]bool {
 	out := map[string]bool{}
 	for i := range cards {
