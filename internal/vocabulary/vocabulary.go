@@ -24,19 +24,20 @@ const TokenLimit = 22
 // word, because a search splits its words apart before a filter sees them.
 var slugRe = regexp.MustCompile(`^[a-z0-9]+$`)
 
-// Printing is the part of a published card these checks read: one entry per
-// priced finish, with the facts that tell it from its siblings.
+// Printing is a published card, one entry per priced finish.
+//
+// Facts is every field the datastore says about it except the ones that
+// name it rather than describe it - its id, its images, and the upstream
+// identifiers - because those tell any two printings apart and a listing
+// names none of them. Listing the describing fields by hand instead is how
+// three printings of Staunch Response were reported as alike: they differ
+// in the pitch colour, and the hand-written list did not have colour in it.
 type Printing struct {
 	ID         string
-	Name       string
-	Number     string
-	SetCode    string
 	Rarity     string
 	Finish     string
 	PromoTypes []string
-	Watermark  string
-	Date       string
-	Language   string
+	Facts      map[string]any
 }
 
 // Slug is a label as the token a query can carry.
@@ -143,10 +144,7 @@ func Check(printings []Printing) Problems {
 				found.FinishEchoes = append(found.FinishEchoes, token)
 			}
 		}
-		identity := strings.Join([]string{
-			printing.Name, printing.Number, printing.SetCode, printing.Rarity, printing.Finish,
-			strings.Join(printing.PromoTypes, "+"), printing.Watermark, printing.Date, printing.Language,
-		}, "|")
+		identity := printing.identity()
 		if _, held := alike[identity]; !held {
 			order = append(order, identity)
 		}
@@ -162,4 +160,19 @@ func Check(printings []Printing) Problems {
 	sort.Strings(found.RarityEchoes)
 	sort.Strings(found.FinishEchoes)
 	return found
+}
+
+// identity is everything a printing says about itself, as one string. Two
+// printings sharing it are told apart by nothing a listing can name.
+func (p Printing) identity() string {
+	keys := make([]string, 0, len(p.Facts))
+	for key := range p.Facts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var out strings.Builder
+	for _, key := range keys {
+		fmt.Fprintf(&out, "%s=%v|", key, p.Facts[key])
+	}
+	return out.String()
 }
