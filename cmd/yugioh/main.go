@@ -1158,7 +1158,11 @@ func main() {
 		})
 	}
 	log.Printf("konami passcodes: %d of %d entries annotated", passcoded, len(cards))
-	dropped, tokens, dated := foldPromoTypes(cards, sets)
+	dropped, tokens, dated, marked, doubled := foldPromoTypes(cards, sets)
+	log.Printf("watermarks: %d printings marked by which printing of the number they are", marked)
+	if doubled > 0 {
+		log.Printf("watermarks: %d printings named a second mark, kept as promo types", doubled)
+	}
 	log.Printf("promo types: %d labels dropped as the printing's own facts, %d tokens left, each one a slug", dropped, tokens)
 	log.Printf("release dates: %d printings dated by their own name, where the set dates them otherwise", dated)
 	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
@@ -1585,6 +1589,57 @@ func initials(rarity string) string {
 // number, its set and its variant already carry, and keeping them made a
 // promo type of every running - "Back to Duel April 2022" and "Back to Duel
 // June 2022" naming nothing in common.
+// printColors are the colours a printing is made in rather than the colours
+// a card has. Duelist League handed the same card out in blue, green,
+// purple, red, silver and bronze foil, and the qualifier names which - so
+// the colour is what tells one of those printings from its siblings, and it
+// is not the card's own LIGHT or DARK.
+var printColors = map[string]bool{
+	"blue": true, "green": true, "purple": true, "red": true, "silver": true,
+	"bronze": true, "yellow": true, "black": true, "orange": true, "pink": true,
+	"white": true, "teal": true,
+}
+
+// A printing's version, the other qualifier that says which of a number's
+// printings this is rather than what promoted it: four of "Blue-Eyes White
+// Dragon" at LCKC-EN001, one number and one rarity between them.
+var runVersion = regexp.MustCompile(`^version\s*([0-9]+)$`)
+
+// printMark reads a mark off a qualifier - the thing saying which printing
+// of a number this is - and returns it beside whatever the qualifier says
+// besides. Only a colour is ever said beside something else: "Purple
+// Alternate Art" is a purple printing of the alternate art, two facts
+// wearing one label, where a version is the whole of its own.
+//
+// A mark is not a promotion, so it does not belong among the promo types;
+// it is published on its own, and the loader reads it into the watermark.
+// No printing wears two: the inks, the versions and the artwork letters
+// occur on 1,116 printings and never together.
+func printMark(tag string) (string, string) {
+	words := strings.Fields(strings.ToLower(tag))
+	if len(words) == 0 {
+		return "", tag
+	}
+	if printColors[words[0]] {
+		return words[0], strings.Join(strings.Fields(tag)[1:], " ")
+	}
+	if match := runVersion.FindStringSubmatch(strings.Join(words, " ")); match != nil {
+		return "version" + match[1], ""
+	}
+	return "", tag
+}
+
+// artworkLetter reports whether a slug is one of the letters a catalog
+// tells a number's artworks apart by - "Dark Magician Girl (A)" beside its
+// (B) and (C) at RA03-EN123. It is a mark like the others, but unlike them
+// it is usually redundant: the letter is most often the one already in the
+// collector number, or sits beside a promo type that says the same thing.
+// So it goes through the same guard every dropped label does and is only
+// published where it turns out to be doing the distinguishing.
+func artworkLetter(slug string) bool {
+	return len(slug) == 1 && slug[0] >= 'a' && slug[0] <= 'z'
+}
+
 // months name themselves in a product name; a printing's date is otherwise
 // nowhere in the catalog, whose products carry only a modifiedOn.
 var months = map[string]int{
@@ -1700,14 +1755,15 @@ func shorterName(tag string, named map[string]bool) string {
 // printing is told from its siblings by the foil colour alone: "Blue-Eyes
 // White Dragon" is DL09-EN001 in silver and in bronze, one number and one
 // rarity between them, so the colour is what a promo type is for.
-func foldPromoTypes(cards []any, sets map[string]any) (int, int, int) {
+func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int) {
 	type held struct {
 		item    map[string]any
 		kept    []string
 		dropped []string
+		marks   []string
 	}
 	var rows []held
-	var dropped, dated int
+	var dropped, dated, marked, doubled int
 	// Where each token appears. A token seen only in the video-game promo
 	// sets is the title of the release it came with, which the set says.
 	seenIn := map[string]map[string]bool{}
@@ -1728,6 +1784,23 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int) {
 			if name, found := promoTypeNames[tag]; found {
 				tag = name
 			}
+			// Not in the sets whose qualifiers name a release: "Azure-Eyes
+			// Silver Dragon (Oversized) (Silver Dragon)" came in the Silver
+			// Dragon Value Box, and its silver is a box, not an ink.
+			if mark, rest := printMark(tag); mark != "" && !videoGameSets[set] {
+				if held, worn := item["watermark"]; worn && held != mark {
+					// Nothing wears two marks today. If a catalog ever
+					// says otherwise, the second stays a promo type
+					// rather than quietly displacing the first.
+					doubled++
+				} else {
+					item["watermark"] = mark
+					marked++
+					if tag = rest; tag == "" {
+						continue
+					}
+				}
+			}
 			if date := promoReleaseDate(tag, setDate); date != "" {
 				item["originalReleaseDate"] = date
 				dated++
@@ -1744,6 +1817,8 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int) {
 			// number and one rarity apiece, and are "(A)", "(B)" and "(C)".
 			// Set them aside rather than dropping them; the pass below puts
 			// back whatever turns out to be doing the distinguishing.
+			case artworkLetter(slug):
+				row.marks = append(row.marks, slug)
 			case numberish.MatchString(slug) || (number != "" && strings.Contains(number, slug)),
 				slug == promoSlug(rarity) || slug == initials(rarity),
 				subjects[tag]:
@@ -1787,7 +1862,7 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int) {
 
 	identity := func(r held) string {
 		return fmt.Sprint(r.item["name"], "|", r.item["number"], "|", r.item["setCode"],
-			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", r.kept)
+			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", r.item["watermark"], "|", r.kept)
 	}
 	shared := map[string]int{}
 	for _, r := range rows {
@@ -1813,7 +1888,7 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int) {
 		}
 		slices.Sort(out)
 		return fmt.Sprint(r.item["name"], "|", r.item["number"], "|", r.item["setCode"],
-			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", out)
+			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", r.item["watermark"], "|", out)
 	}
 	joined := map[string]int{}
 	for _, r := range rows {
@@ -1832,8 +1907,18 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int) {
 		kept := r.kept
 		if shared[identity(r)] > 1 {
 			kept = append(slices.Clone(kept), r.dropped...)
+			// A mark goes back as the mark it is. Only the letters reach
+			// here, and only where the letter is the whole of what tells
+			// two printings apart - the three artworks of "Dark Magician
+			// Girl" at RA03-EN123, where OP09's three tokens are told
+			// apart by their names and RA03-EN051's (A) and (B) by the
+			// promo types beside them.
+			if len(r.marks) > 0 && r.item["watermark"] == nil {
+				r.item["watermark"] = r.marks[0]
+				marked++
+			}
 		} else {
-			dropped += len(r.dropped)
+			dropped += len(r.dropped) + len(r.marks)
 		}
 		if len(kept) == 0 {
 			delete(r.item, "promoTypes")
@@ -1858,7 +1943,7 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int) {
 		}
 		r.item["promoTypes"] = out
 	}
-	return dropped, len(tokens), dated
+	return dropped, len(tokens), dated, marked, doubled
 }
 
 // stringsOf reads a list of strings back off an entry, which holds them as
