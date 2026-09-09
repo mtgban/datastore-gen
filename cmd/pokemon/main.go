@@ -785,7 +785,7 @@ func markPrintings(cards []any, leftOut map[string][]string) (int, int) {
 	identity := func(item map[string]any) string {
 		return fmt.Sprint(item["name"], "|", item["number"], "|", item["total"], "|", item["setCode"], "|",
 			item["rarity"], "|", item["finish"], "|", item["promoTypes"], "|", item["watermark"], "|",
-			item["originalReleaseDate"])
+			item["originalReleaseDate"], "|", item["language"])
 	}
 	shared := map[string]int{}
 	for _, raw := range cards {
@@ -819,6 +819,22 @@ func markPrintings(cards []any, leftOut map[string][]string) (int, int) {
 		}
 	}
 	return marked, alike
+}
+
+// languages a qualifier may name. The Pikachu World Collection is one
+// Pikachu printed in eight of them and sold as eight cards - "Pikachu
+// (Japanese)" beside its Italian, Korean, Spanish, German, French, Polish
+// and Portuguese - so the language is what tells those printings apart and is
+// no more a promotion than a rarity is.
+//
+// Only a qualifier that is a language entire counts. "Japanese Exclusive"
+// names a market and "Japanese 11th Movie Commemoration Set" a set, not
+// the words on the card, and both stay the promotions they are.
+var languages = map[string]string{
+	"japanese": "Japanese", "italian": "Italian", "korean": "Korean",
+	"spanish": "Spanish", "german": "German", "french": "French",
+	"portuguese": "Portuguese", "chinese": "Chinese", "polish": "Polish",
+	"dutch": "Dutch", "russian": "Russian", "thai": "Thai",
 }
 
 // runSeries splits the instalment off a promotion that runs in numbered
@@ -930,7 +946,7 @@ func printMark(s *single, setCode string) string {
 	return named
 }
 
-func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, mark string) (kept, left []string, year, found string) {
+func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, mark string) (kept, left []string, year, found, spoken string) {
 	// A code card is a redemption slip, and its label names what the code
 	// unlocks or the box it came in: "Code Card - Steam Siege Collectible
 	// Pin 3 Pack Blister [Shiny Mega Gardevoir]", "[Ballonea Gym]",
@@ -951,7 +967,7 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 				found = strings.ToLower(q.text)
 			}
 		}
-		return nil, left, "", found
+		return nil, left, "", found, ""
 	}
 	// What is left out is handed back rather than forgotten: a label that
 	// says nothing about what promoted a printing may still be the only
@@ -969,6 +985,12 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 		// and CLV say which of the three Classic decks a copy came from,
 		// and a copy that happens to need no telling apart came from one
 		// just the same.
+		if named, isLanguage := languages[lowered]; isLanguage {
+			if spoken == "" {
+				spoken = named
+			}
+			continue
+		}
 		if variantOnlyQuals[lowered] {
 			if found == "" {
 				found = lowered
@@ -1050,7 +1072,7 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 		}
 		out = append(out, promoSlug(text))
 	}
-	return out, left, year, found
+	return out, left, year, found, spoken
 }
 
 // pokemonNames are the Pokemon tcgdex files as Pokemon, 2,842 of them
@@ -3422,7 +3444,10 @@ func main() {
 				// A printing whose only label was a Pokemon has a variant
 				// and no promo types, so the key stays off rather than
 				// carrying an empty list.
-				tags, left, year, found := promoTypesOf(s, pokemon, setNames, exclusiveShelf[setCodeFor(s.product)], mark)
+				tags, left, year, found, spoken := promoTypesOf(s, pokemon, setNames, exclusiveShelf[setCodeFor(s.product)], mark)
+				if spoken != "" {
+					entry["language"] = spoken
+				}
 				if year != "" {
 					stated[fmt.Sprint(entry["id"])] = year
 				}
