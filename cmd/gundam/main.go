@@ -390,14 +390,26 @@ var wordRe = regexp.MustCompile(`[a-z0-9']+`)
 // names the DON!! subjects: nothing in the data tells a subject from a
 // treatment, and the test that comes closest - a label on one printing
 // alone - takes "SDCC 2026" and "Launch Kit 01" along with the factions.
+// parts name which piece of a multi-part card or token a printing is. They
+// read like the subjects below - both are what the card shows rather than
+// what promoted it - but a part is the whole of what tells one printing from
+// another: the Wire-Guided Arm token comes as a left hand and a right hand,
+// at one number, one rarity and one event, and dropping the part leaves the
+// two indistinguishable. A form or a faction never does that; it describes a
+// card that is already told apart by its number.
+//
+// So a part stays a promo type. What identifies a printing is exactly what a
+// promo type is for.
+var parts = map[string]bool{
+	"head": true, "left hand": true, "right hand": true, "tail booster": true,
+	"gn full shield": true, "gn high mega launcher": true,
+	"mirasoul flight unit": true, "apfsds round": true,
+}
+
 var subjects = map[string]bool{
 	// The form a mobile suit is in, and the mode it transforms to.
 	"2nd form": true, "middle form": true, "fighter mode": true,
 	"trooper mode": true, "waverider mode": true, "tail unit flight mode": true,
-	// Which part of a multi-part card or token this one is.
-	"head": true, "left hand": true, "right hand": true, "tail booster": true,
-	"gn full shield": true, "gn high mega launcher": true,
-	"mirasoul flight unit": true, "apfsds round": true,
 	// The type or the custom a unit is built as.
 	"armored rru type": true, "ground heavy equipment type": true,
 	"heavy armed type": true, "guards type": true, "type-e": true,
@@ -457,6 +469,15 @@ func promoTypesOf(quals []string) []string {
 		qual = spacedNumberRe.ReplaceAllString(qual, "$1 $2")
 		tag := strings.ToLower(strings.Join(strings.Fields(qual), " "))
 		if tag == "" || subjects[tag] || bareNumberingRe.MatchString(tag) {
+			continue
+		}
+		// A part is carried whole: it is not an occasion to be folded to,
+		// and the rules below would take "gn high mega launcher" for a
+		// name too long rather than the one thing naming that printing.
+		if parts[tag] {
+			if !slices.Contains(out, tag) {
+				out = append(out, tag)
+			}
 			continue
 		}
 		// Words, not slugs: subjects is keyed by them, and foldPromoTypes
