@@ -875,6 +875,23 @@ var languages = map[string]string{
 	"dutch": "Dutch", "russian": "Russian", "thai": "Thai",
 }
 
+// languageSaid reads the language a label opens with, beside what is left
+// once it is taken off. Only the opening word: a label naming a language
+// anywhere else is naming something else - "Japanese Version" is the
+// language, "Pokemon Japan" is a place - and the catalog writes the
+// language first where it writes it at all.
+func languageSaid(label string) (named, rest string) {
+	head, tail, found := strings.Cut(label, " ")
+	if !found || tail == "" {
+		return "", label
+	}
+	named, isLanguage := languages[strings.ToLower(head)]
+	if !isLanguage {
+		return "", label
+	}
+	return named, tail
+}
+
 // runSeries splits the instalment off a promotion that runs in numbered
 // ones. "Prize Pack Series 1" and its Series 2 are one promotion run twice,
 // and which running a card came from is a mark rather than a promotion -
@@ -1032,6 +1049,23 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 				spoken = named
 			}
 			continue
+		}
+		// A label that opens with a language says in a token what the
+		// language field says on its own: "Japanese Meiji Chocolate
+		// Exclusive Promo" is that promotion, printed in Japanese. The
+		// language comes off and what promoted the printing keeps the
+		// token.
+		if named, rest := languageSaid(q.text); named != "" {
+			if spoken == "" {
+				spoken = named
+			}
+			// A language and the word exclusive says which language and
+			// nothing else: "Japanese Exclusive" is the Japanese printing,
+			// which the language field now says on its own.
+			if strings.EqualFold(rest, "Exclusive") {
+				continue
+			}
+			q.text, lowered = rest, strings.ToLower(rest)
 		}
 		if variantOnlyQuals[lowered] {
 			if found == "" && mark == "" {
