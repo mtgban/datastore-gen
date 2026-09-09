@@ -1045,8 +1045,15 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 			out = append(out, promoSlug(q.text))
 			continue
 		}
+		// Which set a promo reprints. The promo shelves hold a card from
+		// everywhere - "Sceptile" 010 reprinted out of EX Emerald beside
+		// the same number out of DP Stormfront - and the set it came from
+		// is which copy this is rather than what promoted it.
 		if onShelf && namesASet(q.text, setNames) {
 			left = append(left, lowered)
+			if found == "" && mark == "" {
+				found = lowered
+			}
 			continue
 		}
 		// What the card pictures, and which shape it is in. Neither
