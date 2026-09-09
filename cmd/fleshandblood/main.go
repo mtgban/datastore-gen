@@ -1039,6 +1039,9 @@ func main() {
 			if s.number != "" {
 				entry["number"] = numberOf(s.number)
 			}
+			if color := pitchColor(s.product); color != "" {
+				entry["color"] = color
+			}
 			if language != "" {
 				entry["language"] = language
 			}
@@ -1137,6 +1140,8 @@ func main() {
 			},
 		})
 	}
+	dropped, tokens := foldPromoTypes(cards)
+	log.Printf("promo types: %d labels dropped as the printing's own facts, %d tokens left, each one a slug", dropped, tokens)
 	log.Printf("emitting %d sets, %d card entries over %d products (%d not in English), %d sealed",
 		len(sets), len(cards), len(singles), nonEnglish, len(sealed))
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
@@ -1557,4 +1562,170 @@ func plainPrinting(c *tcgplayer.CatalogDump) string {
 		}
 	}
 	return ""
+}
+
+// pitchColors are the colours a pitch value names. The card prints the
+// value and everyone says the colour, so a query carries "Red" where the
+// catalog carries "1".
+var pitchColors = map[string]string{"1": "Red", "2": "Yellow", "3": "Blue"}
+
+// pitchColor is the colour a product pitches for, empty where it pitches for
+// nothing - a hero, an equipment, a token, all of which the catalog writes as
+// "0" or "-" - or where the value is not one the game has.
+//
+// A double-faced card writes the front's value and a bare "//" for the back,
+// which pitches for nothing, so the leading value is the card's.
+func pitchColor(product tcgplayer.Product) string {
+	value, _, _ := strings.Cut(product.Extended("Pitch Value"), "/")
+	return pitchColors[strings.TrimSpace(value)]
+}
+
+// promoSlugRe is everything a promo type is spelled without.
+var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// promoSlug spells a label the way every promo type here is spelled: lower
+// case, letters and digits and nothing else. The words a reader is shown are
+// the variant beside it, which this build already writes.
+func promoSlug(label string) string {
+	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
+}
+
+// numberish is a qualifier that is a collector number rather than a promotion:
+// the card's own ("Spider's Bite" DYN115 carries "115"), a sibling's
+// ("TNP020" beside TNP019), or the bare letter a lettered printing is told
+// apart by. A number is what the number field says.
+var numberish = regexp.MustCompile(`^[a-z]{0,4}[0-9]{1,4}(-[a-z])?$|^[a-z]$`)
+
+// promoTypeNames folds the spellings the catalog writes one promotion under.
+// Three ways of saying a Japanese alternate art is one promotion, and a query
+// naming it should not have to guess which the product name used.
+var promoTypeNames = map[string]string{
+	"japanese alternate artwork": "japanese alternate art",
+	"japanese alternative art":   "japanese alternate art",
+	"jpn exclusive":              "japanese exclusive",
+	"cc label":                   "cc tag",
+}
+
+// subjects are what a printing shows rather than what promoted it: which
+// pitch value it is, which hero's deck it came in, which element it depicts,
+// and which piece of a puzzle it is. They read like promotions in a product
+// name and are none.
+//
+// A subject is kept where dropping it would leave two printings identical -
+// Runechant is ROS162 as Earth and as Lightning, Seismic Surge is MPG112 as
+// Crystal, Forest and Lava - because what tells one printing from another is
+// exactly what a promo type is for. foldPromoTypes puts those back.
+var subjects = map[string]bool{
+	// Which piece of a puzzle this one is; the number already says.
+	"top left": true, "top center": true, "top right": true,
+	"middle left": true, "middle center": true, "middle right": true,
+	"bottom left": true, "bottom center": true, "bottom right": true,
+	"left": true, "center": true, "right": true,
+	// A colour the card does not pitch for, so not its own.
+	"purple": true,
+	// Whose deck it came in.
+	"dorinthea": true, "rhinar": true,
+	// What it depicts.
+	"earth": true, "forest": true, "lava": true, "lightning": true,
+	"crystal": true, "maori": true,
+}
+
+// foldPromoTypes reduces every card's promo types to the promotions they
+// name, and spells each as its slug. It runs once the cards are built because
+// the last of it - putting back a subject that is the only thing telling two
+// printings apart - is not something one card can see.
+func foldPromoTypes(cards []any) (int, int) {
+	type held struct {
+		item    map[string]any
+		kept    []string
+		dropped []string
+	}
+	var rows []held
+	var dropped int
+	for _, raw := range cards {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		var row held
+		row.item = item
+		finish := promoSlug(fmt.Sprint(item["finish"]))
+		number := promoSlug(fmt.Sprint(item["number"]))
+		color := promoSlug(fmt.Sprint(item["color"]))
+		for _, tag := range stringsOf(item["promoTypes"]) {
+			if name, found := promoTypeNames[tag]; found {
+				tag = name
+			}
+			slug := promoSlug(tag)
+			switch {
+			case slug == "":
+			// A qualifier repeating the number, or naming the finish the
+			// card already carries, says nothing the card has not said.
+			case numberish.MatchString(tag) || slug == number ||
+				(number != "" && strings.Contains(number, slug)):
+				dropped++
+			case slug == finish || strings.Contains(finish, slug):
+				dropped++
+			// The pitch value is the card's own, published as its colour,
+			// and a product name repeating it names no promotion.
+			case color != "" && slug == color:
+				dropped++
+			case subjects[tag]:
+				row.dropped = append(row.dropped, slug)
+			case !slices.Contains(row.kept, slug):
+				row.kept = append(row.kept, slug)
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	// A subject goes back where the printings it was dropped from are no
+	// longer told apart by anything else.
+	identity := func(r held) string {
+		return fmt.Sprint(r.item["name"], "|", r.item["number"], "|", r.item["setCode"],
+			"|", r.item["rarity"], "|", r.item["finish"], "|", r.kept)
+	}
+	shared := map[string]int{}
+	for _, r := range rows {
+		shared[identity(r)]++
+	}
+	tokens := map[string]bool{}
+	for _, r := range rows {
+		kept := r.kept
+		if shared[identity(r)] > 1 {
+			kept = append(slices.Clone(kept), r.dropped...)
+		} else {
+			dropped += len(r.dropped)
+		}
+		if len(kept) == 0 {
+			delete(r.item, "promoTypes")
+			continue
+		}
+		slices.Sort(kept)
+		out := make([]any, 0, len(kept))
+		for _, slug := range kept {
+			out = append(out, slug)
+			tokens[slug] = true
+		}
+		r.item["promoTypes"] = out
+	}
+	return dropped, len(tokens)
+}
+
+// stringsOf reads a list of strings back off an entry, which holds them as
+// []string before the document is encoded and []any after.
+func stringsOf(value any) []string {
+	switch list := value.(type) {
+	case []string:
+		return list
+	case []any:
+		out := make([]string, 0, len(list))
+		for _, raw := range list {
+			if s, ok := raw.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
