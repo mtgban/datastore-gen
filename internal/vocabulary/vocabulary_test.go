@@ -37,18 +37,26 @@ func TestCheckReadsTheRules(t *testing.T) {
 			want:      func(p Problems) int { return len(p.FinishEchoes) },
 		},
 		{
+			desc: "and a colour tells two printings apart like any other field",
+			printings: []Printing{
+				{ID: "a", Facts: map[string]any{"name": "Staunch Response", "color": "Red"}},
+				{ID: "b", Facts: map[string]any{"name": "Staunch Response", "color": "Yellow"}},
+			},
+			want: func(p Problems) int { return len(p.Alike) },
+		},
+		{
 			desc: "two printings no field tells apart",
 			printings: []Printing{
-				{ID: "a", Name: "DON!! Card", Number: "DON"},
-				{ID: "b", Name: "DON!! Card", Number: "DON"},
+				{ID: "a", Facts: map[string]any{"name": "DON!! Card", "number": "DON"}},
+				{ID: "b", Facts: map[string]any{"name": "DON!! Card", "number": "DON"}},
 			},
 			want: func(p Problems) int { return len(p.Alike) },
 		},
 		{
 			desc: "and the same two once a mark says which is which",
 			printings: []Printing{
-				{ID: "a", Name: "DON!! Card", Number: "DON", Watermark: "nami"},
-				{ID: "b", Name: "DON!! Card", Number: "DON", Watermark: "buggy"},
+				{ID: "a", Facts: map[string]any{"name": "DON!! Card", "number": "DON", "watermark": "nami"}},
+				{ID: "b", Facts: map[string]any{"name": "DON!! Card", "number": "DON", "watermark": "buggy"}},
 			},
 			want: func(p Problems) int { return len(p.Alike) },
 		},
@@ -72,7 +80,7 @@ func TestCheckCountsOnce(t *testing.T) {
 	for i := range 100 {
 		printings = append(printings, Printing{
 			ID:         string(rune('a' + i%26)),
-			Number:     string(rune('0' + i%10)),
+			Facts:      map[string]any{"number": i},
 			PromoTypes: []string{"event pack"},
 		})
 	}
@@ -113,9 +121,9 @@ func TestFinishesAreReadFromEitherShape(t *testing.T) {
 	if len(printings) != 2 {
 		t.Fatalf("read %d printings, want 2", len(printings))
 	}
-	if printings[0].Number != "4" || printings[0].SetCode != "3" {
-		t.Errorf("read number %q set %q, want the numbers said as themselves",
-			printings[0].Number, printings[0].SetCode)
+	if printings[0].Facts["number"] != "4" || printings[0].Facts["setCode"] != "3" {
+		t.Errorf("read number %v set %v, want the numbers said as themselves",
+			printings[0].Facts["number"], printings[0].Facts["setCode"])
 	}
 	if found := Check(printings); len(found.Alike) != 0 {
 		t.Errorf("two finishes of one card read as alike: %v", found.Lines())

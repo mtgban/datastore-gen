@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // ErrNotDatastore says a file is not a built datastore. The games whose
@@ -13,29 +14,22 @@ import (
 // saying it read the wrong thing.
 var ErrNotDatastore = errors.New("no cards: this is not a built datastore")
 
-// published is the part of a card these checks read. The games disagree on
-// the type of an id, a number and a set code - some write them as numbers -
-// so each is taken as it comes and said as a string.
-type published struct {
-	ID                  any      `json:"id"`
-	Name                string   `json:"name"`
-	Number              any      `json:"number"`
-	SetCode             any      `json:"setCode"`
-	Rarity              string   `json:"rarity"`
-	Finish              string   `json:"finish"`
-	PromoTypes          []string `json:"promoTypes"`
-	Watermark           string   `json:"watermark"`
-	OriginalReleaseDate string   `json:"originalReleaseDate"`
-	Language            string   `json:"language"`
-
-	// Printings is the other shape a datastore says a finish in: one entry
-	// per priced finish, beside the id that prices it. A card carrying it
-	// is several printings and has to be read as several, or every one of
-	// them reads as the same finish and they all look alike.
-	Printings []struct {
-		Finish string `json:"finish"`
-		ID     string `json:"id"`
-	} `json:"printings"`
+// aside are the fields that are no part of what makes two printings alike.
+//
+// Some name a printing rather than describe it - its id, the pictures of it,
+// the identifiers it carries upstream. Every one of them tells any two
+// printings apart and a listing names none of them, so counting them would
+// report every datastore clean.
+//
+// And one is prose: the variant is the label the catalog wrote, which is
+// what the promo types, the mark and the date are distilled out of. A
+// printing told from its siblings by nothing but that sentence is the thing
+// this check is looking for, so the sentence cannot be what tells them
+// apart.
+var aside = map[string]bool{
+	"id": true, "image": true, "images": true, "externalLinks": true,
+	"printings": true, "fabId": true, "bandaiId": true, "code": true,
+	"fullIdentifier": true, "variant": true,
 }
 
 // ReadDatastore reads a published datastore as the printings it holds.
@@ -45,7 +39,7 @@ func ReadDatastore(path string) ([]Printing, error) {
 		return nil, err
 	}
 	var payload struct {
-		Cards []published `json:"cards"`
+		Cards []map[string]any `json:"cards"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, err
@@ -55,29 +49,59 @@ func ReadDatastore(path string) ([]Printing, error) {
 	}
 	var out []Printing
 	for _, card := range payload.Cards {
-		printing := Printing{
-			ID:         say(card.ID),
-			Name:       card.Name,
-			Number:     say(card.Number),
-			SetCode:    say(card.SetCode),
-			Rarity:     card.Rarity,
-			Finish:     card.Finish,
-			PromoTypes: card.PromoTypes,
-			Watermark:  card.Watermark,
-			Date:       card.OriginalReleaseDate,
-			Language:   card.Language,
+		facts := map[string]any{}
+		for key, value := range card {
+			if aside[key] || strings.HasSuffix(key, "Id") || strings.HasSuffix(key, "ID") {
+				continue
+			}
+			facts[key] = fmt.Sprint(value)
 		}
-		if len(card.Printings) == 0 {
+		printing := Printing{
+			ID:         say(card["id"]),
+			Rarity:     say(card["rarity"]),
+			Finish:     say(card["finish"]),
+			PromoTypes: tokensOf(card["promoTypes"]),
+			Facts:      facts,
+		}
+		sold, several := card["printings"].([]any)
+		if !several || len(sold) == 0 {
 			out = append(out, printing)
 			continue
 		}
-		for _, sold := range card.Printings {
+		// A card saying its finishes in a printings array is several
+		// printings and is read as several: read as one, every finish of it
+		// carries the same empty finish and all of them look alike.
+		for _, one := range sold {
+			held, ok := one.(map[string]any)
+			if !ok {
+				continue
+			}
 			finished := printing
-			finished.Finish, finished.ID = sold.Finish, sold.ID
+			finished.ID = say(held["id"])
+			finished.Finish = say(held["finish"])
+			finished.Facts = map[string]any{}
+			for key, value := range facts {
+				finished.Facts[key] = value
+			}
+			finished.Facts["finish"] = finished.Finish
 			out = append(out, finished)
 		}
 	}
 	return out, nil
+}
+
+// tokensOf reads a card's promo types, which a datastore holds as a list of
+// strings and a decoded document as a list of anything.
+func tokensOf(value any) []string {
+	list, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(list))
+	for _, token := range list {
+		out = append(out, say(token))
+	}
+	return out
 }
 
 // say writes a field as a string, whichever way the game wrote it.
