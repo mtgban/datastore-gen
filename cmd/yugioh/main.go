@@ -1119,7 +1119,7 @@ func main() {
 				"name":      name,
 				"setCode":   cardSet(s),
 				"rarity":    rarityOf(s.product),
-				"attribute": s.product.Extended("Attribute"),
+				"attribute": attribute(s.product),
 				"type":      cardType,
 				"finish":    finish,
 				"image":     imageURL(s.product.ImageURL),
@@ -1589,6 +1589,16 @@ func initials(rarity string) string {
 // number, its set and its variant already carry, and keeping them made a
 // promo type of every running - "Back to Duel April 2022" and "Back to Duel
 // June 2022" naming nothing in common.
+// attribute is the card's own DARK or LIGHT, said one way. The catalog
+// writes the same attribute in three cases - "DARK" on 11,217 products,
+// "Dark" on 275, and "EARTh" once - and a consumer comparing it against the
+// spelling it knows drops whatever is written the other way: the website
+// filters colours by testing the all-caps and the all-lower spelling, so the
+// 1,186 products written in title case answer neither.
+func attribute(product tcgplayer.Product) string {
+	return strings.ToUpper(product.Extended("Attribute"))
+}
+
 // printColors are the colours a printing is made in rather than the colours
 // a card has. Duelist League handed the same card out in blue, green,
 // purple, red, silver and bronze foil, and the qualifier names which - so
