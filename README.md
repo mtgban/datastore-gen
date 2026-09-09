@@ -27,6 +27,31 @@ imported, so a datastore change never drags a library upgrade behind it.
 - cmd/palworld - Palworld OFFICIAL CARD GAME, from the category 91 catalog
   dump annotated with palworldtcg.gg's card API
 
+One command builds no datastore:
+
+- cmd/datastorediff - reads two built datastores and says what the second
+  did to the first, for the tagging below
+
+## The repository is tagged by what it published
+
+Every commit that changed a game's datastore carries a `{game}-vN` tag,
+numbered per game in commit order. About half the commits here leave the
+built output byte-identical - a comment, a log line, a refactor that lands
+on the same bytes - and the tags are how the other half can be found
+without reading every message and hoping it was accurate.
+
+They are made by .github/workflows/tag-output-changes.yml, which builds
+every game a pushed commit could have touched, at that commit and the one
+before it, and compares the two. Both sides of every comparison read one
+catalog and one set of upstream responses, fetched once per run, so a card
+TCGplayer added overnight is present in both and cancels out; what is left
+is the code's doing.
+
+A tag says what changed, not just that something did: publishing a field
+for the first time reads differently from rewording one already published,
+which matters because both touch the same entries.
+
+
 ## Every datastore is the sum of both sources
 
 A datastore holds every product the catalog types as a card *and* every

@@ -1,0 +1,104 @@
+name: tag output changes
+
+# Tags the commits that changed a datastore, so the repository can be read
+# by what it published rather than by what its messages claim. About half
+# the commits here leave the built output byte-identical.
+#
+# It runs after the push rather than in a pre-push hook on purpose. git
+# holds the connection to the remote open for the length of a hook, and
+# this wants a catalog per game and a build per commit; a hook doing that
+# would make a push die with "unexpected disconnect" instead of failing
+# honestly. It is also the wrong machine for it - the inputs have to come
+# out of the bucket, which a laptop should not have to hold.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      before:
+        description: The commit to measure from, exclusive
+        required: true
+        type: string
+      after:
+        description: The commit to measure to
+        required: true
+        type: string
+
+# One run at a time. The tag number is derived from the tags that exist, so
+# two runs in flight would both read the same highest number and both claim
+# it; serialising is what makes deriving safe. Runs are not cancelled - a
+# half-tagged range is worse than a slow queue.
+concurrency:
+  group: tag-output-changes
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # Every commit in the range has to be checked out and built, and
+          # the next tag number is read off the tags that already exist. A
+          # shallow checkout has neither, and would silently start every
+          # game again at v1.
+          fetch-depth: 0
+
+      - name: Install golang
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install b2
+        run: pipx install b2
+
+      - name: Work out the range
+        id: range
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
+          EVENT_AFTER: ${{ github.event.after }}
+          INPUT_BEFORE: ${{ inputs.before }}
+          INPUT_AFTER: ${{ inputs.after }}
+        run: |
+          if [ -n "$INPUT_BEFORE" ]; then
+            echo "before=$INPUT_BEFORE" >> "$GITHUB_OUTPUT"
+            echo "after=$INPUT_AFTER" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # A branch created, or a force-push that rewrote what came
+          # before, leaves a range this cannot walk: the commits it names
+          # may not be in this history at all. Fall back to the tip alone,
+          # measured against the newest commit any tag already points at,
+          # so the run still says something true about what is now master.
+          before=$EVENT_BEFORE
+          if [ "$before" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+            before=$(git for-each-ref --format='%(objectname)' 'refs/tags/*-v*' \
+              | xargs -r -n1 git rev-list -n1 2>/dev/null \
+              | xargs -r git log --no-walk --format='%H %ct' 2>/dev/null \
+              | sort -k2 -n | tail -1 | cut -d' ' -f1)
+            echo "the pushed range is not walkable; measuring from the newest tagged commit ${before:-none}"
+          fi
+          if [ -z "$before" ]; then
+            echo "no tagged commit to measure from; nothing to do"
+            echo "before=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "before=$before" >> "$GITHUB_OUTPUT"
+          echo "after=$EVENT_AFTER" >> "$GITHUB_OUTPUT"
+
+      - name: Tag what changed
+        if: steps.range.outputs.before != ''
+        env:
+          B2_APPLICATION_KEY_ID: ${{ secrets.B2_APPLICATION_KEY_ID_DATASTORE }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY_DATASTORE }}
+        run: |
+          # The tags are the repository's own record, so they are made by
+          # the thing that made them rather than under anyone's name.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          .github/scripts/tag-output-changes.sh \
+            "${{ steps.range.outputs.before }}" "${{ steps.range.outputs.after }}"
