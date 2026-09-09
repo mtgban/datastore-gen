@@ -1158,6 +1158,9 @@ func main() {
 		})
 	}
 	log.Printf("konami passcodes: %d of %d entries annotated", passcoded, len(cards))
+	dropped, tokens, dated := foldPromoTypes(cards, sets)
+	log.Printf("promo types: %d labels dropped as the printing's own facts, %d tokens left, each one a slug", dropped, tokens)
+	log.Printf("release dates: %d printings dated by their own name, where the set dates them otherwise", dated)
 	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
 		len(sets), len(cards), len(singles), len(sealed))
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
@@ -1528,4 +1531,350 @@ func plainPrinting(c *tcgplayer.CatalogDump) string {
 		}
 	}
 	return ""
+}
+
+// promoSlugRe is everything a promo type is spelled without.
+var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// promoSlug spells a label the way every promo type here is spelled: lower
+// case, letters and digits and nothing else. The words a reader is shown are
+// the variant beside it, which this build already writes.
+func promoSlug(label string) string {
+	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
+}
+
+// numberish is a qualifier that is a collector number rather than a
+// promotion: the letter a lettered printing is told apart by, which the
+// number already carries ("Dark Magician" is YGLD-ENB02 and carried "b"), a
+// bare run of digits, or a whole number of the game's own shape.
+//
+// The last is read off the shape rather than off the card, because a product
+// name sometimes writes a number that is not the card's own: "Token: Kaiba"
+// is MP24-EN02 and carries "M24-EN052", which is some other printing's. Every
+// number here embeds the region it was printed for, which is what tells one
+// from an ordinary word.
+var numberish = regexp.MustCompile(`^[a-z]$|^[0-9]{1,4}$|^[a-z0-9]{1,5}(en|de|fr|it|sp|pt|jp|kr)[0-9]{2,4}$`)
+
+// videoGameSets are the sets whose printings came with a video game or a
+// boxed release. The set says that much, so the title of the one it came with
+// is which release rather than what promoted it - and the variant keeps the
+// title whole.
+var videoGameSets = map[string]bool{"VDP": true, "VBX": true}
+
+// videoGamePromo is the token a release title is carried under.
+const videoGamePromo = "videogame"
+
+// promoTypeNames folds the spellings the catalog writes one promotion under.
+var promoTypeNames = map[string]string{
+	"japanese artwork": "japanese art",
+	"new artwork":      "new art",
+}
+
+// initials is a rarity said as its capitals, the way the catalog abbreviates
+// one in a product name: "GMR" beside a Grand Master Rare.
+func initials(rarity string) string {
+	var out []rune
+	for _, word := range strings.Fields(rarity) {
+		out = append(out, []rune(strings.ToLower(word))[0])
+	}
+	return string(out)
+}
+
+// generalPromotion drops what a promotion is not: which instalment of it this
+// was and which year it ran. Both are facts about the printing that its
+// number, its set and its variant already carry, and keeping them made a
+// promo type of every running - "Back to Duel April 2022" and "Back to Duel
+// June 2022" naming nothing in common.
+// months name themselves in a product name; a printing's date is otherwise
+// nowhere in the catalog, whose products carry only a modifiedOn.
+var months = map[string]int{
+	"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+	"july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+}
+
+// promoReleaseDate reads the date a promotion's qualifier states, which for
+// a promotional printing is the only date anyone has: TCGplayer files the
+// six Back to Duel field centres under "Yu-Gi-Oh! Tokens", a group it
+// published in 2006, and they were handed out at events in 2021 and 2022.
+//
+// The name never states a day, so the first of the month it does state
+// stands in - as much as the name knows and no more. The date is published
+// only where it says something the set does not, which is what makes it an
+// original release date rather than a copy of one: a printing whose set
+// already dates it keeps the set's own day.
+func promoReleaseDate(tag, setDate string) string {
+	year := runYear.FindString(tag)
+	if year == "" {
+		return ""
+	}
+	month := months[strings.ToLower(runMonth.FindString(tag))]
+	if len(setDate) >= 7 && setDate[:4] == year &&
+		(month == 0 || setDate[5:7] == fmt.Sprintf("%02d", month)) {
+		return ""
+	}
+	if month == 0 {
+		month = 1
+	}
+	return fmt.Sprintf("%s-%02d-01", year, month)
+}
+
+func generalPromotion(tag string) string {
+	// When a promotion ran is not what it is. A year says so outright and a
+	// month says so beside one, so both come off - "Back to Duel April 2022"
+	// and its June are one running of one promotion, and 2012's
+	// pre-registration is 2016's.
+	if runYear.MatchString(tag) {
+		tag = runMonth.ReplaceAllString(tag, " ")
+		tag = runYear.ReplaceAllString(tag, " ")
+		tag = strings.Join(strings.Fields(tag), " ")
+	}
+	// The instalment is different: what is left has to be a name. "Top 8" is
+	// a placing and "Version 1" a printing, and taking the number off either
+	// leaves a word that names neither.
+	if stripped := strings.Join(strings.Fields(runNumbering.ReplaceAllString(tag, " ")), " "); len(strings.Fields(stripped)) > 1 {
+		tag = stripped
+	}
+	return tag
+}
+
+// trailingWords are the words a name does not end on, so the first-two-words
+// cut below reaches past them: "Battles of Legend" rather than "Battles of".
+var trailingWords = map[string]bool{
+	"of": true, "the": true, "a": true, "an": true, "in": true,
+	"to": true, "for": true, "and": true, "with": true,
+}
+
+var (
+	// Which year it ran, wherever the name puts it.
+	runYear = regexp.MustCompile(`\b(?:19|20)[0-9]{2}\b`)
+	// Which instalment: a trailing number, or a volume of one.
+	runNumbering = regexp.MustCompile(`\s+(?:vol\.?|no\.?)\s*[0-9]+$|\s+[0-9]+$`)
+	// Which month it ran, which only ever qualifies a year.
+	runMonth = regexp.MustCompile(`(?i)\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b`)
+)
+
+// subjects are what a printing shows rather than what promoted it - the
+// duellist drawn on it - and the words that name nothing at all. They read
+// like promotions in a product name and are none.
+//
+// A subject is kept where dropping it would leave two printings identical,
+// which is what a promo type is for; foldPromoTypes puts those back.
+var subjects = map[string]bool{
+	// Who is drawn on it.
+	"arkana": true, "akiza": true, "crow": true, "yusei": true, "sho": true,
+	// Words a product name carries that say nothing about the printing.
+	"card": true, "magic": true,
+}
+
+// promoTypeLimit is how long a promo type may read before only its first two
+// words are kept. A token is what a query carries, and the whole of a name is
+// the variant beside it.
+const promoTypeLimit = 22
+
+// shorterName is the name a promotion is known by: the shortest head of it
+// the vocabulary already holds, or its first two words where it still reads
+// past promoTypeLimit.
+func shorterName(tag string, named map[string]bool) string {
+	words := strings.Fields(tag)
+	for i := 2; i < len(words); i++ {
+		if head := strings.Join(words[:i], " "); named[head] {
+			return head
+		}
+	}
+	if len(words) > 2 && len(promoSlug(tag)) > promoTypeLimit {
+		cut := 2
+		for cut < len(words) && trailingWords[strings.ToLower(words[cut-1])] {
+			cut++
+		}
+		return strings.Join(words[:cut], " ")
+	}
+	return tag
+}
+
+// foldPromoTypes reduces every card's promo types to the promotions they
+// name and spells each as its slug. It runs once the cards are built because
+// the last of it - keeping a label that is the only thing telling two
+// printings apart - is not something one card can see.
+//
+// The colours are the whole reason that guard is here. A Duelist League
+// printing is told from its siblings by the foil colour alone: "Blue-Eyes
+// White Dragon" is DL09-EN001 in silver and in bronze, one number and one
+// rarity between them, so the colour is what a promo type is for.
+func foldPromoTypes(cards []any, sets map[string]any) (int, int, int) {
+	type held struct {
+		item    map[string]any
+		kept    []string
+		dropped []string
+	}
+	var rows []held
+	var dropped, dated int
+	// Where each token appears. A token seen only in the video-game promo
+	// sets is the title of the release it came with, which the set says.
+	seenIn := map[string]map[string]bool{}
+	for _, raw := range cards {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		row := held{item: item}
+		number := promoSlug(fmt.Sprint(item["number"]))
+		rarity := fmt.Sprint(item["rarity"])
+		set := fmt.Sprint(item["setCode"])
+		setDate := ""
+		if held, ok := sets[set].(map[string]any); ok {
+			setDate = fmt.Sprint(held["releaseDate"])
+		}
+		for _, tag := range stringsOf(item["promoTypes"]) {
+			if name, found := promoTypeNames[tag]; found {
+				tag = name
+			}
+			if date := promoReleaseDate(tag, setDate); date != "" {
+				item["originalReleaseDate"] = date
+				dated++
+			}
+			tag = generalPromotion(tag)
+			slug := promoSlug(tag)
+			switch {
+			case slug == "":
+			// A qualifier the number already carries, one that is the card's
+			// own rarity said in capitals, or a subject: each says nothing
+			// the printing does not already say. Nothing, that is, unless it
+			// is the only thing telling this printing from another - the
+			// three Dark Magician Girl artworks of RA03-EN123 are one
+			// number and one rarity apiece, and are "(A)", "(B)" and "(C)".
+			// Set them aside rather than dropping them; the pass below puts
+			// back whatever turns out to be doing the distinguishing.
+			case numberish.MatchString(slug) || (number != "" && strings.Contains(number, slug)),
+				slug == promoSlug(rarity) || slug == initials(rarity),
+				subjects[tag]:
+				row.dropped = append(row.dropped, slug)
+			case !slices.Contains(row.kept, tag):
+				row.kept = append(row.kept, tag)
+				if seenIn[tag] == nil {
+					seenIn[tag] = map[string]bool{}
+				}
+				seenIn[tag][set] = true
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	// A token no set outside the video-game promos carries is the release's
+	// own title, and every one of them becomes the same token.
+	titles := map[string]bool{}
+	for slug, sets := range seenIn {
+		release := true
+		for set := range sets {
+			if !videoGameSets[set] {
+				release = false
+				break
+			}
+		}
+		if release {
+			titles[slug] = true
+		}
+	}
+
+	// The name a promotion is known by, once the whole vocabulary is in
+	// hand: a longer form of one already held is that one, and a name still
+	// reading long keeps its first two words.
+	named := map[string]bool{}
+	for _, r := range rows {
+		for _, tag := range r.kept {
+			named[tag] = true
+		}
+	}
+
+	identity := func(r held) string {
+		return fmt.Sprint(r.item["name"], "|", r.item["number"], "|", r.item["setCode"],
+			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", r.kept)
+	}
+	shared := map[string]int{}
+	for _, r := range rows {
+		shared[identity(r)]++
+	}
+	// A fold that would leave two printings indistinguishable is not a fold.
+	// Yu-Gi-Oh names the thing folding would take: "Version 1" and "Version
+	// 2" of one Blue-Eyes at one number, "Back to Duel April 2022" against
+	// its June - so the folded name is tried first and dropped where the
+	// printings it would join are otherwise the same card.
+	folded := map[string]string{}
+	for tag := range named {
+		if titles[tag] {
+			folded[tag] = videoGamePromo
+			continue
+		}
+		folded[tag] = promoSlug(shorterName(tag, named))
+	}
+	foldedIdentity := func(r held) string {
+		var out []string
+		for _, tag := range r.kept {
+			out = append(out, folded[tag])
+		}
+		slices.Sort(out)
+		return fmt.Sprint(r.item["name"], "|", r.item["number"], "|", r.item["setCode"],
+			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", out)
+	}
+	joined := map[string]int{}
+	for _, r := range rows {
+		joined[foldedIdentity(r)]++
+	}
+	for _, r := range rows {
+		if joined[foldedIdentity(r)] > shared[identity(r)] {
+			for _, tag := range r.kept {
+				folded[tag] = promoSlug(tag)
+			}
+		}
+	}
+
+	tokens := map[string]bool{}
+	for _, r := range rows {
+		kept := r.kept
+		if shared[identity(r)] > 1 {
+			kept = append(slices.Clone(kept), r.dropped...)
+		} else {
+			dropped += len(r.dropped)
+		}
+		if len(kept) == 0 {
+			delete(r.item, "promoTypes")
+			continue
+		}
+		out := make([]any, 0, len(kept))
+		var written []string
+		for _, tag := range kept {
+			slug, known := folded[tag]
+			if !known {
+				slug = promoSlug(tag)
+			}
+			if slug == "" || slices.Contains(written, slug) {
+				continue
+			}
+			written = append(written, slug)
+		}
+		slices.Sort(written)
+		for _, slug := range written {
+			out = append(out, slug)
+			tokens[slug] = true
+		}
+		r.item["promoTypes"] = out
+	}
+	return dropped, len(tokens), dated
+}
+
+// stringsOf reads a list of strings back off an entry, which holds them as
+// []string before the document is encoded and []any after.
+func stringsOf(value any) []string {
+	switch list := value.(type) {
+	case []string:
+		return list
+	case []any:
+		out := make([]string, 0, len(list))
+		for _, raw := range list {
+			if s, ok := raw.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
