@@ -839,6 +839,26 @@ func markPrintings(cards []any, leftOut map[string][]string) (int, int) {
 	return marked, alike
 }
 
+// printColors are colours a qualifier names, which is never what promoted
+// a printing and is usually not even what tells it from its siblings. The
+// catalog writes the colour as a gloss on something that already says which
+// card this is: "Vivillon (High Plains [Orange])" beside its "(Meadow
+// [Pink])", where the pattern is the difference and the colour only says
+// what the pattern looks like. "Gyarados (Red)" is the shiny at its own
+// number, and "Pokemon Catcher (Gold)" is a Secret Rare that says so in its
+// rarity.
+//
+// So a colour is set aside rather than published, and comes back as the
+// mark it is only where it turns out to be the whole of the difference -
+// which is one printing, the green Pikachu of the World Collection sharing
+// PW5 with the plain Japanese one.
+var printColors = map[string]bool{
+	"red": true, "blue": true, "green": true, "yellow": true, "orange": true,
+	"purple": true, "pink": true, "black": true, "white": true, "brown": true,
+	"gold": true, "silver": true, "bronze": true, "grey": true, "gray": true,
+	"teal": true,
+}
+
 // languages a qualifier may name. The Pikachu World Collection is one
 // Pikachu printed in eight of them and sold as eight cards - "Pikachu
 // (Japanese)" beside its Italian, Korean, Spanish, German, French, Polish
@@ -1003,6 +1023,10 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 		// and CLV say which of the three Classic decks a copy came from,
 		// and a copy that happens to need no telling apart came from one
 		// just the same.
+		if printColors[lowered] {
+			left = append(left, lowered)
+			continue
+		}
 		if named, isLanguage := languages[lowered]; isLanguage {
 			if spoken == "" {
 				spoken = named
