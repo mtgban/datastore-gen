@@ -1663,6 +1663,10 @@ var runVersion = regexp.MustCompile(`^version\s*([0-9]+)$`)
 //
 // A mark is not a promotion, so it does not belong among the promo types;
 // it is published on its own, and the loader reads it into the watermark.
+// It keeps its words where it has more than one: a promo type is a token
+// because a query carries one, and a mark is not carried by a query - the
+// matcher slugs it where it compares. So the datastore says the fact,
+// "version 1" rather than "version1".
 // No printing wears two: the inks, the versions and the artwork letters
 // occur on 1,116 printings and never together.
 func printMark(tag string) (string, string) {
@@ -1674,7 +1678,7 @@ func printMark(tag string) (string, string) {
 		return words[0], strings.Join(strings.Fields(tag)[1:], " ")
 	}
 	if match := runVersion.FindStringSubmatch(strings.Join(words, " ")); match != nil {
-		return "version" + match[1], ""
+		return "version " + match[1], ""
 	}
 	return "", tag
 }
