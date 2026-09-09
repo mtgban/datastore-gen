@@ -222,7 +222,14 @@ var bareNumRe = regexp.MustCompile(`^\d{3}$`)
 // which printing of the game a product actually is.
 var languageWords = map[string]string{
 	"japanese": "Japanese",
+	"english":  "English",
 }
+
+// languageSaid matches the language a label names, on its own or in front
+// of the word it qualifies: "Japanese Version 3rd Anniversary Set",
+// "Japanese 1st Anniversary Set". nameLanguage publishes it, and a label
+// that names it too says twice what one field says once.
+var languageSaid = regexp.MustCompile(`(?i)\b(?:japanese|english)(?:\s+version)?\b`)
 
 // seasonPrefixRe matches the season or championship a label opens with,
 // which the catalog repeats in front of every pack that season handed out:
@@ -230,7 +237,7 @@ var languageWords = map[string]string{
 // Player Pack". The season is one label and what it handed out is another,
 // and saying them apart is what lets a celebration pack of one season read
 // as the same kind of thing as another's.
-var seasonPrefixRe = regexp.MustCompile(`(?i)^(CS ?\d{4}|CS ?\d{2}-\d{2}|Championship \d{4}|(?:19|20)\d{2})\s+(\S.*)$`)
+var seasonPrefixRe = regexp.MustCompile(`(?i)^((?:(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+)?(?:CS ?\d{4}|CS ?\d{2}-\d{2}|Championship ?\d{4}|Championship ?\d{2}-\d{2}|(?:19|20)\d{2}))\s+(\S.*)$`)
 
 // wrappedRe matches a label the catalog wraps in dashes, which are how it
 // sets an edition off rather than anything the label says: "Official
@@ -249,6 +256,13 @@ var (
 	spacedSeasonRe = regexp.MustCompile(`(?i)\bCS(\d)`)
 	spacedVolumeRe = regexp.MustCompile(`(?i)\b(Vol\.)(\d)`)
 )
+
+// verSuffixRe matches a label saying it is a version of itself. "Event Pack
+// Finalist Ver." is the pack "Event Pack" handed to a finalist, and the
+// four letters on the end are all that kept the placing from being read as
+// one. It is taken off the token and left on the variant, which is the
+// wording a listing arrives in.
+var verSuffixRe = regexp.MustCompile(`(?i)\s+ver\.?$`)
 
 // foldQualKey is what two spellings of one label have in common: no case,
 // no punctuation, and no plural on the end. One "s" is dropped rather than
@@ -354,6 +368,10 @@ var placings = map[string]bool{
 	"winner": true, "finalist": true, "participant": true,
 	"1st place": true, "2nd place": true, "3rd place": true,
 	"4th place": true, "champion": true, "runner-up": true,
+	// How far a regional's holder got, which the catalog writes on the end
+	// like any other placing: "Regionals Season 2 Top 16".
+	"top 4": true, "top 8": true, "top 16": true, "top 32": true,
+	"top 64": true, "top 128": true,
 }
 
 // qualSpellings name a label the catalog spells two ways that fold to two
@@ -426,9 +444,15 @@ var (
 	runSeason  = regexp.MustCompile(`\b[0-9]{2}\s*-\s*[0-9]{2}\b`)
 	runMonth   = regexp.MustCompile(`(?i)\b(january|february|march|april|may|june|july|august|september|october|november|december)\b`)
 	runQuarter = regexp.MustCompile(`(?i)\b[a-z]{3}\.?\s*-\s*[a-z]{3}\.?\b`)
-	// Which instalment of a promotion this is, which the catalog writes as
-	// a volume and once as a bare ordinal.
-	runVolume = regexp.MustCompile(`(?i)\s*\bvol\.?\s*([0-9]{1,2})\b`)
+	// Which instalment of a promotion this is, in the four ways this
+	// catalog writes it: a volume, a numbered season, an ordinal in front
+	// of what it counts, and a bare number on the end. "Championship 2024
+	// Finalist Card Set Vol. 2" and "CS 25-26 Finalist Card Set 1" are the
+	// same card set counted two ways.
+	runVolume   = regexp.MustCompile(`(?i)\s*\bvol\.?\s*([0-9]{1,2})\b`)
+	runSeasonNo = regexp.MustCompile(`(?i)\bseason\s*([0-9]{1,2})\b`)
+	runOrdinal  = regexp.MustCompile(`(?i)\b([0-9]{1,2}(?:st|nd|rd|th))\b`)
+	runTrailNo  = regexp.MustCompile(`\s+([0-9]{1,2})$`)
 	// The set a release event released, which the entry's own set code
 	// already says: "OP10 Release Event", "OP-03 Pre-Release Tournament",
 	// "ST15 - ST20 Release Event Pack".
@@ -446,11 +470,22 @@ var months = map[string]int{
 // 2025 Vol. 3" and "Tournament Pack Vol. 7" are one promotion, run eleven
 // times between them and written eleven ways.
 func promoWhen(label string) (rest, year, month, instalment string) {
-	if m := runVolume.FindStringSubmatch(label); m != nil {
-		instalment, label = "vol. "+m[1], runVolume.ReplaceAllString(label, " ")
-	}
+	var of []string
 	if m := runSeason.FindString(label); m != "" {
-		instalment, label = strings.Join(strings.Fields(m), ""), strings.Replace(label, m, " ", 1)
+		of, label = append(of, strings.Join(strings.Fields(m), "")), strings.Replace(label, m, " ", 1)
+	}
+	if m := runVolume.FindStringSubmatch(label); m != nil {
+		of, label = append(of, "vol. "+m[1]), runVolume.ReplaceAllString(label, " ")
+	}
+	if m := runSeasonNo.FindStringSubmatch(label); m != nil {
+		of, label = append(of, "season "+m[1]), runSeasonNo.ReplaceAllString(label, " ")
+	}
+	if m := runOrdinal.FindStringSubmatch(label); m != nil {
+		of, label = append(of, strings.ToLower(m[1])), runOrdinal.ReplaceAllString(label, " ")
+	}
+	label = strings.Join(strings.Fields(label), " ")
+	if m := runTrailNo.FindStringSubmatch(label); m != nil {
+		of, label = append(of, "vol. "+m[1]), runTrailNo.ReplaceAllString(label, "")
 	}
 	if m := runMonth.FindString(label); m != "" && runYear.MatchString(label) {
 		month, label = strings.ToLower(m), strings.Replace(label, m, " ", 1)
@@ -461,7 +496,7 @@ func promoWhen(label string) (rest, year, month, instalment string) {
 	if m := runYear.FindString(label); m != "" {
 		year, label = m, strings.Replace(label, m, " ", 1)
 	}
-	return strings.Join(strings.Fields(label), " "), year, month, instalment
+	return strings.Join(strings.Fields(label), " "), year, month, strings.Join(of, " ")
 }
 
 // promoReleaseDate is the date a year states, published only where the set
@@ -555,6 +590,42 @@ func datePrintings(cards []any, sets map[string]any) int {
 // nobody can type is one nobody will.
 const promoTypeLimit = 22
 
+// saysNothing is a word a name must not end on: one that joins two others,
+// a bare number, punctuation left where a strip took something out, and one
+// that would leave a list of names cut in half. shorterName cuts at whole
+// words and the cut can land on any of them - "Extra Grand Battle for",
+// "Premium Card Collection 6", "Beginners Deck Party [] - []", "Anniversary
+// Set Ace, Luffy," - each of which reads as a sentence broken off rather
+// than as the name of anything.
+var (
+	joiningWord = map[string]bool{
+		"a": true, "and": true, "at": true, "for": true, "in": true,
+		"of": true, "on": true, "the": true, "to": true, "vs": true,
+		"vs.": true, "with": true, "x": true,
+	}
+	bareNumber = regexp.MustCompile(`^[0-9]{1,3}$`)
+)
+
+func saysNothing(field string) bool {
+	return promoSlug(field) == "" || joiningWord[strings.ToLower(field)] ||
+		bareNumber.MatchString(field) || strings.HasSuffix(field, ",")
+}
+
+// tidyLabel drops what a strip leaves behind: the brackets that held a set
+// code, and the dash between two of them. "Beginners Deck Party [ST-23] -
+// [ST-28] Participation Pack" comes out of the set-code strip as "Beginners
+// Deck Party [] - [] Participation Pack", and a name is not punctuation.
+func tidyLabel(label string) string {
+	var kept []string
+	for _, field := range strings.Fields(label) {
+		if promoSlug(field) == "" {
+			continue
+		}
+		kept = append(kept, field)
+	}
+	return strings.Join(kept, " ")
+}
+
 // shorterName folds a label too long to be one to the promotion it names,
 // and hands back what it dropped. The catalog writes a shelf's whole product
 // name where a promotion's name would do: "Premium Card Collection -Best
@@ -577,6 +648,9 @@ func shorterName(label string) (stem, rest string) {
 		}
 		kept = i
 	}
+	for kept > 1 && saysNothing(fields[kept-1]) {
+		kept--
+	}
 	if kept == 0 || kept == len(fields) {
 		return label, ""
 	}
@@ -595,12 +669,29 @@ func noteWhen(entry map[string]any, year, month, instalment, mark string) {
 	if month != "" {
 		entry["_month"] = month
 	}
-	switch {
-	case mark != "":
-		entry["watermark"] = mark
-	case instalment != "":
-		entry["watermark"] = instalment
+	var marks []string
+	for _, held := range []string{mark, instalment} {
+		if held != "" {
+			marks = append(marks, held)
+		}
 	}
+	if len(marks) > 0 {
+		entry["watermark"] = strings.Join(marks, " ")
+	}
+}
+
+// promoSpellings write a promotion's name where the label the catalog hands
+// over is not one: an abbreviation nobody reads, a plural of a name spelled
+// singular everywhere else, a placing named as the act rather than the
+// holder, and the game's own name in front of its own product. Only the
+// token folds - the variant keeps the catalog's wording, because that is
+// the wording a listing arrives in, and a printing whose variant no longer
+// holds it comes back as the wrong printing or as none.
+var promoSpellings = map[string]string{
+	"cs":                        "championship",
+	"offline regionals":         "offline regional",
+	"one piece anniversary set": "anniversary set",
+	"participation":             "participant",
 }
 
 // deckMark matches a label that is a deck and whose deck it is, which says
@@ -619,6 +710,7 @@ func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool
 		expanded = append(expanded, qual)
 	}
 	out := make([]string, 0, len(expanded))
+	var instalments []string
 	for _, qual := range expanded {
 		// A label that is the card's own rarity says what the rarity field
 		// says: the nine Treasure Rares are filed at rarity TR and were
@@ -640,6 +732,13 @@ func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool
 			continue
 		}
 		label := strings.ToLower(qual)
+		// A placing is how far its holder got, and the numbers in "1st
+		// Place" and "Top 16" are not the instalment numbers everything
+		// below reads them as.
+		if placings[label] {
+			out = append(out, promoSlug(label))
+			continue
+		}
 		// A deck is which copy this is, not what promoted it.
 		if deckMark.MatchString(label) {
 			if mark == "" {
@@ -647,17 +746,34 @@ func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool
 			}
 			continue
 		}
-		// The set a release event released, which the entry's own set code
-		// already says.
-		if stripped := strings.Join(strings.Fields(runSetCode.ReplaceAllString(label, " ")), " "); stripped != label && stripped != "" {
+		// A label saying it is a version of itself, and the placing that
+		// hid behind it: "Event Pack Finalist Ver." is the pack "Event
+		// Pack" handed to the finalist, and cutPlacing could not see the
+		// finalist through the four letters after it.
+		var placing string
+		if stripped := verSuffixRe.ReplaceAllString(label, ""); stripped != label {
 			label = stripped
+			if head, tail, split := cutPlacing(label); split {
+				label, placing = head, tail
+			}
+		}
+		// The language, which nameLanguage publishes in a field of its own.
+		if stripped := strings.Join(strings.Fields(languageSaid.ReplaceAllString(label, " ")), " "); stripped != label && stripped != "" {
+			label = stripped
+		}
+		// The set a release event released, which the entry's own set code
+		// already says, and the brackets that held it.
+		if stripped := runSetCode.ReplaceAllString(label, " "); stripped != label {
+			if tidied := tidyLabel(stripped); tidied != "" {
+				label = tidied
+			}
 		}
 		rest, when, at, of := promoWhen(label)
 		if when != "" && year == "" {
 			year, month = when, at
 		}
-		if of != "" && instalment == "" {
-			instalment = of
+		if of != "" {
+			instalments = append(instalments, of)
 		}
 		if rest == "" {
 			continue
@@ -666,9 +782,15 @@ func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool
 		if tail != "" {
 			left = append(left, tail)
 		}
+		if spelled, named := promoSpellings[stem]; named {
+			stem = spelled
+		}
 		out = append(out, promoSlug(stem))
+		if placing != "" {
+			out = append(out, promoSlug(placing))
+		}
 	}
-	return out, left, year, month, instalment, mark
+	return out, left, year, month, strings.Join(instalments, " "), mark
 }
 
 // nameLanguage names the language a product's qualifiers call it out as,
