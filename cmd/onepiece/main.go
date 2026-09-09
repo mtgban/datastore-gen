@@ -407,7 +407,207 @@ func respellQual(qual string) string {
 	return strings.Join(strings.Fields(qual), " ")
 }
 
-func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool) []string {
+// promoSlugRe is everything a token is not: a promo type reaches a query as
+// one word, because a search splits its words apart before a filter sees
+// them.
+var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// promoSlug is a label as the token a query can carry. The words are the
+// loader's business, which keeps a table of them.
+func promoSlug(label string) string {
+	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
+}
+
+var (
+	// When a promotion ran, in the four ways this catalog writes it: a
+	// year, a season across two of them, a month beside a year, and a
+	// quarter.
+	runYear    = regexp.MustCompile(`\b(?:19|20)[0-9]{2}\b`)
+	runSeason  = regexp.MustCompile(`\b[0-9]{2}\s*-\s*[0-9]{2}\b`)
+	runMonth   = regexp.MustCompile(`(?i)\b(january|february|march|april|may|june|july|august|september|october|november|december)\b`)
+	runQuarter = regexp.MustCompile(`(?i)\b[a-z]{3}\.?\s*-\s*[a-z]{3}\.?\b`)
+	// Which instalment of a promotion this is, which the catalog writes as
+	// a volume and once as a bare ordinal.
+	runVolume = regexp.MustCompile(`(?i)\s*\bvol\.?\s*([0-9]{1,2})\b`)
+	// The set a release event released, which the entry's own set code
+	// already says: "OP10 Release Event", "OP-03 Pre-Release Tournament",
+	// "ST15 - ST20 Release Event Pack".
+	runSetCode = regexp.MustCompile(`(?i)\b(?:op|st|eb|prb)-?[0-9]{1,2}\b(?:\s*-\s*(?:op|st|eb|prb)-?[0-9]{1,2}\b)?`)
+)
+
+var months = map[string]int{
+	"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+	"july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+}
+
+// promoWhen takes off everything a label says about when a promotion ran and
+// which running of it this is, and hands both back. What is left is the
+// promotion's own name, which is what a promo type is for: "Tournament Pack
+// 2025 Vol. 3" and "Tournament Pack Vol. 7" are one promotion, run eleven
+// times between them and written eleven ways.
+func promoWhen(label string) (rest, year, month, instalment string) {
+	if m := runVolume.FindStringSubmatch(label); m != nil {
+		instalment, label = "vol. "+m[1], runVolume.ReplaceAllString(label, " ")
+	}
+	if m := runSeason.FindString(label); m != "" {
+		instalment, label = strings.Join(strings.Fields(m), ""), strings.Replace(label, m, " ", 1)
+	}
+	if m := runMonth.FindString(label); m != "" && runYear.MatchString(label) {
+		month, label = strings.ToLower(m), strings.Replace(label, m, " ", 1)
+	}
+	if m := runQuarter.FindString(label); m != "" && runYear.MatchString(label) {
+		label = strings.Replace(label, m, " ", 1)
+	}
+	if m := runYear.FindString(label); m != "" {
+		year, label = m, strings.Replace(label, m, " ", 1)
+	}
+	return strings.Join(strings.Fields(label), " "), year, month, instalment
+}
+
+// promoReleaseDate is the date a year states, published only where the set
+// does not already state it. "One Piece Promotion Cards" is one set holding
+// everything handed out since 2022 and the shelf is dated 2022-09-30, so the
+// year a label states is the only date most of these printings have.
+func promoReleaseDate(year, month, setDate string) string {
+	if year == "" {
+		return ""
+	}
+	if len(setDate) >= 4 && setDate[:4] == year && month == "" {
+		return ""
+	}
+	at := months[month]
+	if at == 0 {
+		at = 1
+	}
+	return fmt.Sprintf("%s-%02d-01", year, at)
+}
+
+// markPrintings gives a printing the mark saying which copy of its number it
+// is, where nothing else says. The labels it marks with are the DON!! card
+// subjects promoTypesOf left out - rightly, since nothing promoted a DON!!
+// card for having Nami on it - and 212 printings read as duplicates of each
+// other without them, every one of them a DON!! card.
+//
+// The mark a printing already wears is kept and the subject written before
+// it, because an instalment and a subject are both marks and a card can wear
+// both: "Mihawk & Zoro Double Pack Set Vol. 3" is one of two subjects in one
+// of eleven volumes.
+func markPrintings(cards []any, leftOut map[string][]string) int {
+	identity := func(item map[string]any) string {
+		return fmt.Sprint(item["name"], "|", item["number"], "|", item["setCode"], "|",
+			item["rarity"], "|", item["finish"], "|", item["promoTypes"], "|",
+			item["watermark"], "|", item["language"])
+	}
+	shared := map[string]int{}
+	for _, raw := range cards {
+		if item, ok := raw.(map[string]any); ok {
+			shared[identity(item)]++
+		}
+	}
+	var marked int
+	for _, raw := range cards {
+		item, ok := raw.(map[string]any)
+		if !ok || shared[identity(item)] < 2 {
+			continue
+		}
+		left := leftOut[fmt.Sprint(item["id"])]
+		if len(left) == 0 {
+			continue
+		}
+		mark := strings.Join(left, " ")
+		if held, worn := item["watermark"].(string); worn {
+			mark += " " + held
+		}
+		item["watermark"] = mark
+		marked++
+	}
+	return marked
+}
+
+// datePrintings turns the year a label stated into the date it is, where the
+// set does not already state it, and clears what noteWhen stashed. See
+// promoReleaseDate.
+func datePrintings(cards []any, sets map[string]any) int {
+	var dated int
+	for _, raw := range cards {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		year, _ := item["_year"].(string)
+		month, _ := item["_month"].(string)
+		delete(item, "_year")
+		delete(item, "_month")
+		setDate := ""
+		if held, ok := sets[fmt.Sprint(item["setCode"])].(map[string]any); ok {
+			setDate = fmt.Sprint(held["releaseDate"])
+		}
+		if date := promoReleaseDate(year, month, setDate); date != "" {
+			item["originalReleaseDate"] = date
+			dated++
+		}
+	}
+	return dated
+}
+
+// promoTypeLimit is how long a promo type may read before it stops being a
+// name and starts being a sentence. A query carries a token, and a token
+// nobody can type is one nobody will.
+const promoTypeLimit = 22
+
+// shorterName folds a label too long to be one to the promotion it names,
+// and hands back what it dropped. The catalog writes a shelf's whole product
+// name where a promotion's name would do: "Premium Card Collection -Best
+// Selection Vol. 1-" and "Premium Card Collection -Live Action Edition-" are
+// one collection issued twice, and which issue it was is a mark like any
+// other instalment.
+//
+// The fold takes whole words and stops at the first that would carry the
+// token past the limit, so what is left is always a name the catalog wrote
+// rather than a truncation of one.
+func shorterName(label string) (stem, rest string) {
+	fields := strings.Fields(label)
+	if len(promoSlug(label)) <= promoTypeLimit || len(fields) < 2 {
+		return label, ""
+	}
+	kept := 0
+	for i := 1; i <= len(fields); i++ {
+		if len(promoSlug(strings.Join(fields[:i], " "))) > promoTypeLimit {
+			break
+		}
+		kept = i
+	}
+	if kept == 0 || kept == len(fields) {
+		return label, ""
+	}
+	return strings.Join(fields[:kept], " "), strings.Join(fields[kept:], " ")
+}
+
+// noteWhen stashes what promoTypesOf took off the labels, for datePrintings
+// to turn into a date once the sets are known and for the mark to be
+// written straight out. An instalment and a deck are both marks - which
+// running of a promotion, which deck of a set - and no printing carries
+// two, so one field holds whichever it has.
+func noteWhen(entry map[string]any, year, month, instalment, mark string) {
+	if year != "" {
+		entry["_year"] = year
+	}
+	if month != "" {
+		entry["_month"] = month
+	}
+	switch {
+	case mark != "":
+		entry["watermark"] = mark
+	case instalment != "":
+		entry["watermark"] = instalment
+	}
+}
+
+// deckMark matches a label that is a deck and whose deck it is, which says
+// which of a set's decks a copy came in rather than what promoted it.
+var deckMark = regexp.MustCompile(`(?i)^([a-z][a-z.\-]*)\s+deck$`)
+
+func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool) (kept, left []string, year, month, instalment, mark string) {
 	// The catalog labels are split before they reach here; the
 	// hand-carried printings are not, and a label is a label either way.
 	expanded := make([]string, 0, len(quals))
@@ -432,11 +632,43 @@ func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool
 		// a card this datastore carries. Nothing promoted a DON!! card for
 		// having Nami on it, so the character stays the variant it is.
 		if name == donCardName && (cardNames[strings.ToLower(qual)] || donSubjects[strings.ToLower(qual)]) {
+			// Handed back rather than forgotten: every DON!! card is named
+			// "DON!! Card" at one number, so the subject is the only thing
+			// telling most of them apart, and markPrintings puts it back as
+			// the mark it is.
+			left = append(left, strings.ToLower(qual))
 			continue
 		}
-		out = append(out, strings.ToLower(qual))
+		label := strings.ToLower(qual)
+		// A deck is which copy this is, not what promoted it.
+		if deckMark.MatchString(label) {
+			if mark == "" {
+				mark = label
+			}
+			continue
+		}
+		// The set a release event released, which the entry's own set code
+		// already says.
+		if stripped := strings.Join(strings.Fields(runSetCode.ReplaceAllString(label, " ")), " "); stripped != label && stripped != "" {
+			label = stripped
+		}
+		rest, when, at, of := promoWhen(label)
+		if when != "" && year == "" {
+			year, month = when, at
+		}
+		if of != "" && instalment == "" {
+			instalment = of
+		}
+		if rest == "" {
+			continue
+		}
+		stem, tail := shorterName(rest)
+		if tail != "" {
+			left = append(left, tail)
+		}
+		out = append(out, promoSlug(stem))
 	}
-	return out
+	return out, left, year, month, instalment, mark
 }
 
 // nameLanguage names the language a product's qualifiers call it out as,
@@ -1364,6 +1596,9 @@ func main() {
 	}
 
 	var cards []any
+	// What promoTypesOf left out of each entry, keyed by the entry's id,
+	// for markPrintings to put back where it is doing the distinguishing.
+	leftOut := map[string][]string{}
 	var nonEnglish int
 	for _, s := range singles {
 		group := groupByID[s.product.GroupID]
@@ -1392,8 +1627,13 @@ func main() {
 				// The same labels as a list. Joined, "Alternate Art Manga"
 				// cannot be read back into the two it holds, and the
 				// matcher declares and narrows on them one at a time.
-				if tags := promoTypesOf(s.baseName, s.product.Extended("Rarity"), s.quals, cardNames); len(tags) > 0 {
+				tags, left, year, month, instalment, mark := promoTypesOf(s.baseName, s.product.Extended("Rarity"), s.quals, cardNames)
+				if len(tags) > 0 {
 					entry["promoTypes"] = tags
+				}
+				noteWhen(entry, year, month, instalment, mark)
+				if len(left) > 0 {
+					leftOut[fmt.Sprint(entry["id"])] = left
 				}
 			}
 			if s.language != "" {
@@ -1518,8 +1758,13 @@ func main() {
 			if printing.label != "" {
 				tags = append(tags, printing.label)
 			}
-			if labels := promoTypesOf(fmt.Sprint(src["name"]), fmt.Sprint(src["rarity"]), tags, cardNames); len(labels) > 0 {
+			labels, left, year, month, instalment, mark := promoTypesOf(fmt.Sprint(src["name"]), fmt.Sprint(src["rarity"]), tags, cardNames)
+			if len(labels) > 0 {
 				entry["promoTypes"] = labels
+			}
+			noteWhen(entry, year, month, instalment, mark)
+			if len(left) > 0 {
+				leftOut[fmt.Sprint(entry["id"])] = left
 			}
 		}
 		// The blueprint is what this printing was minted from, and until
@@ -1587,6 +1832,14 @@ func main() {
 		linked++
 	}
 	log.Printf("external links: %d cards carry their bandaiId under externalLinks as well", linked)
+
+	log.Printf("watermarks: %d printings marked by which copy of the number they are",
+
+		markPrintings(cards, leftOut))
+
+	log.Printf("release dates: %d printings dated by a year their label stated, where the set states another",
+
+		datePrintings(cards, sets))
 
 	doc := map[string]any{
 		"game":   "onepiece",
