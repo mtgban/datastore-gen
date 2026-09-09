@@ -459,19 +459,74 @@ func promoTypesOf(quals []string) []string {
 		if tag == "" || subjects[tag] || bareNumberingRe.MatchString(tag) {
 			continue
 		}
-		// The words are read first, because subjects is keyed by them and a
-		// slug would not find "left hand" in it. What is published is the
-		// slug: a promo type is a token for a consumer to interpret and a
-		// query to carry, and the words a reader is shown are the variant
-		// beside it, which this build already writes.
-		tag = promoSlug(tag)
-		if tag == "" || slices.Contains(out, tag) {
-			continue
+		// Words, not slugs: subjects is keyed by them, and foldPromoTypes
+		// below still has to read the seams between them. The slug is put
+		// on there, once the whole vocabulary is in hand.
+		for _, named := range namedPromotions(tag) {
+			if named != "" && !slices.Contains(out, named) {
+				out = append(out, named)
+			}
 		}
-		out = append(out, tag)
 	}
 	return out
 }
+
+// releaseTail is the kind of release a qualifier names, where it names one.
+var releaseTail = regexp.MustCompile(`^.+\s+(\w+\s+release)$`)
+
+// packSeam is the occasion a qualifier names and the pack handed out at it.
+var packSeam = regexp.MustCompile(`^(.+?)\s+(\w+\s+pack)$`)
+
+// namedPromotions is the promotions one qualifier names, in the words it
+// names them in. A qualifier naming more than one becomes more than one:
+// "Store Tournament Winner Pack 01" is a store tournament, and a winner
+// pack, and knowing which of the five it was is not either of those.
+func namedPromotions(tag string) []string {
+	tag = generalPromotion(tag)
+	// What is released is the set the card is in, which the card already
+	// says, so only the kind of release is a promotion of it. It is the
+	// same reason the set code comes off "GD05 Release Event" above.
+	if m := releaseTail.FindStringSubmatch(tag); m != nil {
+		return []string{m[1]}
+	}
+	if m := packSeam.FindStringSubmatch(tag); m != nil {
+		return []string{m[1], m[2]}
+	}
+	return []string{tag}
+}
+
+// generalPromotion drops what a promotion is not. Which instalment of it this
+// was, which year it ran, and which set it released are all facts about the
+// printing that the number, the set and the variant already carry - and
+// keeping them made a promo type of every run, so a query naming the
+// promotion reached one of them and none of the rest.
+func generalPromotion(tag string) string {
+	for abbrev, spelled := range promoAbbrevs {
+		tag = regexp.MustCompile(`\b`+abbrev+`\b`).ReplaceAllString(tag, spelled)
+	}
+	tag = setCodeHead.ReplaceAllString(tag, "")
+	tag = setCodePair.ReplaceAllString(tag, "")
+	tag = runNumbering.ReplaceAllString(tag, "")
+	tag = runYear.ReplaceAllString(tag, "")
+	return strings.Join(strings.Fields(tag), " ")
+}
+
+// promoAbbrevs are the two the catalog writes both ways, so one promotion is
+// one token however a product name happens to spell it.
+var promoAbbrevs = map[string]string{
+	"sdcc": "san diego comic-con",
+	"wcs":  "world championship",
+}
+
+var (
+	// The set a release event released, which the card's own set says.
+	setCodeHead = regexp.MustCompile(`^(?:gd|st|evx|eb)\d+[a-z]?\s+`)
+	setCodePair = regexp.MustCompile(`\s*/\s*(?:gd|st|evx|eb)\d+[a-z]?\b`)
+	// Which instalment: a run code, a volume, a mission, a season, a number.
+	runNumbering = regexp.MustCompile(`\s*-\s*pc\d+[a-z]?$|\s+(?:vol\.?|no\.?)\s*\d+$|\s+(?:mission|season)\s+\d+$|\s+\d+$`)
+	// Which year, written either way the catalog writes one.
+	runYear = regexp.MustCompile(`\s+\d{2}-\d{2}\b|\s+(?:19|20)\d{2}\b`)
+)
 
 // promoSlugRe is everything a promo type is spelled without.
 var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
@@ -1056,6 +1111,8 @@ func main() {
 			},
 		})
 	}
+	spelled, tokens := foldPromoTypes(cards)
+	log.Printf("promo types: %d spellings folded to %d tokens, each one a slug", spelled, tokens)
 	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
 		len(sets), len(cards), len(singles), len(sealed))
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
@@ -1441,4 +1498,102 @@ func plainPrinting(c *tcgplayer.CatalogDump) string {
 		}
 	}
 	return ""
+}
+
+// stringsOf reads a list of strings back off a decoded entry, which holds
+// them as []any once they have been through the map the document is built in.
+func stringsOf(value any) []string {
+	switch list := value.(type) {
+	case []string:
+		return list
+	case []any:
+		out := make([]string, 0, len(list))
+		for _, raw := range list {
+			if s, ok := raw.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// promoTypeLimit is how long a promo type may read before only its first two
+// words are kept. A token is what a query carries and what a reader sees
+// beside a price, and "premiumaccessorysetmobilesuitgundamwing" is neither -
+// the words are all in the variant, where the whole of a name belongs.
+//
+// 22 is the longest token this game has that is already the right name
+// ("starterdeckbattleevent"), so the rule reaches past what is right and no
+// further.
+const promoTypeLimit = 22
+
+// foldPromoTypes spells every promo type as its slug, once the whole
+// vocabulary is in hand, and folds two things a card cannot see on its own.
+//
+// A name that is a longer form of one the vocabulary already holds is that
+// one, said more narrowly: "Premium Card Collection Gundam Assemble" is a
+// premium card collection, and which collection it was is the variant's to
+// say. And a name still reading long past that has only its first two words
+// kept, which is where the concept is and the rest is the instance of it.
+func foldPromoTypes(cards []any) (int, int) {
+	named := map[string]bool{}
+	for _, raw := range cards {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, tag := range stringsOf(item["promoTypes"]) {
+			named[tag] = true
+		}
+	}
+	spelled := len(named)
+
+	folded := make(map[string]string, len(named))
+	for tag := range named {
+		folded[tag] = promoSlug(shorterName(tag, named))
+	}
+
+	tokens := map[string]bool{}
+	for _, raw := range cards {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		was := stringsOf(item["promoTypes"])
+		if len(was) == 0 {
+			continue
+		}
+		out := make([]any, 0, len(was))
+		for _, tag := range was {
+			slug := folded[tag]
+			if slug == "" || slices.Contains(out, any(slug)) {
+				continue
+			}
+			out = append(out, slug)
+			tokens[slug] = true
+		}
+		if len(out) == 0 {
+			delete(item, "promoTypes")
+			continue
+		}
+		item["promoTypes"] = out
+	}
+	return spelled, len(tokens)
+}
+
+// shorterName is the name a promotion is known by: the shortest head of it
+// the vocabulary already holds, or its first two words where it still reads
+// past promoTypeLimit.
+func shorterName(tag string, named map[string]bool) string {
+	words := strings.Fields(tag)
+	for i := 2; i < len(words); i++ {
+		if head := strings.Join(words[:i], " "); named[head] {
+			return head
+		}
+	}
+	if len(words) > 2 && len(promoSlug(tag)) > promoTypeLimit {
+		return strings.Join(words[:2], " ")
+	}
+	return tag
 }
