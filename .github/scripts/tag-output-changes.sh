@@ -56,14 +56,16 @@ upstream_flags() {
   esac
 }
 
-# Which games a commit could possibly have changed. A builder is standalone,
-# so only its own directory and the module files can reach it; internal
-# packages are checks with no importer and cannot.
+# Which games a commit could possibly have changed. A builder reaches its
+# own directory, the module files, and the internal packages it imports;
+# internal/ is treated as reaching every builder rather than reading each
+# one's imports, since a package none of them imports yet costs a run of
+# builds that all say "no change".
 games_touched() {
   local sha=$1 touched=""
   local files
   files=$(git diff-tree --no-commit-id --name-only -r "$sha")
-  if grep -qE '^go\.(mod|sum)$' <<<"$files"; then
+  if grep -qE '^(go\.(mod|sum)|internal/)' <<<"$files"; then
     echo "$GAMES"; return
   fi
   for g in $GAMES; do
