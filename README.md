@@ -105,7 +105,7 @@ hold. Current counts:
 | builder | upstream cards minted | sets minted |
 |---|---|---|
 | lorcana | 203 catalog products upstream has no card for | 0 |
-| fleshandblood | 466 entries over 418 collector numbers | 36 |
+| fleshandblood | 210 entries over 210 collector numbers | 5 |
 | pokemon | 909 entries over 883 tcgdex cards | 39 |
 | onepiece | 18 pre-errata printings, hand-carried | 0 |
 

@@ -707,7 +707,25 @@ func main() {
 	for _, product := range catalog.Products {
 		catalogProducts[product.ProductID] = true
 	}
+	cardProducts := map[int]bool{}
+	groupOfCard := map[int]int{}
+	for _, s := range singles {
+		cardProducts[s.product.ProductID] = true
+		groupOfCard[s.product.ProductID] = s.product.GroupID
+	}
 	fabIDsByProduct := map[int][]string{}
+	// The card product a dataset number is sold as, by the product id the
+	// dataset writes on its rows. It is what decides below whether a number
+	// is carried: the catalog spells a number its own way often enough -
+	// RNR001 for the deck the dataset numbers RHI001, one face of a fused
+	// token for both - that the number alone said "no product" for 202
+	// numbers TCGplayer sells, and each was minted a second time beside
+	// its priced entry.
+	productByNumber := map[string]int{}
+	// The catalog group a dataset set's rows are sold under, counted per
+	// group, so a set the two sources code differently can be joined by
+	// where its cards actually are rather than by what it is called.
+	groupsByDatasetSet := map[string]map[int]int{}
 	var unknownIDs int
 	for _, row := range fabRows {
 		if row.ProductID == "" {
@@ -723,6 +741,20 @@ func main() {
 		}
 		if !sliceContains(fabIDsByProduct[productID], row.ID) {
 			fabIDsByProduct[productID] = append(fabIDsByProduct[productID], row.ID)
+		}
+		if !cardProducts[productID] {
+			continue
+		}
+		if number := strings.ToUpper(numberOf(row.ID)); number != "" {
+			if _, held := productByNumber[number]; !held {
+				productByNumber[number] = productID
+			}
+		}
+		if setID := strings.ToUpper(setCodeOf(row.SetID)); setID != "" {
+			if groupsByDatasetSet[setID] == nil {
+				groupsByDatasetSet[setID] = map[int]int{}
+			}
+			groupsByDatasetSet[setID][groupOfCard[productID]]++
 		}
 	}
 	fabIDs := map[int]string{}
@@ -757,17 +789,79 @@ func main() {
 	// annotating nothing and showing up as no gap. These are what the
 	// minting below adds, so the datastore holds both sources rather than
 	// the catalog alone.
+	//
+	// A number is carried when the catalog sells it, and the catalog says
+	// so three ways. It spells the number itself on a product. It spells
+	// both faces of a fused token on one product, "WTR040 // WTR113",
+	// where the dataset numbers each face alone. And it sells the card
+	// under a number of its own - RNR001 for the deck the dataset numbers
+	// RHI001, FAB384 for the product whose name says FAB385 - which only
+	// the product id the dataset writes on the row can tell. Reading the
+	// number alone minted 250 twins of priced products, unpriced, filed in
+	// 22 sets that were mostly the catalog's own groups under another code.
 	catalogNumbers := map[string]bool{}
+	faceNumbers := map[string]bool{}
+	for _, s := range singles {
+		if s.number == "" {
+			continue
+		}
+		number := strings.ToUpper(numberOf(s.number))
+		catalogNumbers[number] = true
+		if faces := strings.Split(number, "//"); len(faces) > 1 {
+			for _, face := range faces {
+				faceNumbers[face] = true
+			}
+		}
+	}
+	// The catalog group a dataset set sells under: the one most of its
+	// mapped rows' products sit in. A majority of the rows, so a set split
+	// across groups - which nothing here is today - names none rather than
+	// the larger half. It decides which set a minted card is filed under,
+	// below, and it is what a numberless product can be read against here.
+	groupBySales := map[string]int{}
+	for setID, groups := range groupsByDatasetSet {
+		var total, best, bestGroup int
+		for groupID, n := range groups {
+			total += n
+			if n > best || (n == best && groupID < bestGroup) {
+				best, bestGroup = n, groupID
+			}
+		}
+		if best*2 > total {
+			groupBySales[setID] = bestGroup
+		}
+	}
+	// The names of the card products the catalog files with no number,
+	// per group. A dataset row the catalog maps to nothing, whose set sells
+	// under a group holding a numberless product of the same name, is that
+	// product on every fact either source offers - the promo shelf's "Fault
+	// Line" beside the dataset's FAB328 - and read as a new card it was
+	// minted beside it, and a listing naming the card without a number
+	// aliased between the two.
+	numberlessNames := map[int]map[string]bool{}
 	for _, s := range singles {
 		if s.number != "" {
-			catalogNumbers[strings.ToUpper(numberOf(s.number))] = true
+			continue
 		}
+		if numberlessNames[s.product.GroupID] == nil {
+			numberlessNames[s.product.GroupID] = map[string]bool{}
+		}
+		numberlessNames[s.product.GroupID][strings.ToLower(s.baseName)] = true
 	}
 	mintable := map[string][]fabRow{}
 	var mintableOrder []string
+	var coveredByFace, coveredByProduct, coveredByName int
 	for _, row := range fabRows {
 		number := strings.ToUpper(numberOf(row.ID))
 		if number == "" || catalogNumbers[number] {
+			continue
+		}
+		if faceNumbers[number] {
+			coveredByFace++
+			continue
+		}
+		if _, sold := productByNumber[number]; sold {
+			coveredByProduct++
 			continue
 		}
 		if _, seen := mintable[number]; !seen {
@@ -775,6 +869,33 @@ func main() {
 		}
 		mintable[number] = append(mintable[number], row)
 	}
+	// Only where the name is unambiguous in that group: two unmapped rows
+	// of one name cannot both be the one numberless product, and covering
+	// both would drop a card the game does print.
+	sameName := map[string][]string{}
+	for _, number := range mintableOrder {
+		row := mintable[number][0]
+		group, sold := groupBySales[strings.ToUpper(setCodeOf(row.SetID))]
+		if !sold || !numberlessNames[group][strings.ToLower(row.Name)] {
+			continue
+		}
+		key := fmt.Sprintf("%d|%s", group, strings.ToLower(row.Name))
+		sameName[key] = append(sameName[key], number)
+	}
+	for _, numbers := range sameName {
+		if len(numbers) != 1 {
+			continue
+		}
+		number := numbers[0]
+		log.Printf("dataset printing %s is the numberless %q the catalog sells in the set its rows are sold under; not minted",
+			mintable[number][0].ID, mintable[number][0].Name)
+		coveredByName++
+		delete(mintable, number)
+	}
+	mintableOrder = slices.DeleteFunc(mintableOrder, func(number string) bool {
+		_, kept := mintable[number]
+		return !kept
+	})
 	sort.Strings(mintableOrder)
 	var mintableRows int
 	mintableBySet := map[string]int{}
@@ -784,6 +905,8 @@ func main() {
 	}
 	log.Printf("dataset printings the catalog has no product for: %d rows over %d collector numbers in %d sets",
 		mintableRows, len(mintableOrder), len(mintableBySet))
+	log.Printf("dataset printings the catalog sells under a number of its own: %d rows by the product they map to, %d as one face of a fused product, %d by name beside a numberless product",
+		coveredByProduct, coveredByFace, coveredByName)
 
 	// Emit. Sets are the catalog groups under their repaired codes; ids
 	// embed the product id so they survive any upstream renumbering.
@@ -823,20 +946,32 @@ func main() {
 	// The sets a minted card is filed under. A dataset set the catalog has
 	// a group for is that group's set, under the code the group already
 	// claimed, so a minted card lands beside the printings TCGplayer does
-	// sell. A set the catalog has no group for at all - and every set the
-	// mintable rows sit in is one today - is minted from the dataset's own
-	// code, name and earliest release date, deduplicated against the codes
-	// the catalog groups already hold so nothing can fold onto them.
-	// The catalog group a dataset set belongs to, found two ways. Its
-	// abbreviation is the obvious one and the one that fails most often:
-	// the dataset codes a set "AAZ" where TCGplayer abbreviates the same
-	// set "ADA", or does not abbreviate it at all and takes a code
-	// derived from its name. The name is what the two sources really
-	// agree on - "Armory Deck - Azalea" against "Armory Deck: Azalea",
-	// differing by the punctuation the normalization drops - so it is
-	// tried second, and it is what keeps a minted card in the set holding
-	// the printings TCGplayer does sell rather than in a second set of
-	// the same name.
+	// sell. A set the catalog has no group for at all is minted from the
+	// dataset's own code, name and earliest release date, deduplicated
+	// against the codes the catalog groups already hold so nothing can
+	// fold onto them.
+	//
+	// The catalog group a dataset set belongs to, found three ways. Where
+	// the set's rows are sold is the first and the surest: the product ids
+	// the dataset writes on its rows land in a catalog group, and where
+	// most of them land in one group that group is the set - the dataset's
+	// promo set FAB sells 399 of 400 mapped rows under "Flesh and Blood:
+	// Promo Cards", and each Silver Age hero's set sells under its chapter.
+	// A set nothing prices has no rows to follow, and falls through. Its
+	// abbreviation is next and the one that fails most often: the dataset
+	// codes a set "AAZ" where TCGplayer abbreviates the same set "ADA", or
+	// does not abbreviate it at all and takes a code derived from its name.
+	// The name is what the two sources really agree on - "Armory Deck -
+	// Azalea" against "Armory Deck: Azalea", differing by the punctuation
+	// the normalization drops - so it is tried last, and all three are what
+	// keep a minted card in the set holding the printings TCGplayer does
+	// sell rather than in a second set of the same name.
+	codeBySales := map[string]string{}
+	for setID, groupID := range groupBySales {
+		if productsIn[groupID] > 0 {
+			codeBySales[setID] = codes[groupID]
+		}
+	}
 	codeByAbbreviation := map[string]string{}
 	codeByName := map[string]string{}
 	for _, group := range catalog.Groups {
@@ -871,6 +1006,13 @@ func main() {
 			log.Fatalf("dataset row %q names no set", mintable[number][0].ID)
 		}
 		if _, decided := mintedSetCode[setID]; decided {
+			continue
+		}
+		if code, found := codeBySales[setID]; found {
+			mintedSetCode[setID] = code
+			if code != codeByAbbreviation[setID] {
+				log.Printf("dataset set %s joins catalog set %s, where its rows are sold", setID, code)
+			}
 			continue
 		}
 		if code, found := codeByAbbreviation[setID]; found {
@@ -1217,6 +1359,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Variant       string `json:"variant"`
 			Language      string `json:"language"`
 			Finish        string `json:"finish"`
+			FabID         string `json:"fabId"`
 			ExternalLinks struct {
 				TcgPlayerID int `json:"tcgPlayerId"`
 			} `json:"externalLinks"`
@@ -1262,6 +1405,18 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	// sibling printings do.
 	identities := map[string]string{}
 	gotFinishes := map[int][]string{}
+	// The loader groups a minted entry with its siblings by the fabId it
+	// was minted from, so a minted entry wearing a fabId a priced entry
+	// also wears is that card a second time, unpriced, and every listing of
+	// it can land on either. Which fabIds are priced is read off the
+	// document first, since a product's entries may sort after a minted
+	// one's.
+	pricedFabIDs := map[string]int{}
+	for _, card := range doc.Cards {
+		if card.FabID != "" && card.ExternalLinks.TcgPlayerID != 0 {
+			pricedFabIDs[card.FabID] = card.ExternalLinks.TcgPlayerID
+		}
+	}
 	for _, card := range doc.Cards {
 		if card.ID == "" || card.Name == "" || card.Finish == "" {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
@@ -1288,6 +1443,10 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		discriminator := fmt.Sprint(productID)
 		if productID == 0 {
 			discriminator = "minted:" + card.SetCode + "|" + card.Number
+			if priced, sold := pricedFabIDs[card.FabID]; sold {
+				return out, fmt.Errorf("minted %s is %s a second time: product %d already sells it",
+					card.ID, card.FabID, priced)
+			}
 		}
 		other, seen := identities[identity]
 		if seen && other != discriminator {
