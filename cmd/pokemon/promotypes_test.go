@@ -126,8 +126,12 @@ func TestPromoTypesOfReadsTheFactsOffALabel(t *testing.T) {
 			labels: []string{"Prime"}, found: "prime"},
 		{desc: "a cloak is a forme",
 			labels: []string{"Plant Cloak"}, found: "plant cloak", left: []string{"plant cloak"}},
-		{desc: "an instalment alone still leaves the word behind",
-			labels: []string{"Series 7"}, kept: []string{"series"}, found: "series 7"},
+		{desc: "an instalment alone is a mark and no promotion",
+			labels: []string{"Series 7"}, found: "series 7", left: []string{"series 7"}},
+		{desc: "a print run is a mark",
+			labels: []string{"Black Dot Error"}, found: "black dot error"},
+		{desc: "an energy kind is a mark",
+			labels: []string{"Special"}, found: "special"},
 	} {
 		s := &single{}
 		for _, label := range test.labels {

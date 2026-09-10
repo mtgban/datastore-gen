@@ -824,24 +824,32 @@ var variantOnlyQuals = map[string]bool{
 	// What kind of card it is, which the game prints on the card and the
 	// catalog repeats in the name: a Prime is the HeartGold SoulSilver
 	// era's rare ("Absol (Prime)", at its own number), Alpha and Omega
-	// are the two Ancient Traits of Primal Clash, and a Supporter and a
+	// are the two Ancient Traits of Primal Clash, Basic and Special the
+	// two kinds of Darkness and Metal Energy, and a Supporter and a
 	// Rocket's Secret Machine are Trainer subtypes. None was promoted by
-	// anything, and each sits at a number of its own.
-	//
-	// "Basic" and "Special" on an energy are the same kind of fact and
-	// stay labels, as do the print runs "Red Cheeks", "Misprint", "Black
-	// Dot Error" and "No E-Reader": each of those shares its number with
-	// the plain printing, and the loader tells a plain listing from a
-	// decorated one by the label, where a mark narrows only when the
-	// listing names it. Until the loader ranks an unmarked printing over a
-	// marked one the way it ranks a plain one over a labelled one, moving
-	// them would send "Charizard" of Base Set to the Black Dot Error as
-	// readily as to the card.
+	// anything, and each is which card this is where a name has two.
 	"prime":                   true,
 	"alpha":                   true,
 	"omega":                   true,
+	"basic":                   true,
+	"special":                 true,
 	"supporter":               true,
 	"rocket's secret machine": true,
+	// How a copy was printed, where the printing is what a collector is
+	// buying: the Base Set Pikachu with red cheeks against the corrected
+	// yellow, the Charizard with a black dot, the Wizards promo misprint,
+	// and the Aquapolis and Expedition decks printed without the e-Reader
+	// strip. A run of the press is not a promotion, and it is exactly a
+	// mark - which copy of the number this is. These and the energy kinds
+	// share their number with the plain printing, and stayed labels while
+	// the loader told a plain listing from a decorated one by the label
+	// alone; since 2026-09-10 it ranks an unmarked printing over a marked
+	// one the same way, so "Charizard" of Base Set means the card and
+	// "Charizard (Black Dot Error)" the error.
+	"red cheeks":      true,
+	"misprint":        true,
+	"black dot error": true,
+	"no e-reader":     true,
 	// Which artwork. The Pikachu World Collection reprinted six Pikachu
 	// in nine languages and named each by the card it reprints: the
 	// Flying, Surfing, Ivy and Baby Pikachu beside the Base Set and
@@ -1355,11 +1363,19 @@ func promoTypesOf(s *single, p published, onShelf bool, own map[string]bool, fin
 			stated = append(stated, place)
 		}
 		if m := runSeries.FindStringSubmatch(text); m != nil {
-			// "Fezandipiti ex (Series 7)" sits in a set already named
-			// Prize Pack Series Cards, and what this leaves of it is the
-			// word series alone. It stays, for the same reason the print
-			// runs above do: it is the one thing telling the loader that
-			// a listing naming no series means the unlabelled printing.
+			// A label that is the instalment and nothing else says only
+			// which running: "Fezandipiti ex (Series 7)" sits in a set
+			// already named Prize Pack Series Cards, and "series" on its
+			// own named no promotion. The instalment is the mark, and the
+			// loader now reads a listing naming no series as the
+			// unlabelled printing on its own.
+			if strings.EqualFold(m[1], "series") {
+				left = append(left, lowered)
+				if found == "" {
+					found = lowered
+				}
+				continue
+			}
 			text = m[1]
 			if found == "" {
 				found = "series " + m[2]
