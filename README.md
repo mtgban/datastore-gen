@@ -71,10 +71,12 @@ community mirror of the publisher's card list - yzRobo/gcg-api for Gundam,
 palworldtcg.gg's public API for Palworld - and take from it only what the
 catalog cannot supply: the cards the game prints and TCGplayer sells no
 single of. Those are minted, naming no product because none exists, and
-they come to 10 entries for Gundam and one for Palworld, all of them the
-resource and token cards handed out with decks. No upstream image or rules
-text is stored: gcg-api publishes under no clear licence, so what is taken
-is the fact that a card exists and the identity it exists under.
+they come to eight entries, all for Gundam and all resource and token cards
+handed out with decks. Palworld mints none: its one product the catalog
+files with no collector number takes the number the list gives the card,
+rather than being minted a second time beside itself. No upstream image or
+rules text is stored: gcg-api publishes under no clear licence, so what is
+taken is the fact that a card exists and the identity it exists under.
 
 Palworld's two sources number the same card differently, and the join sets
 the difference aside rather than picking a winner. Bushiroad's English site
