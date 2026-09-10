@@ -14,13 +14,16 @@
 // cannot churn when TCGplayer later adds an edition to a product.
 //
 // The name parentheticals TCGplayer decorates products with are told
-// apart per collector number, the same way cmd/onepiece does: a
-// parenthetical every product of a number carries is part of the card's
-// name (Speed Duel deck letters, the alternate arts that are the number's
-// whole identity); a qualifier that merely restates the product's own
-// Rarity — spelled out, shorthanded ("UTR"), or with "Rare" elided
-// ("Starfoil") — is dropped as redundant with the rarity field; whatever
-// remains is the variant label the matcher narrows on.
+// apart by the card list: a parenthetical that appears in YGOPRODeck's
+// name for the card printed at the number - "Call of the Haunted (Skill
+// Card)", "Concours de Cuisine (Culinary Confrontation)" - is part of the
+// card's name, and one it does not is the variant label the matcher
+// narrows on. A number the list does not name keeps the older rule, a
+// parenthetical every product of the number carries. A qualifier naming a
+// rarity - the product's own, spelled out, shorthanded ("UTR") or with
+// "Rare" elided ("Starfoil"), or any other the category prints at - is a
+// rarity and never a promotion, and one that names a rarity other than
+// the product's own is reported as the catalog contradicting itself.
 //
 // Sets are the catalog groups, kept separate per print run (LOB and its
 // 25th Anniversary reissue are different sets). Group abbreviations
@@ -286,6 +289,50 @@ func restatesRarity(qual, rarity string) bool {
 	return q == r || q+" rare" == r || normRarity(rarityShorthand[qual]) == r
 }
 
+// namesARarity is the rarity a qualifier names, or "" where it names none.
+// A rarity is not a promotion whichever rarity it is: the catalog writes
+// "(ScR)" beside a Secret Rare it files as one, "(Starlight Rare)" beside a
+// product it files Starfoil, and "(Emblazoned)" beside a Secret Rare where
+// its own rarity table holds "Emblazoned Secret Rare". Read as promo types
+// they declared a printing promotional for being the rarity it is; where
+// the rarity named is not the one filed, the catalog contradicts itself
+// and the disagreement is reported rather than published either way.
+//
+// rarities are the category's own, as normRarity spells them, each mapped
+// to the catalog's spelling. A qualifier names one when it is one, is one
+// with "Rare" left off, is one of the abbreviations the catalog writes, or
+// is a word the catalog puts in front of the product's own rarity to make
+// another it lists ("Emblazoned" before "Secret Rare"). "Duel Terminal" on
+// a Duel Terminal Technology Common names none: it opens the rarity rather
+// than being one, and it is the wording a listing carries and the loader
+// reads, so it stays the label it is.
+func namesARarity(qual, rarity string, rarities map[string]string) string {
+	q := normRarity(qual)
+	// "Promo" is a rarity the category prints at and the word every
+	// promotional product might wear; on "Vice Dragon (Promo)", filed
+	// Ultra Rare, it is the second.
+	if q == "" || q == "promo" {
+		return ""
+	}
+	for _, candidate := range []string{q, q + " rare", normRarity(rarityShorthand[qual])} {
+		if _, listed := rarities[candidate]; candidate != "" && listed {
+			return candidate
+		}
+	}
+	r := normRarity(rarity)
+	if _, listed := rarities[q+" "+r]; r != "" && listed {
+		return q + " " + r
+	}
+	return ""
+}
+
+// isYear reports whether a bare run of digits is a year rather than a
+// number: "(2020)" on a Lost Art promo dates it, and the date rule below
+// wants to read it.
+func isYear(digits string) bool {
+	return len(digits) == 4 && (strings.HasPrefix(digits, "19") || strings.HasPrefix(digits, "20"))
+}
+
 // handDates are release dates for the groups neither source can date: the
 // catalog stamps its request time on them and YGOPRODeck has no set to
 // join. Each is researched, not guessed, and keyed by the group id, which
@@ -414,31 +461,54 @@ type single struct {
 	number   string
 	baseName string
 	quals    []string
+	// rarity is the rarity the entry is published at: the one the product
+	// is filed under, unless its own name says another the category
+	// prints at, which is the more particular of the two claims and the
+	// one that keeps an Emblazoned Secret Rare from being the plain one a
+	// second time. rarityNamed is the qualifier that said so, for the log.
+	rarity      string
+	rarityNamed string
 }
 
 // decompose strips the collector number worn as decoration (a dash
 // suffix, a parenthetical repeat, a bare numeric parenthetical) and the
 // qualifiers that only restate the product's Rarity, keeping the rest for
 // the name-versus-variant call made per collector number below.
-func decompose(p tcgplayer.Product, num string) single {
+func decompose(p tcgplayer.Product, num string, rarities map[string]string) single {
 	name := p.Name
-	name = strings.ReplaceAll(name, " - "+num, "")
-	rarity := rarityOf(p)
+	if num != "" {
+		name = strings.ReplaceAll(name, " - "+num, "")
+	}
+	filed := rarityOf(p)
+	rarity := filed
 
 	var quals []string
+	var rarityNamed string
 	name = parenRe.ReplaceAllStringFunc(name, func(m string) string {
 		q := strings.TrimSpace(strings.Trim(strings.TrimSpace(m), "()"))
-		if bareNumRe.MatchString(q) || strings.EqualFold(q, num) || restatesRarity(q, rarity) {
+		if (bareNumRe.MatchString(q) && !isYear(q)) || strings.EqualFold(q, num) || restatesRarity(q, filed) {
 			return ""
+		}
+		// A qualifier naming another rarity the category prints at is the
+		// product's rarity, said more particularly than the field the
+		// product is filed under: the entry is published at the rarity the
+		// name says. The wording stays in the variant, where a listing's
+		// wording is read; the promo-type fold drops it as the echo of the
+		// rarity it now is.
+		if named := namesARarity(q, filed, rarities); named != "" && named != normRarity(filed) {
+			rarityNamed = q
+			rarity = rarities[named]
 		}
 		quals = append(quals, q)
 		return ""
 	})
 	return single{
-		product:  p,
-		number:   num,
-		baseName: strings.Join(strings.Fields(name), " "),
-		quals:    quals,
+		product:     p,
+		number:      num,
+		baseName:    strings.Join(strings.Fields(name), " "),
+		quals:       quals,
+		rarity:      rarity,
+		rarityNamed: rarityNamed,
 	}
 }
 
@@ -837,6 +907,15 @@ func main() {
 
 	printings := printingNames(&catalog)
 
+	// The rarities the category prints at, as the catalog spells them, so
+	// a qualifier naming one is read as the rarity it is.
+	rarities := map[string]string{}
+	for _, rarity := range catalog.Rarities {
+		if r := normRarity(rarity.DisplayText); r != "" {
+			rarities[r] = strings.TrimSpace(rarity.DisplayText)
+		}
+	}
+
 	// Split the products: every single becomes card entries, the
 	// non-single types become sealed. "N/A" is the catalog's spelling for
 	// a product with no number, and a product with none is still a card.
@@ -862,9 +941,23 @@ func main() {
 		if num == "" {
 			unnumbered++
 		}
-		singles = append(singles, decompose(product, num))
+		singles = append(singles, decompose(product, num, rarities))
 	}
 	log.Printf("singles: %d kept (%d without a collector number)", len(singles), unnumbered)
+	var misfiled []string
+	for _, s := range singles {
+		if s.rarityNamed != "" {
+			misfiled = append(misfiled, fmt.Sprintf("%s %q (%d) is filed %q and published as %q", s.number, s.rarityNamed, s.product.ProductID, rarityOf(s.product), s.rarity))
+		}
+	}
+	if len(misfiled) > 0 {
+		sort.Strings(misfiled)
+		shown := misfiled
+		if len(shown) > 6 {
+			shown = shown[:6]
+		}
+		log.Printf("rarity: %d products name a rarity in the product name other than the one they are filed under, and are published at the one they name, e.g. %s", len(misfiled), strings.Join(shown, "; "))
+	}
 	var unrated int
 	for _, s := range singles {
 		if rarityOf(s.product) == "" {
@@ -895,6 +988,48 @@ func main() {
 		key := fmt.Sprintf("%d|%s", singles[i].product.GroupID, singles[i].number)
 		byNumber[key] = append(byNumber[key], &singles[i])
 	}
+	// Which parentheticals are part of a card's name is the card list's
+	// to say. YGOPRODeck names the card printed at a number, and a
+	// qualifier that appears in parentheses in that name - "(Skill
+	// Card)", "(Culinary Confrontation)" - is the card's name; any other is
+	// the printing's variant. The vote below, a parenthetical every product
+	// of a number carries, is kept for the numbers the list does not name.
+	// It was right where it fired and wrong twice where it happened to:
+	// two rarities of ROD-EN001 both wearing "(Reshef of Destruction)"
+	// made a video game's title a card's name, and SBC1-ENA01's two
+	// wearing "(A)" put a deck letter into forty names while the other
+	// letters were dropped as the number said twice. Both cards the list
+	// names plainly.
+	upstreamName := func(s *single) string {
+		if s.number == "" {
+			return ""
+		}
+		number := strings.ToUpper(s.number)
+		passcode, found := codes.byNumber[number]
+		if !found {
+			passcode, found = codes.byNumberRarity[number+"|"+normRarity(s.rarity)]
+		}
+		if !found {
+			return ""
+		}
+		return codes.nameOf[passcode]
+	}
+	witnessed := func(s *single, qual string) (bool, bool) {
+		name := upstreamName(s)
+		if name == "" {
+			return false, false
+		}
+		return strings.Contains(strings.ToLower(name), "("+strings.ToLower(qual)+")"), true
+	}
+	// A Speed Duel deck letter is the one parenthetical the vote goes on
+	// deciding whether the list names the card plainly or not: the loader
+	// reads "Dark Magician Girl (A)" as a name of its own and pins it, so
+	// which side of that line the letters sit on is a decision the two
+	// repositories make together, not one this build makes alone.
+	deckLetter := func(qual string) bool {
+		return artworkLetter(promoSlug(qual))
+	}
+	var witnessedNames, votedNames int
 	nameParens := map[string]bool{}
 	for _, bucket := range byNumber {
 		sort.Slice(bucket, func(i, j int) bool {
@@ -932,9 +1067,29 @@ func main() {
 		// Decide before mutating: the membership test must read every
 		// product's original qualifiers, not the ones a fold already moved.
 		isName := map[string]bool{}
-		if len(bucket) < 2 {
+		if upstreamName(bucket[0]) != "" {
+			common := map[string]int{}
+			for _, s := range bucket {
+				for _, q := range s.quals {
+					common[q]++
+					if named, _ := witnessed(s, q); named {
+						isName[q] = true
+						witnessedNames++
+					}
+				}
+			}
+			for q, n := range common {
+				if deckLetter(q) && !isName[q] && (n == len(bucket) && len(bucket) > 1 || len(bucket) == 1 && nameParens[q]) {
+					isName[q] = true
+					votedNames += n
+				}
+			}
+		} else if len(bucket) < 2 {
 			for _, q := range bucket[0].quals {
 				isName[q] = nameParens[q]
+				if isName[q] {
+					votedNames++
+				}
 			}
 		} else {
 			common := map[string]int{}
@@ -945,6 +1100,9 @@ func main() {
 			}
 			for q, n := range common {
 				isName[q] = n == len(bucket) && !isTreatment(q)
+				if isName[q] {
+					votedNames += n
+				}
 			}
 		}
 		for _, s := range bucket {
@@ -957,6 +1115,8 @@ func main() {
 		}
 		assemble(&singles[i], nameParens)
 	}
+	log.Printf("names: %d parentheticals kept in a name on the card list's word, %d by the vote where the list names no card",
+		witnessedNames, votedNames)
 
 	// Emit. Sets are the catalog groups that hold anything; ids embed the
 	// product id so they survive any upstream renumbering. An empty group
@@ -1064,7 +1224,7 @@ func main() {
 				number := strings.ToUpper(s.number)
 				passcode, found := codes.byNumber[number]
 				if !found {
-					passcode, found = codes.byNumberRarity[number+"|"+normRarity(rarityOf(s.product))]
+					passcode, found = codes.byNumberRarity[number+"|"+normRarity(s.rarity)]
 				}
 				if found {
 					if other, named := codes.byName[normalizeName(name)]; named && other != passcode && !disambiguated(codes.nameOf[passcode], name) {
@@ -1082,7 +1242,7 @@ func main() {
 				"id":        idBase(s.number, productID) + suffix,
 				"name":      name,
 				"setCode":   cardSet(s),
-				"rarity":    rarityOf(s.product),
+				"rarity":    s.rarity,
 				"attribute": attribute(s.product),
 				"type":      cardType,
 				"finish":    finish,
@@ -1132,7 +1292,7 @@ func main() {
 		}
 	}
 	log.Printf("konami passcodes: %d of %d entries annotated, %d products withheld where the name contradicts the number", passcoded, len(cards), len(contradicted))
-	dropped, tokens, dated, marked, doubled, spoken := foldPromoTypes(cards, sets)
+	dropped, tokens, dated, marked, doubled, spoken := foldPromoTypes(cards, sets, rarities)
 	log.Printf("languages: %d printings printed in a language of their own", spoken)
 	log.Printf("watermarks: %d printings marked by which printing of the number they are", marked)
 	if doubled > 0 {
@@ -1500,8 +1660,9 @@ var numberish = regexp.MustCompile(`^[a-z]$|^[0-9]{1,4}$|^[a-z0-9]{1,5}(en|de|fr
 // videoGameSets are the sets whose printings came with a video game or a
 // boxed release. The set says that much, so the title of the one it came with
 // is which release rather than what promoted it - and the variant keeps the
-// title whole.
-var videoGameSets = map[string]bool{"VDP": true, "VBX": true}
+// title whole. ROD is one game's own shelf, "Reshef of Destruction", whose
+// three cards the catalog decorates with the title all the same.
+var videoGameSets = map[string]bool{"VDP": true, "VBX": true, "ROD": true}
 
 // videoGamePromo is the token a release title is carried under.
 const videoGamePromo = "videogame"
@@ -1741,7 +1902,7 @@ func shorterName(tag string, named map[string]bool) string {
 // printing is told from its siblings by the foil colour alone: "Blue-Eyes
 // White Dragon" is DL09-EN001 in silver and in bronze, one number and one
 // rarity between them, so the colour is what a promo type is for.
-func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int, int) {
+func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string) (int, int, int, int, int, int) {
 	type held struct {
 		item    map[string]any
 		kept    []string
@@ -1778,7 +1939,17 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int, 
 				spoken++
 				continue
 			}
-			if mark, rest := printMark(tag); mark != "" && !videoGameSets[set] {
+			// A colour is set aside rather than published outright: it is
+			// the ink of a Duelist League printing, where it is the whole
+			// of what tells the siblings apart and the pass below hands it
+			// back, and it is the artwork's colour on "Token: Ojama" in
+			// yellow, green and black at three numbers, where it is not.
+			if mark, rest := printMark(tag); mark != "" && printColors[mark] && !videoGameSets[set] {
+				row.marks = append(row.marks, mark)
+				if tag = rest; tag == "" {
+					continue
+				}
+			} else if mark != "" && !videoGameSets[set] {
 				if held, worn := item["watermark"]; worn && held != mark {
 					// Nothing wears two marks today. If a catalog ever
 					// says otherwise, the second stays a promo type
@@ -1812,6 +1983,7 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int, 
 				row.marks = append(row.marks, slug)
 			case numberish.MatchString(slug) || numberSays(number, slug),
 				slug == promoSlug(rarity) || slug == initials(rarity),
+				namesARarity(tag, rarity, rarities) == normRarity(rarity),
 				subjects[tag]:
 				row.dropped = append(row.dropped, slug)
 			case !slices.Contains(row.kept, tag):
@@ -1897,16 +2069,18 @@ func foldPromoTypes(cards []any, sets map[string]any) (int, int, int, int, int, 
 	for _, r := range rows {
 		kept := r.kept
 		if shared[identity(r)] > 1 {
-			kept = append(slices.Clone(kept), r.dropped...)
-			// A mark goes back as the mark it is. Only the letters reach
-			// here, and only where the letter is the whole of what tells
-			// two printings apart - the three artworks of "Dark Magician
-			// Girl" at RA03-EN123, where OP09's three tokens are told
-			// apart by their names and RA03-EN051's (A) and (B) by the
-			// promo types beside them.
+			// A mark goes back as the mark it is, and first: the ink of a
+			// Duelist League printing or the letter of an artwork is the
+			// whole of what tells the siblings apart - the three artworks
+			// of "Dark Magician Girl" at RA03-EN123, the four inks of
+			// "Penguin Soldier" at DL18-EN002 - and with it back the
+			// number the label also restated has nothing left to tell.
+			// The dropped labels go back only where no mark does.
 			if len(r.marks) > 0 && r.item["watermark"] == nil {
 				r.item["watermark"] = r.marks[0]
 				marked++
+			} else {
+				kept = append(slices.Clone(kept), r.dropped...)
 			}
 		} else {
 			dropped += len(r.dropped) + len(r.marks)
