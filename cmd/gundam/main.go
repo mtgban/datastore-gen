@@ -56,6 +56,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -145,13 +146,28 @@ var handCarriedPrintings = []handCarried{
 // sell of this kind are all filed there.
 const promoSetCode = "GCG-PR"
 
+// upstreamClient bounds a fetch from the community mirror: a hung upstream
+// hangs the publish otherwise, since http.Get waits forever.
+var upstreamClient = &http.Client{Timeout: 3 * time.Minute}
+
+// upstreamGet fetches a URL as this build, named, so the mirror's logs can
+// tell it from a browser.
+func upstreamGet(location string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, location, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "datastore-gen/1.0 (+https://github.com/mtgban/datastore-gen)")
+	return upstreamClient.Do(req)
+}
+
 // fetch reads a local path or an http location, so a build can be pinned to
 // a file and the default can be the live URL.
 func fetch(location string) ([]byte, error) {
 	if !strings.HasPrefix(location, "http://") && !strings.HasPrefix(location, "https://") {
 		return os.ReadFile(location)
 	}
-	resp, err := http.Get(location)
+	resp, err := upstreamGet(location)
 	if err != nil {
 		return nil, err
 	}

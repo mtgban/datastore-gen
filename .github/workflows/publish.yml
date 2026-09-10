@@ -203,6 +203,12 @@ jobs:
           fi
           go run ./cmd/${{ matrix.game }} -tcg-catalog tcgplayer-catalog.json \
             $args -baseline-fit baseline.fit -o ${{ matrix.game }}.json
+
+          # The promo-type rules every builder follows, held against the
+          # file about to be published rather than trusted. The README has
+          # called this the check to run before publishing since it was
+          # written; nothing ran it.
+          STORE_DIR=. go test ./internal/vocabulary -run TestPublishedVocabulary -count=1
           # Consumers decompress by suffix (simplecloud.InitReader), so the
           # published object keeps the .xz extension.
           xz -9 ${{ matrix.game }}.json

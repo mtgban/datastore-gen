@@ -133,7 +133,10 @@ build_at() {
   local g=$1 sha=$2 out="$WORK/$1-${2:0:12}.json"
   [ -f "$out" ] && { echo "$out"; return 0; }
   git -C "$BUILD" checkout -q --detach "$sha" || return 1
-  [ -d "$BUILD/cmd/$g" ] || return 1
+  # A commit before the builder existed built nothing: measured against an
+  # empty datastore, so the commit that adds a builder is tagged for what
+  # it published rather than skipped as unbuildable at its parent.
+  [ -d "$BUILD/cmd/$g" ] || { printf '{"cards":[],"sets":{},"sealed":[]}' > "$out"; echo "$out"; return 0; }
   local args=""
   for kv in $(upstream_flags "$g"); do
     local name=${kv%%=*} path=${kv#*=}
