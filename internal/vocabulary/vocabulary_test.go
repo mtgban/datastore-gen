@@ -134,3 +134,27 @@ func TestFinishesAreReadFromEitherShape(t *testing.T) {
 		t.Errorf("two finishes of one card read as alike: %v", found.Lines())
 	}
 }
+
+// TestPrintingTokensAreHeldToTheRules pins that a token on a printing - the
+// treatment lorcana moved off the card and onto the foil that has it - is
+// read with the card's, so a printing publishing words rather than a slug is
+// found and two printings told apart by their treatments are not alike.
+func TestPrintingTokensAreHeldToTheRules(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "game.json")
+	body := `{"cards":[{"id":1,"name":"Simba","number":4,"setCode":3,
+		"printings":[{"finish":"Cold Foil","id":"1_foil","promoTypes":["free form"]},{"finish":"Holofoil","id":"1_holofoil","promoTypes":["rainbowpillars"]}]}]}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	printings, err := ReadDatastore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := Check(printings, nil)
+	if len(found.NotSlugs) != 1 || found.NotSlugs[0] != "free form" {
+		t.Errorf("Check() found %v, want the printing's own token reported", found.Lines())
+	}
+	if len(found.Alike) != 0 {
+		t.Errorf("two treatments of one card read as alike: %v", found.Lines())
+	}
+}

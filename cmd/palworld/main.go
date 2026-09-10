@@ -60,6 +60,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -132,6 +133,21 @@ func japaneseNumber(number string) string {
 	return strings.TrimPrefix(number, "E")
 }
 
+// upstreamClient bounds a fetch from the community mirror: a hung upstream
+// hangs the publish otherwise, since http.Get waits forever.
+var upstreamClient = &http.Client{Timeout: 3 * time.Minute}
+
+// upstreamGet fetches a URL as this build, named, so the mirror's logs can
+// tell it from a browser.
+func upstreamGet(location string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, location, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "datastore-gen/1.0 (+https://github.com/mtgban/datastore-gen)")
+	return upstreamClient.Do(req)
+}
+
 // fetchCards reads the whole card list, following the API's paging. A local
 // path is read instead when one is given, so a build can be pinned to a
 // file; such a file may hold either one page's object or a bare array.
@@ -155,7 +171,7 @@ func fetchCards(location string) ([]palworldCard, error) {
 	// A page count nothing sane reaches, so a server answering with a
 	// cycle of next links stops the build rather than running forever.
 	for i := 0; location != "" && i < 200; i++ {
-		resp, err := http.Get(location)
+		resp, err := upstreamGet(location)
 		if err != nil {
 			return nil, err
 		}

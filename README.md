@@ -104,15 +104,15 @@ hold. Current counts:
 
 | builder | upstream cards minted | sets minted |
 |---|---|---|
-| lorcana | 203 catalog products upstream has no card for | 0 |
-| fleshandblood | 210 entries over 210 collector numbers | 5 |
-| pokemon | 909 entries over 883 tcgdex cards | 39 |
-| onepiece | 18 pre-errata printings, hand-carried | 0 |
+| lorcana | 212 catalog products upstream has no card for | 2 |
+| fleshandblood | 205 entries over 205 collector numbers | 5 |
+| pokemon | 257 entries over 867 tcgdex cards | 38 |
+| onepiece | 49 pre-errata printings, hand-carried | 0 |
 
 One Piece mints from neither source: the catalog carries every number
 Bandai publishes, and Bandai files an errata as a correction to a card
 rather than as a new printing, so neither knows the pre-errata print runs
-that collectors and marketplaces price separately. Those 18 are carried by
+that collectors and marketplaces price separately. Those 49 are carried by
 hand in `cmd/onepiece`, keyed on CardTrader's blueprint id and reading
 finish, artwork and rarity from the printing each is an errata of. A row
 stands down the day any source carries its identity, so the hand-carried
@@ -133,7 +133,7 @@ holding no card is not this datastore's to price.
 That holds today without a rule enforcing it, and it holds structurally: the
 sealed side is whatever a game's own category dump does not type as a card,
 and TCGplayer files supplies under a category of their own, so they never
-reach a builder. All six games were checked in 2026-09: no accessory-only
+reach a builder. All eight games were checked in 2026-09: no accessory-only
 entry in any of them.
 
 It is worth saying anyway, because the obvious way to enforce it is wrong. A
@@ -227,20 +227,26 @@ go run ./cmd/lorcana        -tcg-catalog tcgplayer-catalog.json -lorcana allCard
 go run ./cmd/onepiece       -tcg-catalog tcgplayer-catalog.json -o onepiece.json
 go run ./cmd/yugioh         -tcg-catalog tcgplayer-catalog.json -o yugioh.json
 go run ./cmd/fleshandblood  -tcg-catalog tcgplayer-catalog.json -o fleshandblood.json
-go run ./cmd/pokemon        -tcg-catalog tcgplayer-catalog.json -o pokemon.json
+go run ./cmd/pokemon        -tcg-catalog tcgplayer-catalog.json -cardmarket-catalog cardmarket_catalog.json -o pokemon.json
+go run ./cmd/gundam         -tcg-catalog tcgplayer-catalog.json -o gundam.json
+go run ./cmd/palworld       -tcg-catalog tcgplayer-catalog.json -o palworld.json
 ```
 
-`-lorcana` is the one required upstream flag; the others default to their
-public URLs. `cmd/pokemon` additionally takes `-tcgdex-sets` and
-`-tcgdex-cards` to read saved GraphQL responses instead of querying the
-live API, and `-tcgdex-cache <dir>` to keep the last good responses: the
+`-lorcana` and `-cardmarket-catalog` are the two required upstream flags -
+the Cardmarket catalog mkmcatalog publishes is the only source of the
+stamped promos cmd/pokemon mints, and a build without it would publish a
+datastore quietly missing them; the other upstreams default to their public
+URLs. `cmd/pokemon` additionally takes `-tcgdex-sets`, `-tcgdex-cards` and
+`-pokemontcg-sets` to read saved responses instead of querying the live
+APIs, and `-upstream-cache <dir>` to keep the last good responses: each
 live API is asked first and refreshes the cache whenever it answers, and
-when it is unreachable the cached responses stand in, dated in the log,
+when one is unreachable the cached response stands in, dated in the log,
 rather than the publish being lost — the workflow keeps that cache in the
 bucket beside the datastore. `cmd/fleshandblood` takes `-fab-cards` and
-`-fab-sets`, and `cmd/riftbound` takes `-gallery` to read a saved
-card-gallery payload. Every builder takes `-against`,
-`-against-tolerance` and `-baseline-fit`.
+`-fab-sets`, `cmd/riftbound` takes `-gallery` to read a saved card-gallery
+payload, `cmd/gundam` takes `-gcg-cards` and `cmd/palworld`
+`-palworld-cards`. Every builder takes `-against`, `-against-tolerance` and
+`-baseline-fit`.
 
 The dump itself is written by tcgdumper
 (github.com/mtgban/go-tcgplayer/cmd/tcgdumper) and published nightly beside

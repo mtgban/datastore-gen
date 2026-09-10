@@ -143,11 +143,19 @@ func ReadDatastore(path string) ([]Printing, error) {
 			finished := printing
 			finished.ID = say(held["id"])
 			finished.Finish = say(held["finish"])
+			// A printing's own tokens - the treatment a foil is printed in,
+			// which lorcana moved off the card and onto the printing - are
+			// held to the rules with the card's, and tell the printing
+			// apart with them.
+			if tokens := tokensOf(held["promoTypes"]); len(tokens) > 0 {
+				finished.PromoTypes = append(append([]string(nil), printing.PromoTypes...), tokens...)
+			}
 			finished.Facts = map[string]any{}
 			for key, value := range facts {
 				finished.Facts[key] = value
 			}
 			finished.Facts["finish"] = finished.Finish
+			finished.Facts["printingPromoTypes"] = fmt.Sprint(tokensOf(held["promoTypes"]))
 			out = append(out, finished)
 		}
 	}
