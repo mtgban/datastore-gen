@@ -283,6 +283,13 @@ func universalVarnishes(items []any) map[string]bool {
 		if !ok {
 			continue
 		}
+		// Over upstream's cards alone. A minted product carries the
+		// catalog's rarity and no varnish, and one filed at a varnished
+		// rarity - a foreign listing of a set's Legendary - would break
+		// the rarity's unanimity and hand every card of it a label.
+		if id, known := cardID(item["id"]); known && id < 0 {
+			continue
+		}
 		set, _ := item["setCode"].(string)
 		rarity, _ := item["rarity"].(string)
 		total[set+"|"+rarity]++
@@ -672,15 +679,30 @@ func productLanguage(names map[int]string, product tcgplayer.Product) string {
 	return names[ids[0]]
 }
 
-// normalizeName reduces a name to what two spellings of the same card share:
-// TCGplayer drops diacritics ("Te Ka" for "Te Kā") and appends storefront
-// decoration in parentheses, neither of which is part of the card's identity.
+// latinAccents spell the accented letters upstream writes the way the
+// catalog writes them: LorcanaJSON names "Te Kā" and "Félix Madrigal" and
+// TCGplayer "Te Ka" and "Felix Madrigal". Without the fold the two never
+// meet, and every one of those cards is found today only because it already
+// arrives with a product id; the day upstream drops one, or TCGplayer lists
+// a "(Foil)" of one, the product would be minted as a second card.
+var latinAccents = strings.NewReplacer(
+	"á", "a", "à", "a", "â", "a", "ä", "a", "ā", "a", "ã", "a",
+	"é", "e", "è", "e", "ê", "e", "ë", "e", "ē", "e",
+	"í", "i", "ì", "i", "î", "i", "ï", "i", "ī", "i",
+	"ó", "o", "ò", "o", "ô", "o", "ö", "o", "ō", "o", "õ", "o",
+	"ú", "u", "ù", "u", "û", "u", "ü", "u", "ū", "u",
+	"ñ", "n", "ç", "c",
+)
+
+// normalizeName reduces a card name to what the two sources share: the
+// part before any parenthetical, lower-cased, accents folded, letters and
+// digits only.
 func normalizeName(name string) string {
 	if idx := strings.IndexByte(name, '('); idx >= 0 {
 		name = name[:idx]
 	}
 	var b strings.Builder
-	for _, r := range strings.ToLower(name) {
+	for _, r := range latinAccents.Replace(strings.ToLower(name)) {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			b.WriteRune(r)
 		}
@@ -1249,11 +1271,21 @@ func main() {
 			continue
 		}
 		if _, found := sets[code]; !found {
-			sets[code] = map[string]any{
+			set := map[string]any{
 				"name":        group.Name,
 				"releaseDate": group.ReleaseDate(),
-				"type":        "promo",
 			}
+			// The type is what makes every card of the set promotional
+			// to the matcher, so only a group that says it is one carries
+			// it. The two minted today, D23 and the promo cards, do; a
+			// main set TCGplayer opens before LorcanaJSON lists it would
+			// have been typed promo just for arriving first.
+			if strings.Contains(strings.ToLower(group.Name), "promo") {
+				set["type"] = "promo"
+			} else {
+				log.Printf("%s (%s): minted set is not a promo shelf, and carries no type", group.Name, code)
+			}
+			sets[code] = set
 			log.Printf("%s (%s): set minted for %d products", group.Name, code, count)
 		}
 	}

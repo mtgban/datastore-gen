@@ -185,3 +185,21 @@ func TestFinishesSoldNamesTheCatalog(t *testing.T) {
 		t.Errorf("finishesSold(no catalog) = %v, want %v", got, want)
 	}
 }
+
+// TestNormalizeNameFoldsAccents pins that the two sources' spellings of one
+// name meet: LorcanaJSON writes "Te Kā" and "Félix Madrigal" where the
+// catalog writes "Te Ka" and "Felix Madrigal", and a join that kept the
+// accent found every one of those cards only because it already carried a
+// product id.
+func TestNormalizeNameFoldsAccents(t *testing.T) {
+	for _, test := range []struct{ a, b string }{
+		{"Te Kā - Heartless", "Te Ka - Heartless"},
+		{"Félix Madrigal", "Felix Madrigal"},
+		{"Ariel - On Human Legs (Foil)", "Ariel - On Human Legs"},
+	} {
+		if normalizeName(test.a) != normalizeName(test.b) {
+			t.Errorf("normalizeName(%q) = %q, normalizeName(%q) = %q; want the same key",
+				test.a, normalizeName(test.a), test.b, normalizeName(test.b))
+		}
+	}
+}
