@@ -697,7 +697,7 @@ func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool
 		// forty-five of them over 150 printings, every one also the name of
 		// a card this datastore carries. Nothing promoted a DON!! card for
 		// having Nami on it, so the character stays the variant it is.
-		if name == donCardName && (cardNames[strings.ToLower(qual)] || donSubjects[strings.ToLower(qual)]) {
+		if name == donCardName && (cardNames[epithetKey(qual)] || donSubjects[strings.ToLower(qual)]) {
 			// Published as the mark it is, and not held back for the
 			// collision guard: every DON!! card is named "DON!! Card" at
 			// one number, so the character is the only thing a listing can
@@ -1695,9 +1695,13 @@ func main() {
 	// The names this datastore carries, which is how a label naming a
 	// character is told from one naming a treatment: every character label
 	// sits on a DON!! card, and every one of them is a card of its own.
+	// Keyed the way the epithets are compared, since the catalog spells one
+	// character two ways: "Rocks.D.Xebec" on his cards and "Rocks D. Xebec"
+	// on the DON!! card that pictures him, which read as a promotion until
+	// the dots and spaces came off both.
 	cardNames := map[string]bool{}
 	for i := range singles {
-		cardNames[strings.ToLower(singles[i].baseName)] = true
+		cardNames[epithetKey(singles[i].baseName)] = true
 	}
 
 	var cards []any
