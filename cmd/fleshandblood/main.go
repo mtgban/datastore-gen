@@ -131,6 +131,9 @@ type fabRow struct {
 	Foiling   string `json:"foiling"`
 	Edition   string `json:"edition"`
 	ImageURL  string `json:"image_url"`
+	// Pitch is the value the card pitches for, 1 to 3, which the catalog
+	// also carries as "Pitch Value" and gets wrong now and then.
+	Pitch string `json:"pitch"`
 }
 
 // fabSet is the slice of a the-fab-cube set this build reads, the name and
@@ -325,6 +328,11 @@ type single struct {
 	number   string
 	baseName string
 	quals    []string
+	// color is the pitch colour the entry is published with: the one the
+	// product's own name says, else the one the dataset gives the printing,
+	// else the catalog's Pitch Value, which contradicts the name on
+	// twenty-odd products.
+	color string
 }
 
 // decompose strips the collector number worn as decoration and pulls the
@@ -714,6 +722,9 @@ func main() {
 		groupOfCard[s.product.ProductID] = s.product.GroupID
 	}
 	fabIDsByProduct := map[int][]string{}
+	// The pitch the dataset gives each product's printings, kept where
+	// every printing of the product agrees.
+	pitchByProduct := map[int]map[string]bool{}
 	// The card product a dataset number is sold as, by the product id the
 	// dataset writes on its rows. It is what decides below whether a number
 	// is carried: the catalog spells a number its own way often enough -
@@ -741,6 +752,12 @@ func main() {
 		}
 		if !sliceContains(fabIDsByProduct[productID], row.ID) {
 			fabIDsByProduct[productID] = append(fabIDsByProduct[productID], row.ID)
+		}
+		if color := pitchColors[strings.TrimSpace(row.Pitch)]; color != "" {
+			if pitchByProduct[productID] == nil {
+				pitchByProduct[productID] = map[string]bool{}
+			}
+			pitchByProduct[productID][color] = true
 		}
 		if !cardProducts[productID] {
 			continue
@@ -779,6 +796,53 @@ func main() {
 	}
 	if uncovered > 0 {
 		log.Printf("uncovered printings by set: %v", uncoveredBySet)
+	}
+
+	// A product the catalog files with no collector number, whose every
+	// dataset row is one printing, is that printing: it takes the number
+	// the dataset gives it, which is the fabId it already carried. Left
+	// unnumbered it could not be asked for by number at all.
+	var numbered int
+	for i := range singles {
+		s := &singles[i]
+		if s.number != "" {
+			continue
+		}
+		if id, found := fabIDs[s.product.ProductID]; found {
+			s.number = id
+			numbered++
+			log.Printf("number: %q (%d) carries no collector number; the dataset files its one printing at %s", s.product.Name, s.product.ProductID, id)
+		}
+	}
+	if numbered > 0 {
+		log.Printf("number: %d unnumbered products took their number from the dataset", numbered)
+	}
+
+	// The pitch colour, from the three places it is written. The name is
+	// first: "(Red)" on the product is the colour the card is sold as, and
+	// the catalog's Pitch Value field contradicts it on twenty-odd
+	// products - "Life of the Party (Red)" with a Pitch Value of 2. The
+	// dataset's pitch is next, for the products the catalog names without
+	// a colour, and the field is last, for the printings the dataset does
+	// not map. The field's disagreements are counted rather than trusted.
+	var fieldDisagrees int
+	for i := range singles {
+		s := &singles[i]
+		field := pitchColor(s.product)
+		s.color = field
+		if match := pitchInName.FindStringSubmatch(s.baseName); match != nil {
+			s.color = match[1]
+		} else if pitches := pitchByProduct[s.product.ProductID]; len(pitches) == 1 {
+			for color := range pitches {
+				s.color = color
+			}
+		}
+		if field != "" && s.color != field {
+			fieldDisagrees++
+		}
+	}
+	if fieldDisagrees > 0 {
+		log.Printf("color: the catalog's Pitch Value disagrees with the name or the dataset on %d products; the name and the dataset win", fieldDisagrees)
 	}
 
 	// The other direction, which nothing counted before: a dataset row
@@ -1095,8 +1159,8 @@ func main() {
 			if s.number != "" {
 				entry["number"] = numberOf(s.number)
 			}
-			if color := pitchColor(s.product); color != "" {
-				entry["color"] = color
+			if s.color != "" {
+				entry["color"] = s.color
 			}
 			if language != "" {
 				entry["language"] = language
@@ -1605,6 +1669,11 @@ func plainPrinting(c *tcgplayer.CatalogDump) string {
 // catalog carries "1".
 var pitchColors = map[string]string{"1": "Red", "2": "Yellow", "3": "Blue"}
 
+// pitchInName is the pitch colour a product's name carries, which is the
+// game's own way of naming a card: "Snatch (Red)" is a different card from
+// "Snatch (Blue)".
+var pitchInName = regexp.MustCompile(`\((Red|Yellow|Blue)\)`)
+
 // pitchColor is the colour a product pitches for, empty where it pitches for
 // nothing - a hero, an equipment, a token, all of which the catalog writes as
 // "0" or "-" - or where the value is not one the game has.
@@ -1674,8 +1743,11 @@ var subjects = map[string]bool{
 	"middle left": true, "middle center": true, "middle right": true,
 	"bottom left": true, "bottom center": true, "bottom right": true,
 	"left": true, "center": true, "right": true,
-	// A colour the card does not pitch for, so not its own.
-	"purple": true,
+	// A pitch colour: the card's own is published as its colour and the
+	// tag repeating it is dropped above, and another card's - "Yellow
+	// FAB385" on the card numbered FAB384, saying where that version is
+	// filed - promoted nothing.
+	"red": true, "yellow": true, "blue": true, "purple": true,
 	// Whose deck it came in.
 	"dorinthea": true, "rhinar": true,
 	// What it depicts.
