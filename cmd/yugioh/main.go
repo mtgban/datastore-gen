@@ -58,8 +58,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/mtgban/datastore-gen/internal/baseline"
-	"github.com/mtgban/go-tcgplayer"
 	"io"
 	"log"
 	"net/http"
@@ -70,6 +68,10 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/mtgban/datastore-gen/internal/baseline"
+	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/go-tcgplayer"
 )
 
 const (
@@ -198,12 +200,6 @@ func konamiIDs(cards []ygoCard) passcodes {
 // not another card wearing its name.
 func disambiguated(upstream, catalog string) bool {
 	return strings.HasPrefix(strings.ToLower(upstream), strings.ToLower(catalog)+" (")
-}
-
-// imageURL upgrades a catalog image link to the 400-wide rendition; the
-// dump links the smallest one there is.
-func imageURL(url string) string {
-	return strings.Replace(url, "_200w.", "_400w.", 1)
 }
 
 // idBase mints the id stem an entry's edition suffix hangs off: the
@@ -1027,7 +1023,7 @@ func main() {
 	// which side of that line the letters sit on is a decision the two
 	// repositories make together, not one this build makes alone.
 	deckLetter := func(qual string) bool {
-		return artworkLetter(promoSlug(qual))
+		return artworkLetter(emit.PromoSlug(qual))
 	}
 	var witnessedNames, votedNames int
 	nameParens := map[string]bool{}
@@ -1210,7 +1206,7 @@ func main() {
 			name = corrected
 		}
 		for _, finish := range printings[productID] {
-			suffix := finishSuffix(finish)
+			suffix := emit.FinishSuffix(finish)
 			links := map[string]any{"tcgPlayerId": productID}
 			// The passcode the collector number names, and where the
 			// number names several cards, the one its rarity picks out.
@@ -1246,7 +1242,7 @@ func main() {
 				"attribute": attribute(s.product),
 				"type":      cardType,
 				"finish":    finish,
-				"image":     imageURL(s.product.ImageURL),
+				"image":     emit.ImageURL(s.product.ImageURL),
 
 				"externalLinks": links,
 			}
@@ -1275,7 +1271,7 @@ func main() {
 			"name":        product.Name,
 			"setCode":     code,
 			"releaseDate": releaseDates[product.GroupID],
-			"image":       imageURL(product.ImageURL),
+			"image":       emit.ImageURL(product.ImageURL),
 			"externalLinks": map[string]any{
 				"tcgPlayerId": product.ProductID,
 			},
@@ -1314,7 +1310,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
-	plainQuotes(doc)
+	emit.PlainQuotes(doc)
 
 	if err := json.NewEncoder(&buf).Encode(doc); err != nil {
 		log.Fatalln(err)
@@ -1565,86 +1561,6 @@ func sliceContains(haystack []string, needle string) bool {
 	return false
 }
 
-// typographic is the quotes a catalog spells with and no consumer queries
-// with.
-var typographic = strings.NewReplacer(
-	"\u2018", "'", "\u2019", "'", "\u201c", `"`, "\u201d", `"`)
-
-// plainQuotes rewrites those quotes wherever the document carries them.
-// The catalogs are not consistent about it: TCGplayer sells "Rocket's
-// Hitmonchan" with a curly apostrophe beside hundreds of names holding a
-// plain one, files two Yu-Gi-Oh rarities as "Ultra Pharaoh's Rare" while
-// every other name uses ASCII, and spells one One Piece card
-// Eustass"Captain"Kid on the card and Eustass"Captain"Kid on the box it
-// comes in. A query carries one spelling, so the card filed under the
-// other cannot be found, and the two rarities cannot be asked for at all.
-//
-// The whole document is walked rather than the fields known to carry
-// them, because the field that starts carrying them tomorrow would
-// otherwise be missed, and it runs before the output is encoded so the
-// check that re-reads it sees exactly what will be published.
-func plainQuotes(v any) any {
-	switch t := v.(type) {
-	case string:
-		return typographic.Replace(t)
-	case map[string]any:
-		for k, e := range t {
-			t[k] = plainQuotes(e)
-		}
-	case []any:
-		for i, e := range t {
-			t[i] = plainQuotes(e)
-		}
-	}
-	return v
-}
-
-// finishSuffix is the id suffix a printing's entries carry: nothing for the
-// plain printing, and the printing's own name for every other. TCGplayer
-// calls a plain printing "Normal" in every category, which is the one
-// convention here rather than a list of this category's printings - those
-// are the catalog's to name, to add to and to rename, and every one of them
-// reaches an id without a release.
-func finishSuffix(name string) string {
-	if slug := finishSlug(name); slug != "" && slug != "normal" {
-		return "_" + slug
-	}
-	return ""
-}
-
-// finishSlug spells a printing name the way an id carries it.
-func finishSlug(name string) string {
-	var out strings.Builder
-	for _, r := range strings.ToLower(name) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			out.WriteRune(r)
-		}
-	}
-	return out.String()
-}
-
-// plainPrinting is the catalog's name for the printing a bare id belongs to,
-// or "" where the category has none - Yu-Gi-Oh prices its cards by print run
-// and sells no printing it calls plain.
-func plainPrinting(c *tcgplayer.CatalogDump) string {
-	for _, printing := range c.Printings {
-		if finishSlug(printing.Name) == "normal" {
-			return printing.Name
-		}
-	}
-	return ""
-}
-
-// promoSlugRe is everything a promo type is spelled without.
-var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
-
-// promoSlug spells a label the way every promo type here is spelled: lower
-// case, letters and digits and nothing else. The words a reader is shown are
-// the variant beside it, which this build already writes.
-func promoSlug(label string) string {
-	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
-}
-
 // numberish is a qualifier that is a collector number rather than a
 // promotion: the letter a lettered printing is told apart by, which the
 // number already carries ("Dark Magician" is YGLD-ENB02 and carried "b"), a
@@ -1726,7 +1642,7 @@ func numberSays(number, slug string) bool {
 	for _, part := range strings.FieldsFunc(number, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	}) {
-		if promoSlug(part) == slug {
+		if emit.PromoSlug(part) == slug {
 			return true
 		}
 	}
@@ -1883,7 +1799,7 @@ func shorterName(tag string, named map[string]bool) string {
 			return head
 		}
 	}
-	if len(words) > 2 && len(promoSlug(tag)) > promoTypeLimit {
+	if len(words) > 2 && len(emit.PromoSlug(tag)) > promoTypeLimit {
 		cut := 2
 		for cut < len(words) && trailingWords[strings.ToLower(words[cut-1])] {
 			cut++
@@ -1968,7 +1884,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 				dated++
 			}
 			tag = generalPromotion(tag)
-			slug := promoSlug(tag)
+			slug := emit.PromoSlug(tag)
 			switch {
 			case slug == "":
 			// A qualifier the number already carries, one that is the card's
@@ -1982,7 +1898,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 			case artworkLetter(slug):
 				row.marks = append(row.marks, slug)
 			case numberish.MatchString(slug) || numberSays(number, slug),
-				slug == promoSlug(rarity) || slug == initials(rarity),
+				slug == emit.PromoSlug(rarity) || slug == initials(rarity),
 				namesARarity(tag, rarity, rarities) == normRarity(rarity),
 				subjects[tag]:
 				row.dropped = append(row.dropped, slug)
@@ -2042,7 +1958,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 			folded[tag] = videoGamePromo
 			continue
 		}
-		folded[tag] = promoSlug(shorterName(tag, named))
+		folded[tag] = emit.PromoSlug(shorterName(tag, named))
 	}
 	foldedIdentity := func(r held) string {
 		var out []string
@@ -2060,7 +1976,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 	for _, r := range rows {
 		if joined[foldedIdentity(r)] > shared[identity(r)] {
 			for _, tag := range r.kept {
-				folded[tag] = promoSlug(tag)
+				folded[tag] = emit.PromoSlug(tag)
 			}
 		}
 	}
@@ -2094,7 +2010,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 		for _, tag := range kept {
 			slug, known := folded[tag]
 			if !known {
-				slug = promoSlug(tag)
+				slug = emit.PromoSlug(tag)
 			}
 			if slug == "" || slices.Contains(written, slug) {
 				continue

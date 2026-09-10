@@ -51,7 +51,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/mtgban/datastore-gen/internal/baseline"
 	"io"
 	"log"
 	"net/http"
@@ -61,6 +60,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/mtgban/datastore-gen/internal/baseline"
+	"github.com/mtgban/datastore-gen/internal/emit"
 
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -208,12 +210,6 @@ func fetchCards(location string) ([]palworldCard, error) {
 // catalog names them for this game; everything else is sealed by exclusion.
 var tcgSingles = tcgplayer.SinglesProductTypes(palworldCategory)
 
-// imageURL asks the catalog's CDN for the larger rendition. The dump
-// carries the thumbnail size; the same URL one size up is the card.
-func imageURL(url string) string {
-	return strings.Replace(url, "_200w.", "_400w.", 1)
-}
-
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
 
 // soulCardName is what every Soul card is called, which is why the label on
@@ -238,15 +234,6 @@ func palNames(singles []single) map[string]bool {
 	return out
 }
 
-// promoSlugRe is everything a promo type is spelled without.
-var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
-
-// promoSlug spells a label the way every promo type here is spelled: lower
-// case, letters and digits and nothing else.
-func promoSlug(label string) string {
-	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
-}
-
 // promoTypesOf is the labels a printing carries, one at a time and
 // lowercased the way every datastore here spells a promo type. The Pal a
 // Soul card pictures is not one: nothing promoted a Soul for having Nox on
@@ -265,7 +252,7 @@ func promoTypesOf(name string, quals []string, pals map[string]bool) []string {
 		// consumer keys on, and the words a reader is shown are the variant
 		// beside it, which this build already writes. The Pal check above
 		// reads the words, so the slugging happens after it.
-		if slug := promoSlug(tag); slug != "" && !slices.Contains(out, slug) {
+		if slug := emit.PromoSlug(tag); slug != "" && !slices.Contains(out, slug) {
 			out = append(out, slug)
 		}
 	}
@@ -694,14 +681,14 @@ func main() {
 	var cards []any
 	for _, s := range singles {
 		productID := s.product.ProductID
-		for _, finish := range orderedFinishes(printings[productID], displayOrder) {
+		for _, finish := range emit.OrderedFinishes(printings[productID], displayOrder) {
 			entry := map[string]any{
-				"id":      idBase(s.number, productID) + finishSuffix(finish),
+				"id":      idBase(s.number, productID) + emit.FinishSuffix(finish),
 				"name":    s.baseName,
 				"setCode": codes[s.product.GroupID],
 				"rarity":  s.product.Extended("Rarity"),
 				"finish":  finish,
-				"image":   imageURL(s.product.ImageURL),
+				"image":   emit.ImageURL(s.product.ImageURL),
 				"externalLinks": map[string]any{
 					"tcgPlayerId": productID,
 				},
@@ -777,7 +764,7 @@ func main() {
 			"number":  number,
 			"setCode": code,
 			"rarity":  rarity,
-			"finish":  plainPrinting(&catalog),
+			"finish":  emit.PlainPrinting(&catalog),
 		}
 		if u.CardType != "" {
 			entry["type"] = u.CardType
@@ -805,7 +792,7 @@ func main() {
 			"name":        product.Name,
 			"setCode":     codes[group.GroupID],
 			"releaseDate": group.ReleaseDate(),
-			"image":       imageURL(product.ImageURL),
+			"image":       emit.ImageURL(product.ImageURL),
 			"externalLinks": map[string]any{
 				"tcgPlayerId": product.ProductID,
 			},
@@ -825,7 +812,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
-	plainQuotes(doc)
+	emit.PlainQuotes(doc)
 
 	if err := json.NewEncoder(&buf).Encode(doc); err != nil {
 		log.Fatalln(err)
@@ -1073,50 +1060,6 @@ func sliceContains(haystack []string, needle string) bool {
 	return false
 }
 
-// typographic is the quotes a catalog spells with and no consumer queries
-// with.
-var typographic = strings.NewReplacer(
-	"‘", "'", "’", "'", "“", `"`, "”", `"`)
-
-// plainQuotes rewrites those quotes wherever the document carries them. The
-// catalogs are not consistent about it, and a query carries one spelling,
-// so the card filed under the other cannot be found.
-//
-// The whole document is walked rather than the fields known to carry them,
-// because the field that starts carrying them tomorrow would otherwise be
-// missed, and it runs before the output is encoded so the check that
-// re-reads it sees exactly what will be published.
-func plainQuotes(v any) any {
-	switch t := v.(type) {
-	case string:
-		return typographic.Replace(t)
-	case map[string]any:
-		for k, e := range t {
-			t[k] = plainQuotes(e)
-		}
-	case []any:
-		for i, e := range t {
-			t[i] = plainQuotes(e)
-		}
-	}
-	return v
-}
-
-// orderedFinishes fixes the order a product's entries are emitted in: the
-// order TCGplayer displays the category's printings in, which is the
-// catalog's to decide. Two printings can share a displayOrder, so the name
-// settles a tie and unchanged data keeps producing byte-identical output.
-func orderedFinishes(names []string, rank map[string]int) []string {
-	out := slices.Clone(names)
-	sort.SliceStable(out, func(i, j int) bool {
-		if ri, rj := rank[out[i]], rank[out[j]]; ri != rj {
-			return ri < rj
-		}
-		return out[i] < out[j]
-	})
-	return out
-}
-
 // printingDisplayOrder is where each of a category's printings sits in the
 // order TCGplayer displays them.
 func printingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
@@ -1125,40 +1068,4 @@ func printingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
 		rank[p.Name] = p.DisplayOrder
 	}
 	return rank
-}
-
-// finishSuffix is the id suffix a printing's entries carry: nothing for the
-// plain printing, and the printing's own name for every other. TCGplayer
-// calls a plain printing "Normal" in every category, which is the one
-// convention here rather than a list of this category's printings - those
-// are the catalog's to name, to add to and to rename, and every one of them
-// reaches an id without a release.
-func finishSuffix(name string) string {
-	if slug := finishSlug(name); slug != "" && slug != "normal" {
-		return "_" + slug
-	}
-	return ""
-}
-
-// finishSlug spells a printing name the way an id carries it.
-func finishSlug(name string) string {
-	var out strings.Builder
-	for _, r := range strings.ToLower(name) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			out.WriteRune(r)
-		}
-	}
-	return out.String()
-}
-
-// plainPrinting is the catalog's name for the printing a bare id belongs to,
-// or "" where the category has none - Yu-Gi-Oh prices its cards by print run
-// and sells no printing it calls plain.
-func plainPrinting(c *tcgplayer.CatalogDump) string {
-	for _, printing := range c.Printings {
-		if finishSlug(printing.Name) == "normal" {
-			return printing.Name
-		}
-	}
-	return ""
 }

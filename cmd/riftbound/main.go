@@ -35,8 +35,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/mtgban/datastore-gen/internal/baseline"
-	"github.com/mtgban/go-tcgplayer"
 	"io"
 	"log"
 	"net/http"
@@ -46,6 +44,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/mtgban/datastore-gen/internal/baseline"
+	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/go-tcgplayer"
 )
 
 const (
@@ -103,12 +105,6 @@ func fetch(url string) ([]byte, error) {
 
 // releaseDate reduces a group's publishedOn timestamp to the bare day the
 // loader parses ("2025-10-31T00:00:00" -> "2025-10-31").
-
-// imageURL upgrades a catalog image link to the 400-wide rendition; the
-// dump links the smallest one there is.
-func imageURL(url string) string {
-	return strings.Replace(url, "_200w.", "_400w.", 1)
-}
 
 // tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
 // for a category, published next to the datastore it describes.
@@ -322,7 +318,7 @@ func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string
 			},
 		},
 		"cardImage": map[string]any{
-			"url": imageURL(product.ImageURL),
+			"url": emit.ImageURL(product.ImageURL),
 		},
 	}
 	if len(promoTypes) > 0 {
@@ -375,10 +371,10 @@ func keptQualifiers(qualifiers []string, number string) []string {
 // stamping it would put "Starter" in a variant as well, and a storefront
 // that named it once would have to name it twice to be found.
 func unnamedQualifiers(qualifiers []string, name string) []string {
-	folded := promoSlug(name)
+	folded := emit.PromoSlug(name)
 	out := make([]string, 0, len(qualifiers))
 	for _, qualifier := range qualifiers {
-		if slug := promoSlug(qualifier); slug != "" && strings.Contains(folded, slug) {
+		if slug := emit.PromoSlug(qualifier); slug != "" && strings.Contains(folded, slug) {
 			continue
 		}
 		out = append(out, qualifier)
@@ -392,7 +388,7 @@ func promoTypesOf(qualifiers []string, number string) []string {
 	kept := keptQualifiers(qualifiers, number)
 	out := make([]string, 0, len(kept))
 	for _, qualifier := range kept {
-		if slug := promoSlug(qualifier); slug != "" && !slices.Contains(out, slug) {
+		if slug := emit.PromoSlug(qualifier); slug != "" && !slices.Contains(out, slug) {
 			out = append(out, slug)
 		}
 	}
@@ -412,18 +408,6 @@ func printingUUID(id, finish string) string {
 		return id
 	}
 	return id + "_" + canonical
-}
-
-// promoSlugRe is everything a promo type is spelled without.
-var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
-
-// promoSlug spells a qualifier the way every promo type here is spelled:
-// lower case, letters and digits and nothing else. It is a token for a
-// consumer to interpret and a query to carry, not words for a reader - what
-// a promotion is shown as is the loader's to decide, and a data file that
-// spells one for display has decided it for every consumer at once.
-func promoSlug(label string) string {
-	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
 }
 
 func splitQualifiers(name string) (string, []string) {
@@ -880,7 +864,7 @@ func main() {
 					},
 				},
 				"cardImage": map[string]any{
-					"url": imageURL(product.ImageURL),
+					"url": emit.ImageURL(product.ImageURL),
 				},
 			}
 			if len(promoTypes) > 0 {
@@ -940,7 +924,7 @@ func main() {
 					},
 				},
 				"cardImage": map[string]any{
-					"url": imageURL(product.ImageURL),
+					"url": emit.ImageURL(product.ImageURL),
 				},
 			})
 		}
@@ -1073,7 +1057,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
-	plainQuotes(doc)
+	emit.PlainQuotes(doc)
 
 	if err := json.NewEncoder(&buf).Encode(doc); err != nil {
 		log.Fatalln(err)
@@ -1130,38 +1114,4 @@ func main() {
 	if _, err := out.Write(buf.Bytes()); err != nil {
 		log.Fatalln(err)
 	}
-}
-
-// typographic is the quotes a catalog spells with and no consumer queries
-// with.
-var typographic = strings.NewReplacer(
-	"\u2018", "'", "\u2019", "'", "\u201c", `"`, "\u201d", `"`)
-
-// plainQuotes rewrites those quotes wherever the document carries them.
-// The catalogs are not consistent about it: TCGplayer sells "Rocket's
-// Hitmonchan" with a curly apostrophe beside hundreds of names holding a
-// plain one, files two Yu-Gi-Oh rarities as "Ultra Pharaoh's Rare" while
-// every other name uses ASCII, and spells one One Piece card
-// Eustass"Captain"Kid on the card and Eustass"Captain"Kid on the box it
-// comes in. A query carries one spelling, so the card filed under the
-// other cannot be found, and the two rarities cannot be asked for at all.
-//
-// The whole document is walked rather than the fields known to carry
-// them, because the field that starts carrying them tomorrow would
-// otherwise be missed, and it runs before the output is encoded so the
-// check that re-reads it sees exactly what will be published.
-func plainQuotes(v any) any {
-	switch t := v.(type) {
-	case string:
-		return typographic.Replace(t)
-	case map[string]any:
-		for k, e := range t {
-			t[k] = plainQuotes(e)
-		}
-	case []any:
-		for i, e := range t {
-			t[i] = plainQuotes(e)
-		}
-	}
-	return v
 }
