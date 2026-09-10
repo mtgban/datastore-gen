@@ -208,7 +208,11 @@ jobs:
           # file about to be published rather than trusted. The README has
           # called this the check to run before publishing since it was
           # written; nothing ran it.
-          STORE_DIR=. go test ./internal/vocabulary -run TestPublishedVocabulary -count=1
+          # An absolute path: go test runs the binary with the package's own
+          # directory as its working directory, so a relative STORE_DIR is
+          # read from internal/vocabulary rather than from here, and the
+          # check finds nothing to hold the build to.
+          STORE_DIR="$PWD" go test ./internal/vocabulary -run TestPublishedVocabulary -count=1
           # Consumers decompress by suffix (simplecloud.InitReader), so the
           # published object keeps the .xz extension.
           xz -9 ${{ matrix.game }}.json

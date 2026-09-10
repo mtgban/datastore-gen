@@ -52,6 +52,12 @@ func TestPublishedVocabulary(t *testing.T) {
 		})
 	}
 	if read == 0 {
-		t.Fatalf("STORE_DIR %q held no built datastore", root)
+		// Named, because the likeliest reason is that the directory is not
+		// the one meant: go test runs with the package's own directory as
+		// its working directory, so a relative STORE_DIR is read from
+		// there.
+		here, _ := os.Getwd()
+		t.Fatalf("STORE_DIR %q held no built datastore; looked for %s, from %s",
+			root, filepath.Join(root, "<game>.json"), here)
 	}
 }
