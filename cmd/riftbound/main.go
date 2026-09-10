@@ -344,17 +344,48 @@ func unnamedQualifiers(qualifiers []string, name string) []string {
 	return out
 }
 
+// promoParts is the qualifiers the catalog writes as one phrase and this
+// datastore says as the facts they are.
+//
+// TCGplayer files the five T1 Worlds Champion cards under the bundle each
+// copy shipped in - "T1 Worlds Champion Player Bundle" on the T1A run,
+// "T1 Worlds Champion Signature Edition Bundle" on the T1S one - which
+// spells one commemorative run two ways and buries its name in a token
+// 38 characters long that no query can be expected to carry. They are the
+// same promotion; which bundle a copy came in is the second fact about it,
+// the way "Metal" and "Best Of" are two facts on the printings beside them.
+//
+// Only the promo types split. The variant keeps the catalog's phrase whole,
+// so the words a storefront writes are still the words this datastore shows.
+var promoParts = map[string][]string{
+	"T1 Worlds Champion Player Bundle":            {"T1 Worlds Champion", "Player Bundle"},
+	"T1 Worlds Champion Signature Edition Bundle": {"T1 Worlds Champion", "Signature Edition Bundle"},
+}
+
 // promoTypesOf is those labels lowercased, the way every datastore here
 // spells a promo type.
 func promoTypesOf(qualifiers []string, number string) []string {
 	kept := keptQualifiers(qualifiers, number)
 	out := make([]string, 0, len(kept))
 	for _, qualifier := range kept {
-		if slug := emit.PromoSlug(qualifier); slug != "" && !slices.Contains(out, slug) {
-			out = append(out, slug)
+		for _, part := range promoPartsOf(qualifier) {
+			if slug := emit.PromoSlug(part); slug != "" && !slices.Contains(out, slug) {
+				out = append(out, slug)
+			}
 		}
 	}
 	return out
+}
+
+// promoPartsOf is what a qualifier says, which is the qualifier itself
+// wherever it says one thing.
+func promoPartsOf(qualifier string) []string {
+	for phrase, parts := range promoParts {
+		if strings.EqualFold(phrase, qualifier) {
+			return parts
+		}
+	}
+	return []string{qualifier}
 }
 
 // printingUUID is the uuid a printing is quoted by: the card's id with the
