@@ -115,6 +115,17 @@ var upstreamSet = map[string]string{
 	"PROMO": "PR",
 }
 
+// upstreamSetCode is the set code of ours an upstream card's set answers
+// to: the code the catalog abbreviates the same set with, through the alias
+// table where the two differ.
+func upstreamSetCode(u palworldCard) string {
+	abbreviation := u.SetCode
+	if aliased, found := upstreamSet[abbreviation]; found {
+		abbreviation = aliased
+	}
+	return setCodeOf(abbreviation)
+}
+
 // englishNumber is the collector number as the English printing carries it.
 // Bushiroad numbers the English cards with an E the Japanese ones do not
 // have, the upstream publishes the Japanese form, and the catalog publishes
@@ -618,6 +629,52 @@ func main() {
 
 	pals := palNames(singles)
 
+	upstream, err := fetchCards(*palworldCards)
+	if err != nil {
+		log.Fatalln("palworldtcg:", err)
+	}
+	// Stable order, so unchanged data keeps producing byte-identical output.
+	sort.Slice(upstream, func(i, j int) bool {
+		return upstream[i].Number < upstream[j].Number
+	})
+
+	// A product the catalog files with no collector number is a card the
+	// game does number, and the list upstream publishes says which: the
+	// one Super Special Soul of the booster set is SOUL-002, and the
+	// catalog's "Soul (SSS)" of that set at that rarity is it. Left
+	// unnumbered, the product cannot cover its own number, and the mint
+	// below adds the card a second time beside it, unpriced, with a
+	// finish nothing sells it in. Only where upstream names exactly one
+	// card of that set, name and rarity: two would be a guess.
+	var numbered int
+	for i := range singles {
+		s := &singles[i]
+		if s.number != "" {
+			continue
+		}
+		code := codes[s.product.GroupID]
+		rarity := s.product.Extended("Rarity")
+		var matches []palworldCard
+		for _, u := range upstream {
+			if upstreamSetCode(u) != code || !strings.EqualFold(u.Name, s.baseName) || upstreamRarity[u.Rarity] != rarity {
+				continue
+			}
+			matches = append(matches, u)
+		}
+		if len(matches) != 1 {
+			log.Printf("number: %q (%d) carries no collector number and upstream names %d cards of that name and rarity in %s; kept unnumbered",
+				s.product.Name, s.product.ProductID, len(matches), code)
+			continue
+		}
+		s.number = englishNumber(matches[0].Number)
+		numbered++
+		log.Printf("number: %q (%d) carries no collector number; upstream files the %s %q of %s at %s",
+			s.product.Name, s.product.ProductID, rarity, s.baseName, code, s.number)
+	}
+	if numbered > 0 {
+		log.Printf("number: %d unnumbered products took their number from upstream", numbered)
+	}
+
 	var cards []any
 	for _, s := range singles {
 		productID := s.product.ProductID
@@ -659,10 +716,6 @@ func main() {
 	// shares its number. Its id holds no product id at all, which is what
 	// keeps the two namespaces apart: a catalog id always carries
 	// "_<product id>" before its finish suffix and a minted one never can.
-	upstream, err := fetchCards(*palworldCards)
-	if err != nil {
-		log.Fatalln("palworldtcg:", err)
-	}
 	// The catalog files each rarity at a number of its own and the
 	// upstream folds them into the base card, so a base number the catalog
 	// sells covers every printing upstream knows about.
@@ -672,21 +725,13 @@ func main() {
 			carriedNumbers[japaneseNumber(s.number)] = true
 		}
 	}
-	// Stable order, so unchanged data keeps producing byte-identical output.
-	sort.Slice(upstream, func(i, j int) bool {
-		return upstream[i].Number < upstream[j].Number
-	})
 	var minted, unplaced, unrated int
 	mintedIDs := map[string]bool{}
 	for _, u := range upstream {
 		if u.Number == "" || carriedNumbers[japaneseNumber(u.Number)] {
 			continue
 		}
-		abbreviation := u.SetCode
-		if aliased, found := upstreamSet[abbreviation]; found {
-			abbreviation = aliased
-		}
-		code := setCodeOf(abbreviation)
+		code := upstreamSetCode(u)
 		if _, known := sets[code]; !known {
 			// A card whose set this datastore does not carry has nowhere
 			// to be filed, and a set invented for it would be a set no
