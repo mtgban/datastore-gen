@@ -58,9 +58,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"regexp"
 	"slices"
@@ -210,22 +208,6 @@ func idBase(num string, productID int) string {
 		return strconv.Itoa(productID)
 	}
 	return strings.ToLower(num) + "_" + strconv.Itoa(productID)
-}
-
-// fetch reads a local path, or an http(s) URL when one is given.
-func fetch(location string) ([]byte, error) {
-	if !strings.HasPrefix(location, "http://") && !strings.HasPrefix(location, "https://") {
-		return os.ReadFile(location)
-	}
-	resp, err := http.Get(location)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", location, resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
 }
 
 // normalizeName reduces a set name to what two spellings share, so the
@@ -584,7 +566,7 @@ func main() {
 			catalog.Category.CategoryID, yugiohCategory)
 	}
 
-	setsData, err := fetch(*ygoSets)
+	setsData, err := emit.Fetch(*ygoSets)
 	if err != nil {
 		log.Fatalln("ygoprodeck sets:", err)
 	}
@@ -633,7 +615,7 @@ func main() {
 	// A source that will not answer costs the annotation and nothing else:
 	// the datastore is the catalog's, and the passcode rides along on it.
 	var codes passcodes
-	cardsData, err := fetch(*ygoCards)
+	cardsData, err := emit.Fetch(*ygoCards)
 	if err != nil {
 		log.Printf("ygoprodeck cards: %v (passcodes not annotated)", err)
 	} else {
@@ -1843,7 +1825,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 		if held, ok := sets[set].(map[string]any); ok {
 			setDate = fmt.Sprint(held["releaseDate"])
 		}
-		for _, tag := range stringsOf(item["promoTypes"]) {
+		for _, tag := range emit.StringsOf(item["promoTypes"]) {
 			if name, found := promoTypeNames[tag]; found {
 				tag = name
 			}
@@ -2025,22 +2007,4 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 		r.item["promoTypes"] = out
 	}
 	return dropped, len(tokens), dated, marked, doubled, spoken
-}
-
-// stringsOf reads a list of strings back off an entry, which holds them as
-// []string before the document is encoded and []any after.
-func stringsOf(value any) []string {
-	switch list := value.(type) {
-	case []string:
-		return list
-	case []any:
-		out := make([]string, 0, len(list))
-		for _, raw := range list {
-			if s, ok := raw.(string); ok && s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	return nil
 }

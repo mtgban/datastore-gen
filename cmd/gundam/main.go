@@ -47,15 +47,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
@@ -147,38 +144,6 @@ var handCarriedPrintings = []handCarried{
 // and so where a hand-carried one belongs: the printings TCGplayer does
 // sell of this kind are all filed there.
 const promoSetCode = "GCG-PR"
-
-// upstreamClient bounds a fetch from the community mirror: a hung upstream
-// hangs the publish otherwise, since http.Get waits forever.
-var upstreamClient = &http.Client{Timeout: 3 * time.Minute}
-
-// upstreamGet fetches a URL as this build, named, so the mirror's logs can
-// tell it from a browser.
-func upstreamGet(location string) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, location, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "datastore-gen/1.0 (+https://github.com/mtgban/datastore-gen)")
-	return upstreamClient.Do(req)
-}
-
-// fetch reads a local path or an http location, so a build can be pinned to
-// a file and the default can be the live URL.
-func fetch(location string) ([]byte, error) {
-	if !strings.HasPrefix(location, "http://") && !strings.HasPrefix(location, "https://") {
-		return os.ReadFile(location)
-	}
-	resp, err := upstreamGet(location)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: %s", location, resp.Status)
-	}
-	return io.ReadAll(resp.Body)
-}
 
 // tcgSingles are the product types single cards are filed under, as the
 // catalog names them for this game; everything else is sealed by exclusion.
@@ -743,7 +708,7 @@ func main() {
 
 	// The list, read here for the names it gives the cards and again
 	// below for the cards the catalog does not sell.
-	upstreamData, err := fetch(*gcgCards)
+	upstreamData, err := emit.Fetch(*gcgCards)
 	if err != nil {
 		log.Fatalln("gcg-api:", err)
 	}
@@ -1421,24 +1386,6 @@ func printingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
 	return rank
 }
 
-// stringsOf reads a list of strings back off a decoded entry, which holds
-// them as []any once they have been through the map the document is built in.
-func stringsOf(value any) []string {
-	switch list := value.(type) {
-	case []string:
-		return list
-	case []any:
-		out := make([]string, 0, len(list))
-		for _, raw := range list {
-			if s, ok := raw.(string); ok && s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	return nil
-}
-
 // promoTypeLimit is how long a promo type may read before only its first two
 // words are kept. A token is what a query carries and what a reader sees
 // beside a price, and "premiumaccessorysetmobilesuitgundamwing" is neither -
@@ -1464,7 +1411,7 @@ func foldPromoTypes(cards []any) (int, int) {
 		if !ok {
 			continue
 		}
-		for _, tag := range stringsOf(item["promoTypes"]) {
+		for _, tag := range emit.StringsOf(item["promoTypes"]) {
 			named[tag] = true
 		}
 	}
@@ -1481,7 +1428,7 @@ func foldPromoTypes(cards []any) (int, int) {
 		if !ok {
 			continue
 		}
-		was := stringsOf(item["promoTypes"])
+		was := emit.StringsOf(item["promoTypes"])
 		if len(was) == 0 {
 			continue
 		}

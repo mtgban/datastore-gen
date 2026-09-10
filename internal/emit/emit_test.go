@@ -1,8 +1,13 @@
 package emit
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/mtgban/go-tcgplayer"
@@ -116,5 +121,51 @@ func TestImageURLTakesTheLargerRendition(t *testing.T) {
 	}
 	if got := ImageURL("plain.jpg"); got != "plain.jpg" {
 		t.Errorf("ImageURL(plain.jpg) = %q", got)
+	}
+}
+
+// TestFetchReadsAFileOrTheWire pins the two sides of a location: a path is
+// read as it is, a URL is fetched as this build, named, and a status other
+// than 200 is an error naming the location.
+func TestFetchReadsAFileOrTheWire(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "held.json")
+	if err := os.WriteFile(path, []byte(`{"held":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Fetch(path); err != nil || string(got) != `{"held":true}` {
+		t.Errorf("Fetch(file) = %q, %v", got, err)
+	}
+	var agent string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		agent = r.Header.Get("User-Agent")
+		if r.URL.Path == "/missing" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"live":true}`))
+	}))
+	defer server.Close()
+	if got, err := Fetch(server.URL + "/list"); err != nil || string(got) != `{"live":true}` {
+		t.Errorf("Fetch(url) = %q, %v", got, err)
+	}
+	if !strings.HasPrefix(agent, "datastore-gen/") {
+		t.Errorf("fetched as %q, want this build named", agent)
+	}
+	if _, err := Fetch(server.URL + "/missing"); err == nil || !strings.HasSuffix(err.Error(), ": HTTP 404") {
+		t.Errorf("Fetch(missing) = %v, want the status named", err)
+	}
+}
+
+// TestStringsOfReadsBothShapes pins the list before and after encoding, and
+// that an empty string in it is nothing.
+func TestStringsOfReadsBothShapes(t *testing.T) {
+	if got := StringsOf([]string{"a", "b"}); !slices.Equal(got, []string{"a", "b"}) {
+		t.Errorf("StringsOf([]string) = %v", got)
+	}
+	if got := StringsOf([]any{"a", "", 3, "b"}); !slices.Equal(got, []string{"a", "b"}) {
+		t.Errorf("StringsOf([]any) = %v", got)
+	}
+	if got := StringsOf("a"); got != nil {
+		t.Errorf("StringsOf(string) = %v, want nil", got)
 	}
 }

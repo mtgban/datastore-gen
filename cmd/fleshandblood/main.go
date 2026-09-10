@@ -74,9 +74,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"regexp"
 	"slices"
@@ -253,22 +251,6 @@ func productLanguage(names map[int]string, product tcgplayer.Product) string {
 			product.Name, product.ProductID, len(ids))
 	}
 	return names[ids[0]]
-}
-
-// fetch reads a local path, or an http(s) URL when one is given.
-func fetch(location string) ([]byte, error) {
-	if !strings.HasPrefix(location, "http://") && !strings.HasPrefix(location, "https://") {
-		return os.ReadFile(location)
-	}
-	resp, err := http.Get(location)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", location, resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
 }
 
 // lowered folds a label list to the spelling the matcher declares tags in.
@@ -560,11 +542,11 @@ func main() {
 			catalog.Category.CategoryID, fabCategory)
 	}
 
-	fabData, err := fetch(*fabCards)
+	fabData, err := emit.Fetch(*fabCards)
 	if err != nil {
 		log.Fatalln("fab dataset:", err)
 	}
-	setsData, err := fetch(*fabSets)
+	setsData, err := emit.Fetch(*fabSets)
 	if err != nil {
 		log.Fatalln("fab sets:", err)
 	}
@@ -1695,7 +1677,7 @@ func foldPromoTypes(cards []any) (int, int) {
 		number := emit.PromoSlug(fmt.Sprint(item["number"]))
 		color := emit.PromoSlug(fmt.Sprint(item["color"]))
 		rarity := emit.PromoSlug(fmt.Sprint(item["rarity"]))
-		for _, tag := range stringsOf(item["promoTypes"]) {
+		for _, tag := range emit.StringsOf(item["promoTypes"]) {
 			if name, found := promoTypeNames[tag]; found {
 				tag = name
 			}
@@ -1776,22 +1758,4 @@ func foldPromoTypes(cards []any) (int, int) {
 		r.item["promoTypes"] = out
 	}
 	return dropped, len(tokens)
-}
-
-// stringsOf reads a list of strings back off an entry, which holds them as
-// []string before the document is encoded and []any after.
-func stringsOf(value any) []string {
-	switch list := value.(type) {
-	case []string:
-		return list
-	case []any:
-		out := make([]string, 0, len(list))
-		for _, raw := range list {
-			if s, ok := raw.(string); ok && s != "" {
-				out = append(out, s)
-			}
-		}
-		return out
-	}
-	return nil
 }

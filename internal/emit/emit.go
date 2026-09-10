@@ -1,10 +1,12 @@
 // Package emit spells the parts of a datastore every builder writes the same
 // way: the finish suffix an id carries, which printing is the plain one, the
 // order a product's entries come out in, the slug a promo type is, the quotes
-// a name may carry and the image link a card publishes.
+// a name may carry and the image link a card publishes - and reads the two
+// things every builder reads the same way, an upstream list and a list of
+// strings off an entry.
 //
-// Each of these was a function copied into every builder, byte for byte,
-// comment and all - seven of them, in up to eight places. The builders stay
+// Each of these was a function copied into every builder, byte for byte or
+// a spelling apart - nine of them, in up to eight places. The builders stay
 // standalone in the sense that matters: no dependency on go-mtgban, no
 // external module beyond the catalog reader. A package inside this module
 // is neither, and a rule stated once cannot drift between games.
@@ -16,9 +18,14 @@
 package emit
 
 import (
+	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -122,4 +129,56 @@ func PlainQuotes(v any) any {
 // dump links the smallest one there is.
 func ImageURL(url string) string {
 	return strings.Replace(url, "_200w.", "_400w.", 1)
+}
+
+// upstreamClient bounds a fetch from an upstream list: a hung upstream hangs
+// the publish otherwise, since http.Get waits forever.
+var upstreamClient = &http.Client{Timeout: 3 * time.Minute}
+
+// userAgent names this build in an upstream's logs, so the mirror can tell
+// it from a browser.
+const userAgent = "datastore-gen/1.0 (+https://github.com/mtgban/datastore-gen)"
+
+// Fetch reads a local path, or an http(s) location when one is given, so a
+// build can be pinned to a file and the default can be the live URL. Six
+// builders carried this in three spellings: four read the location with
+// http.Get, one named itself and bounded the wait, one pretended to be a
+// browser for a page that serves the same bytes either way.
+func Fetch(location string) ([]byte, error) {
+	if !strings.HasPrefix(location, "http://") && !strings.HasPrefix(location, "https://") {
+		return os.ReadFile(location)
+	}
+	req, err := http.NewRequest(http.MethodGet, location, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := upstreamClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: HTTP %d", location, resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
+}
+
+// StringsOf reads a list of strings back off an entry, which holds them as
+// []string before the document is encoded and []any after. An empty string
+// in the list is nothing and is left out.
+func StringsOf(value any) []string {
+	switch list := value.(type) {
+	case []string:
+		return list
+	case []any:
+		out := make([]string, 0, len(list))
+		for _, raw := range list {
+			if s, ok := raw.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
