@@ -20,8 +20,9 @@
 // products of a bucket into the same (name, variant, rarity) — the "(Holo)"
 // versus "(Non-Holo)" pairs must stay distinguishable. The collector number
 // many names wear as a dash suffix is stripped only when it restates the
-// Number field; a number-like tail that disagrees is warned about and kept,
-// because the typo could be in either field.
+// Number field; a number-like tail that disagrees comes off as well, since
+// no card is named with a number, and is said out loud - the typo could be
+// in either field - while originalName keeps the catalog's wording.
 //
 // Every product the catalog types as a card becomes an entry, and validate
 // refuses a build that left one out: a shape nobody has seen yet stops the
@@ -280,8 +281,17 @@ func loadTcgdex(path, query string) ([]byte, error) {
 // The cache only spans runs if the directory does. On a fresh CI workspace
 // it is empty every time, so the file has to be carried in and out for this
 // to be worth anything there; locally the directory simply persists.
-func cachedFetch(source, cacheDir, cacheName string, fetch func() ([]byte, error)) ([]byte, error) {
+func cachedFetch(source, cacheDir, cacheName string, fetch func() ([]byte, error), check func([]byte) error) ([]byte, error) {
 	data, err := fetch()
+	// A 200 is not an answer. GraphQL reports a failed query as a 200
+	// carrying errors, and a proxy can serve an HTML page as one; written
+	// to the cache unread, either poisons the fallback for every run until
+	// a live fetch succeeds. The answer is decoded before it is kept.
+	if err == nil {
+		if cerr := check(data); cerr != nil {
+			err = fmt.Errorf("%s answered, but not with a response this build can read: %w", source, cerr)
+		}
+	}
 	if err == nil {
 		if cacheDir != "" {
 			if werr := os.WriteFile(filepath.Join(cacheDir, cacheName), data, 0o644); werr != nil {
@@ -302,9 +312,35 @@ func cachedFetch(source, cacheDir, cacheName string, fetch func() ([]byte, error
 	if rerr != nil {
 		return nil, err
 	}
+	if cerr := check(blob); cerr != nil {
+		return nil, fmt.Errorf("%v; and the cached response does not read either: %w", err, cerr)
+	}
 	log.Printf("%s unreachable (%v); using the cached response from %s",
 		source, err, info.ModTime().UTC().Format("2006-01-02 15:04"))
 	return blob, nil
+}
+
+// readsAsEnvelope says whether a tcgdex response decodes as a GraphQL
+// envelope carrying data and no errors, which is what makes it worth
+// keeping.
+func readsAsEnvelope(data []byte) error {
+	var raw json.RawMessage
+	return decodeEnvelope(data, &raw)
+}
+
+// readsAsSets says whether a pokemontcg.io response decodes as a list of
+// sets with something in it.
+func readsAsSets(data []byte) error {
+	var payload struct {
+		Data []pokemontcgSet `json:"data"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	if len(payload.Data) == 0 {
+		return errors.New("the response lists no sets")
+	}
+	return nil
 }
 
 // loadTcgdexCached is loadTcgdex behind that cache. An explicit response
@@ -315,7 +351,7 @@ func loadTcgdexCached(path, cacheDir, cacheName, query string) ([]byte, error) {
 	}
 	return cachedFetch("tcgdex", cacheDir, cacheName, func() ([]byte, error) {
 		return loadTcgdex("", query)
-	})
+	}, readsAsEnvelope)
 }
 
 // decodeEnvelope unwraps a GraphQL response: any errors key is a hard
@@ -470,6 +506,7 @@ func emitNumber(entry map[string]any, number string) {
 // absent rather than guessed at, because there is no one size to report.
 func totalsBySet(cards []any) map[string]string {
 	seen := map[string]map[string]bool{}
+	numbers := map[string]map[string]bool{}
 	for _, item := range cards {
 		entry, isMap := item.(map[string]any)
 		if !isMap {
@@ -482,12 +519,18 @@ func totalsBySet(cards []any) map[string]string {
 		}
 		if seen[code] == nil {
 			seen[code] = map[string]bool{}
+			numbers[code] = map[string]bool{}
 		}
 		seen[code][total] = true
+		number, _ := entry["number"].(string)
+		numbers[code][number] = true
 	}
 	out := map[string]string{}
 	for code, totals := range seen {
-		if len(totals) != 1 {
+		// One total, printed beside more than one number: a set left
+		// holding one card - the World Championship shelf's one undated
+		// product, the e-Reader samples - agrees with itself about nothing.
+		if len(totals) != 1 || len(numbers[code]) < 2 {
 			continue
 		}
 		for total := range totals {
@@ -588,7 +631,7 @@ var bracketTailRe = regexp.MustCompile(`\s*\[([^\]]*)\]$`)
 // like a number but disagrees with the Number field can be warned about.
 // Bare digit runs longer than three are years ("Torchic - 2004"), not
 // numbers.
-var numberLikeRe = regexp.MustCompile(`^(?:[A-Za-z]{1,6}\d{1,4}[a-z]?|\d{1,3}[a-z]?)(?:/(?:[A-Za-z]{1,6}\d{1,4}[a-z]?|\d{1,3}[a-z]?))?$`)
+var numberLikeRe = regexp.MustCompile(`^(?:[A-Za-z]{1,6}\d{1,4}[a-z]?|\d{1,3}[a-z]?)(?:[/-](?:[A-Za-z]{1,6}\d{1,4}[a-z]?|\d{1,3}[a-z]?))?$`)
 
 // qual is one name qualifier with the delimiter style it wore, kept so an
 // elected name part is restored in its own brackets.
@@ -1834,8 +1877,15 @@ func decompose(p tcgplayer.Product, num, year string) (single, int) {
 		}
 		tail := strings.TrimSpace(base[idx+skip:])
 		if !restatesNumber(tail, num) {
+			// A number-shaped tail that disagrees with the Number field is
+			// a number all the same - "Exploud - 3/106" filed at 003/109,
+			// "Jirachi V - 299" at SWSH299 - and no card is named with one.
+			// It comes off the name and is said out loud; originalName
+			// keeps the catalog's wording for the listing that copies it.
 			if skip == 3 && numberLikeRe.MatchString(tail) {
-				log.Printf("dash number: %q keeps tail %q, Number is %q", p.Name, tail, num)
+				log.Printf("dash number: %q drops tail %q, Number is %q", p.Name, tail, num)
+				base = strings.TrimSpace(base[:idx])
+				continue
 			}
 			break
 		}
@@ -2097,7 +2147,7 @@ func loadPokemontcgSets(path, cacheDir string) ([]pokemontcgSet, error) {
 	if path != "" {
 		data, err = os.ReadFile(path)
 	} else {
-		data, err = cachedFetch("pokemontcg.io", cacheDir, "pokemontcg-sets.json", fetchPokemontcgSets)
+		data, err = cachedFetch("pokemontcg.io", cacheDir, "pokemontcg-sets.json", fetchPokemontcgSets, readsAsSets)
 	}
 	if err != nil {
 		return nil, err
@@ -3484,6 +3534,11 @@ func main() {
 		}
 	}
 	mintedSetCode := map[string]string{}
+	// The sets minted here, so the ones the twin refusals below empty can
+	// be taken back out: a set is minted for every set a mintable card sits
+	// in, and a wholly shadowed set - a trainer kit whose every card is one
+	// catalog group's - ends up published with no card in it.
+	mintedSetEntries := map[string]bool{}
 	var mintedSets int
 	for _, card := range mintable {
 		if _, decided := mintedSetCode[card.Set.ID]; decided {
@@ -3517,10 +3572,8 @@ func main() {
 			}
 		}
 		sets[code] = set
+		mintedSetEntries[code] = true
 		mintedSets++
-	}
-	if mintedSets > 0 {
-		log.Printf("sets minted for tcgdex sets no group joined: %d", mintedSets)
 	}
 	// The symbols tcgdex has none of, from pokemontcg.io, which carries one
 	// for every set it lists. Only the sets still without one are asked
@@ -3957,6 +4010,24 @@ func main() {
 		log.Printf("minted: %d entries over %d tcgdex cards the catalog has no product for (%d of those cards have no art upstream, %d took the set's own printed total)",
 			mintedCards, len(mintable), mintedWithoutArt, mintedTotals)
 	}
+	cardsIn := map[string]int{}
+	for _, entry := range cards {
+		if e, isMap := entry.(map[string]any); isMap {
+			code, _ := e["setCode"].(string)
+			cardsIn[code]++
+		}
+	}
+	var emptied int
+	for code := range mintedSetEntries {
+		if cardsIn[code] == 0 {
+			delete(sets, code)
+			emptied++
+		}
+	}
+	if mintedSets > 0 {
+		log.Printf("sets minted for tcgdex sets no group joined: %d, of which %d held no card once the twins were refused and are not published",
+			mintedSets, emptied)
+	}
 
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
@@ -4304,8 +4375,13 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			return out, fmt.Errorf("product %d emits finishes %v, skus carry %v", productID, got, expected)
 		}
 	}
+	setsInUse := map[string]bool{}
+	for _, card := range doc.Cards {
+		setsInUse[card.SetCode] = true
+	}
 	sealedIDs := map[string]bool{}
 	for _, product := range doc.Sealed {
+		setsInUse[product.SetCode] = true
 		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
 			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
 		}
@@ -4318,6 +4394,13 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		sealedIDs[product.ID] = true
 		if _, found := doc.Sets[product.SetCode]; !found {
 			return out, fmt.Errorf("sealed %q in unknown set %s", product.Name, product.SetCode)
+		}
+	}
+	// A set nothing is filed in is dead weight in every consumer, and a
+	// minted one is a card refused after its set was made.
+	for code := range doc.Sets {
+		if !setsInUse[code] {
+			return out, fmt.Errorf("set %s holds no card and no sealed product", code)
 		}
 	}
 	out.sets = len(doc.Sets)
