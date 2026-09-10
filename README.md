@@ -118,10 +118,12 @@ finish, artwork and rarity from the printing each is an errata of. A row
 stands down the day any source carries its identity, so the hand-carried
 entry never becomes a second card wearing a name a product already holds.
 
-Yu-Gi-Oh is the exception: it has no card-level upstream source at all.
-YGOPRODeck's cardinfo.php is deliberately not fetched - their terms forbid
-hotlinking - so only set release dates are joined, and there is no second
-half to add.
+Yu-Gi-Oh is the exception: it mints nothing. YGOPRODeck's cardinfo.php is
+read for Konami's passcodes, joined onto the catalog's printings by
+collector number and checked against the name, and cardsets.php for the
+release dates TCGplayer lacks; no YGOPRODeck image is stored, their terms
+forbidding hotlinking. Neither adds a card the catalog does not sell, so
+there is no second half to add.
 
 ## What a datastore carries
 

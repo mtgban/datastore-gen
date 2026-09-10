@@ -31,9 +31,10 @@
 // YGOPRODeck contributes only what the catalog lacks: groups TCGplayer
 // has no release date for carry the request time as publishedOn instead,
 // and those get the date YGOPRODeck knows, joined by abbreviation first
-// and set name second, only when the join is unambiguous. cardinfo.php is
-// deliberately not fetched and no YGOPRODeck image URL is stored: their
-// terms forbid hotlinking, so images are TCGplayer's alone.
+// and set name second, only when the join is unambiguous; and cardinfo.php
+// lends each printing Konami's passcode, joined by collector number and
+// checked against the name. No YGOPRODeck image URL is stored: their terms
+// forbid hotlinking, so images are TCGplayer's alone.
 //
 // Every product the catalog types as a card becomes an entry, and validate
 // refuses a build that left one out: a shape nobody has seen yet stops the
@@ -113,22 +114,43 @@ type ygoCard struct {
 	} `json:"card_sets"`
 }
 
+// passcodes is what YGOPRODeck's card list says about Konami's passcodes:
+// which card a collector number prints, which card a name is, and what
+// each card is called.
+type passcodes struct {
+	byNumber, byNumberRarity, byName map[string]int
+	nameOf                           map[int]string
+}
+
 // konamiIDs maps a collector number to the passcode of the card printed
 // under it, and where a number names several cards - the same code reused
 // across a set's rarities is one card, but a handful of numbers upstream
-// spells two ways - to the passcode its rarity picks out.
+// spells two ways - to the passcode its rarity picks out. It maps a name to
+// its passcode as well, which is what lets a number's answer be checked
+// against the product's own name: the catalog files two cards at one
+// number now and then, and the number alone hands one of them the other's
+// passcode.
 //
 // The passcode is Konami's own identifier for a card, the one every other
 // Yu-Gi-Oh source keys on, and the datastore carried nothing but a
 // TCGplayer product id until now: a listing naming a passcode had no way
 // in, and no printing could be checked against what upstream says is
 // printed under its number.
-func konamiIDs(cards []ygoCard) (map[string]int, map[string]int) {
+func konamiIDs(cards []ygoCard) passcodes {
 	byNumber := map[string]map[int]bool{}
 	byNumberRarity := map[string]map[int]bool{}
+	byName := map[string]map[int]bool{}
+	nameOf := map[int]string{}
 	for _, card := range cards {
 		if card.ID == 0 {
 			continue
+		}
+		nameOf[card.ID] = card.Name
+		if key := normalizeName(card.Name); key != "" {
+			if byName[key] == nil {
+				byName[key] = map[int]bool{}
+			}
+			byName[key][card.ID] = true
 		}
 		for _, set := range card.Sets {
 			code := strings.ToUpper(strings.TrimSpace(set.Code))
@@ -159,7 +181,20 @@ func konamiIDs(cards []ygoCard) (map[string]int, map[string]int) {
 		}
 		return out
 	}
-	return only(byNumber), only(byNumberRarity)
+	return passcodes{
+		byNumber:       only(byNumber),
+		byNumberRarity: only(byNumberRarity),
+		byName:         only(byName),
+		nameOf:         nameOf,
+	}
+}
+
+// disambiguated reports whether upstream's name for a card is the catalog's
+// name with a suffix in parentheses: "Destiny Draw (Skill Card)" is the
+// Skill Card printed at the number the catalog files "Destiny Draw" under,
+// not another card wearing its name.
+func disambiguated(upstream, catalog string) bool {
+	return strings.HasPrefix(strings.ToLower(upstream), strings.ToLower(catalog)+" (")
 }
 
 // imageURL upgrades a catalog image link to the 400-wide rendition; the
@@ -531,7 +566,7 @@ func main() {
 	// Konami's passcodes, joined onto the printings by collector number.
 	// A source that will not answer costs the annotation and nothing else:
 	// the datastore is the catalog's, and the passcode rides along on it.
-	var passcodeByNumber, passcodeByNumberRarity map[string]int
+	var codes passcodes
 	cardsData, err := fetch(*ygoCards)
 	if err != nil {
 		log.Printf("ygoprodeck cards: %v (passcodes not annotated)", err)
@@ -542,9 +577,9 @@ func main() {
 		if err := json.Unmarshal(cardsData, &payload); err != nil {
 			log.Printf("ygoprodeck cards: %v (passcodes not annotated)", err)
 		} else {
-			passcodeByNumber, passcodeByNumberRarity = konamiIDs(payload.Data)
+			codes = konamiIDs(payload.Data)
 			log.Printf("ygoprodeck cards: %d cards, %d collector numbers naming one passcode",
-				len(payload.Data), len(passcodeByNumber))
+				len(payload.Data), len(codes.byNumber))
 		}
 	}
 
@@ -1003,31 +1038,45 @@ func main() {
 
 	var cards []any
 	var passcoded int
+	contradicted := map[string]bool{}
 	for _, s := range singles {
 		cardType := s.product.Extended("Card Type")
 		if cardType == "" {
 			cardType = s.product.Extended("MonsterType")
 		}
 		productID := s.product.ProductID
+		name := s.baseName
+		if corrected, hand := handNames[productID]; hand {
+			name = corrected
+		}
 		for _, finish := range printings[productID] {
 			suffix := finishSuffix(finish)
 			links := map[string]any{"tcgPlayerId": productID}
 			// The passcode the collector number names, and where the
 			// number names several cards, the one its rarity picks out.
+			// Checked against the name: where the product's own name is
+			// another card upstream knows, the number has handed this one
+			// that card's passcode - the catalog files two cards at one
+			// number now and then - and no passcode is better than the
+			// wrong one. A name upstream does not know is a rename or a
+			// transcription and says nothing against the number.
 			if s.number != "" {
 				number := strings.ToUpper(s.number)
-				passcode, found := passcodeByNumber[number]
+				passcode, found := codes.byNumber[number]
 				if !found {
-					passcode, found = passcodeByNumberRarity[number+"|"+normRarity(rarityOf(s.product))]
+					passcode, found = codes.byNumberRarity[number+"|"+normRarity(rarityOf(s.product))]
+				}
+				if found {
+					if other, named := codes.byName[normalizeName(name)]; named && other != passcode && !disambiguated(codes.nameOf[passcode], name) {
+						contradicted[fmt.Sprintf("%s %q (%d): the number says %d %q, the name says %d",
+							number, name, productID, passcode, codes.nameOf[passcode], other)] = true
+						found = false
+					}
 				}
 				if found {
 					links["konamiId"] = passcode
 					passcoded++
 				}
-			}
-			name := s.baseName
-			if corrected, hand := handNames[productID]; hand {
-				name = corrected
 			}
 			entry := map[string]any{
 				"id":        idBase(s.number, productID) + suffix,
@@ -1072,7 +1121,17 @@ func main() {
 			},
 		})
 	}
-	log.Printf("konami passcodes: %d of %d entries annotated", passcoded, len(cards))
+	if len(contradicted) > 0 {
+		lines := make([]string, 0, len(contradicted))
+		for line := range contradicted {
+			lines = append(lines, line)
+		}
+		sort.Strings(lines)
+		for _, line := range lines {
+			log.Printf("konami passcodes: %s; withheld", line)
+		}
+	}
+	log.Printf("konami passcodes: %d of %d entries annotated, %d products withheld where the name contradicts the number", passcoded, len(cards), len(contradicted))
 	dropped, tokens, dated, marked, doubled, spoken := foldPromoTypes(cards, sets)
 	log.Printf("languages: %d printings printed in a language of their own", spoken)
 	log.Printf("watermarks: %d printings marked by which printing of the number they are", marked)
