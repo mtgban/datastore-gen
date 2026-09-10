@@ -74,8 +74,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/mtgban/datastore-gen/internal/baseline"
-	"github.com/mtgban/go-tcgplayer"
 	"io"
 	"log"
 	"net/http"
@@ -85,6 +83,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/mtgban/datastore-gen/internal/baseline"
+	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/go-tcgplayer"
 )
 
 const (
@@ -193,12 +195,6 @@ var fabFinish = map[string]string{
 	"F|C": "1st Edition Cold Foil",
 	"U|S": "Unlimited Edition Normal",
 	"U|R": "Unlimited Edition Rainbow Foil",
-}
-
-// imageURL upgrades a catalog image link to the 400-wide rendition; the
-// dump links the smallest one there is.
-func imageURL(url string) string {
-	return strings.Replace(url, "_200w.", "_400w.", 1)
 }
 
 // idBase mints the id stem an entry's finish suffix hangs off: the
@@ -1144,14 +1140,14 @@ func main() {
 			nonEnglish++
 		}
 		for _, finish := range printings[productID] {
-			suffix := finishSuffix(finish)
+			suffix := emit.FinishSuffix(finish)
 			entry := map[string]any{
 				"id":      idBase(s.number, productID) + suffix,
 				"name":    s.baseName,
 				"setCode": codes[s.product.GroupID],
 				"rarity":  s.product.Extended("Rarity"),
 				"finish":  finish,
-				"image":   imageURL(s.product.ImageURL),
+				"image":   emit.ImageURL(s.product.ImageURL),
 				"externalLinks": map[string]any{
 					"tcgPlayerId": productID,
 				},
@@ -1213,7 +1209,7 @@ func main() {
 			}
 		}
 		if len(finishes) == 0 {
-			finishes = []string{plainPrinting(&catalog)}
+			finishes = []string{emit.PlainPrinting(&catalog)}
 		}
 		// The same display order the emitted entries are ranked by.
 		sort.SliceStable(finishes, func(i, j int) bool {
@@ -1225,7 +1221,7 @@ func main() {
 
 		for _, finish := range finishes {
 			entry := map[string]any{
-				"id":      mintedIDBase(number) + finishSuffix(finish),
+				"id":      mintedIDBase(number) + emit.FinishSuffix(finish),
 				"name":    row.Name,
 				"number":  numberOf(row.ID),
 				"setCode": code,
@@ -1254,7 +1250,7 @@ func main() {
 			"name":        product.Name,
 			"setCode":     codes[group.GroupID],
 			"releaseDate": group.ReleaseDate(),
-			"image":       imageURL(product.ImageURL),
+			"image":       emit.ImageURL(product.ImageURL),
 			"externalLinks": map[string]any{
 				"tcgPlayerId": product.ProductID,
 			},
@@ -1303,7 +1299,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
-	plainQuotes(doc)
+	emit.PlainQuotes(doc)
 
 	if err := json.NewEncoder(&buf).Encode(doc); err != nil {
 		log.Fatalln(err)
@@ -1567,40 +1563,6 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	return out, nil
 }
 
-// typographic is the quotes a catalog spells with and no consumer queries
-// with.
-var typographic = strings.NewReplacer(
-	"\u2018", "'", "\u2019", "'", "\u201c", `"`, "\u201d", `"`)
-
-// plainQuotes rewrites those quotes wherever the document carries them.
-// The catalogs are not consistent about it: TCGplayer sells "Rocket's
-// Hitmonchan" with a curly apostrophe beside hundreds of names holding a
-// plain one, files two Yu-Gi-Oh rarities as "Ultra Pharaoh's Rare" while
-// every other name uses ASCII, and spells one One Piece card
-// Eustass"Captain"Kid on the card and Eustass"Captain"Kid on the box it
-// comes in. A query carries one spelling, so the card filed under the
-// other cannot be found, and the two rarities cannot be asked for at all.
-//
-// The whole document is walked rather than the fields known to carry
-// them, because the field that starts carrying them tomorrow would
-// otherwise be missed, and it runs before the output is encoded so the
-// check that re-reads it sees exactly what will be published.
-func plainQuotes(v any) any {
-	switch t := v.(type) {
-	case string:
-		return typographic.Replace(t)
-	case map[string]any:
-		for k, e := range t {
-			t[k] = plainQuotes(e)
-		}
-	case []any:
-		for i, e := range t {
-			t[i] = plainQuotes(e)
-		}
-	}
-	return v
-}
-
 // checkFabFinishNames refuses a translation table naming a printing the
 // catalog does not. fabFinish crosses upstream's edition and foiling codes
 // onto TCGplayer's printing names - nothing but knowledge says "N|S" means
@@ -1628,42 +1590,6 @@ func printingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
 	return rank
 }
 
-// finishSuffix is the id suffix a printing's entries carry: nothing for the
-// plain printing, and the printing's own name for every other. TCGplayer
-// calls a plain printing "Normal" in every category, which is the one
-// convention here rather than a list of this category's printings - those
-// are the catalog's to name, to add to and to rename, and every one of them
-// reaches an id without a release.
-func finishSuffix(name string) string {
-	if slug := finishSlug(name); slug != "" && slug != "normal" {
-		return "_" + slug
-	}
-	return ""
-}
-
-// finishSlug spells a printing name the way an id carries it.
-func finishSlug(name string) string {
-	var out strings.Builder
-	for _, r := range strings.ToLower(name) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			out.WriteRune(r)
-		}
-	}
-	return out.String()
-}
-
-// plainPrinting is the catalog's name for the printing a bare id belongs to,
-// or "" where the category has none - Yu-Gi-Oh prices its cards by print run
-// and sells no printing it calls plain.
-func plainPrinting(c *tcgplayer.CatalogDump) string {
-	for _, printing := range c.Printings {
-		if finishSlug(printing.Name) == "normal" {
-			return printing.Name
-		}
-	}
-	return ""
-}
-
 // pitchColors are the colours a pitch value names. The card prints the
 // value and everyone says the colour, so a query carries "Red" where the
 // catalog carries "1".
@@ -1683,16 +1609,6 @@ var pitchInName = regexp.MustCompile(`\((Red|Yellow|Blue)\)`)
 func pitchColor(product tcgplayer.Product) string {
 	value, _, _ := strings.Cut(product.Extended("Pitch Value"), "/")
 	return pitchColors[strings.TrimSpace(value)]
-}
-
-// promoSlugRe is everything a promo type is spelled without.
-var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
-
-// promoSlug spells a label the way every promo type here is spelled: lower
-// case, letters and digits and nothing else. The words a reader is shown are
-// the variant beside it, which this build already writes.
-func promoSlug(label string) string {
-	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
 }
 
 // numberish is a qualifier that is a collector number rather than a promotion:
@@ -1775,15 +1691,15 @@ func foldPromoTypes(cards []any) (int, int) {
 		}
 		var row held
 		row.item = item
-		finish := promoSlug(fmt.Sprint(item["finish"]))
-		number := promoSlug(fmt.Sprint(item["number"]))
-		color := promoSlug(fmt.Sprint(item["color"]))
-		rarity := promoSlug(fmt.Sprint(item["rarity"]))
+		finish := emit.PromoSlug(fmt.Sprint(item["finish"]))
+		number := emit.PromoSlug(fmt.Sprint(item["number"]))
+		color := emit.PromoSlug(fmt.Sprint(item["color"]))
+		rarity := emit.PromoSlug(fmt.Sprint(item["rarity"]))
 		for _, tag := range stringsOf(item["promoTypes"]) {
 			if name, found := promoTypeNames[tag]; found {
 				tag = name
 			}
-			slug := promoSlug(tag)
+			slug := emit.PromoSlug(tag)
 			switch {
 			case slug == "":
 			// A qualifier repeating the number, or naming the finish the

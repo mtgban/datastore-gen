@@ -77,8 +77,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/mtgban/datastore-gen/internal/baseline"
-	"github.com/mtgban/go-tcgplayer"
 	"io"
 	"log"
 	"net/http"
@@ -89,6 +87,10 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/mtgban/datastore-gen/internal/baseline"
+	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/go-tcgplayer"
 )
 
 const (
@@ -161,12 +163,6 @@ func foilOnly(printings []string) bool {
 		}
 	}
 	return true
-}
-
-// imageURL upgrades a catalog image link to the 400-wide rendition; the
-// dump links the smallest one there is.
-func imageURL(url string) string {
-	return strings.Replace(url, "_200w.", "_400w.", 1)
 }
 
 // number reduces a collector number to the loader's canonical form: what
@@ -351,7 +347,7 @@ func promoTypesOf(item map[string]any, universal map[string]bool) []string {
 	}
 	out := make([]string, 0, len(tags))
 	for _, tag := range tags {
-		tag = promoSlug(tag)
+		tag = emit.PromoSlug(tag)
 		if tag == "" || slices.Contains(out, tag) {
 			continue
 		}
@@ -531,19 +527,7 @@ func treatmentLabel(foilType string) string {
 	}
 	// No word seam is looked for: a slug drops the spaces a split would put
 	// in, so "VerticalWave" reaches "verticalwave" either way.
-	return promoSlug(runNumberRe.ReplaceAllString(foilType, ""))
-}
-
-// promoSlugRe is everything a promo type is spelled without.
-var promoSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
-
-// promoSlug spells a label the way every promo type here is spelled: lower
-// case, letters and digits and nothing else. It is a token for a consumer to
-// interpret and a query to carry, not words for a reader - what a promotion
-// is shown as is the loader's to decide, and a data file that spells one for
-// display has decided it for every consumer at once.
-func promoSlug(label string) string {
-	return promoSlugRe.ReplaceAllString(strings.ToLower(label), "")
+	return emit.PromoSlug(runNumberRe.ReplaceAllString(foilType, ""))
 }
 
 // runNumberRe finds the run number a treatment's name ends in. The same
@@ -1058,7 +1042,7 @@ func main() {
 			"number":   num,
 			"rarity":   product.Extended("Rarity"),
 			"images": map[string]any{
-				"full":      imageURL(product.ImageURL),
+				"full":      emit.ImageURL(product.ImageURL),
 				"thumbnail": product.ImageURL,
 			},
 			"externalLinks": links,
@@ -1258,7 +1242,7 @@ func main() {
 				"name":        product.Name,
 				"setCode":     codes[group.GroupID],
 				"releaseDate": group.ReleaseDate(),
-				"image":       imageURL(product.ImageURL),
+				"image":       emit.ImageURL(product.ImageURL),
 				"externalLinks": map[string]any{
 					"tcgPlayerId": product.ProductID,
 				},
@@ -1297,7 +1281,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
-	plainQuotes(doc)
+	emit.PlainQuotes(doc)
 
 	if err := json.NewEncoder(&buf).Encode(doc); err != nil {
 		log.Fatalln(err)
@@ -1487,38 +1471,4 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 	out.cards = len(doc.Cards)
 	out.sealed = len(doc.Sealed)
 	return out, nil
-}
-
-// typographic is the quotes a catalog spells with and no consumer queries
-// with.
-var typographic = strings.NewReplacer(
-	"\u2018", "'", "\u2019", "'", "\u201c", `"`, "\u201d", `"`)
-
-// plainQuotes rewrites those quotes wherever the document carries them.
-// The catalogs are not consistent about it: TCGplayer sells "Rocket's
-// Hitmonchan" with a curly apostrophe beside hundreds of names holding a
-// plain one, files two Yu-Gi-Oh rarities as "Ultra Pharaoh's Rare" while
-// every other name uses ASCII, and spells one One Piece card
-// Eustass"Captain"Kid on the card and Eustass"Captain"Kid on the box it
-// comes in. A query carries one spelling, so the card filed under the
-// other cannot be found, and the two rarities cannot be asked for at all.
-//
-// The whole document is walked rather than the fields known to carry
-// them, because the field that starts carrying them tomorrow would
-// otherwise be missed, and it runs before the output is encoded so the
-// check that re-reads it sees exactly what will be published.
-func plainQuotes(v any) any {
-	switch t := v.(type) {
-	case string:
-		return typographic.Replace(t)
-	case map[string]any:
-		for k, e := range t {
-			t[k] = plainQuotes(e)
-		}
-	case []any:
-		for i, e := range t {
-			t[i] = plainQuotes(e)
-		}
-	}
-	return v
 }
