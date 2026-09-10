@@ -21,14 +21,14 @@
 // those printings apart and the id carries the product it came from.
 //
 // The name parentheticals TCGplayer decorates products with are told apart
-// per collector number, the way cmd/onepiece and cmd/yugioh do it: a
-// parenthetical every product of a number carries is part of the card's
-// name - the mobile suit's form, "(MA Mode)", "(Destroy Mode)", which is
-// what the card is called - and one only some of them carry is the variant
-// label the matcher narrows on. A qualifier that merely restates the
-// product's own rarity ("(C+)" on a C+ printing) or repeats what the
-// collector number already spells is dropped as redundant with the field
-// that carries it.
+// by the list: a parenthetical that appears in upstream's name for the
+// collector number - the mobile suit's form, "(MA Mode)", "(Destroy Mode)",
+// the part of a multi-part card, "(Head)" - is the card's name, and one it
+// does not is the variant label the matcher narrows on. The name is spelled
+// the way upstream places it where the two agree on the words. A qualifier
+// that merely restates the product's own rarity ("(C+)" on a C+ printing)
+// or repeats what the collector number already spells is dropped as
+// redundant with the field that carries it.
 //
 // Sets are the catalog groups, coded from their abbreviations. A group
 // holding no product at all is skipped rather than carried: an empty set
@@ -113,6 +113,11 @@ type handCarried struct {
 	// writes "Premium Card Collection" - so the row carries both and the
 	// build checks that upstream still says it.
 	source string
+	// finish is the printing TCGplayer would sell it under, read off what
+	// it does sell of the same family: every Premium Card Collection
+	// single in the catalog is Holofoil, as are 199 of the 202 cards in
+	// the promotional set, the three plain ones being kit inserts.
+	finish string
 }
 
 // handCarriedPrintings are the promotional reprints a storefront sells and
@@ -120,19 +125,19 @@ type handCarried struct {
 // in a promotional product. Without them a listing of one resolves to the
 // ordinary card at the same number and is published at its identity.
 var handCarriedPrintings = []handCarried{
-	{number: "GD01-073", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
-	{number: "GD03-101", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
-	{number: "GD04-063", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
-	{number: "GD05-110", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
-	{number: "GD05-114", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
-	{number: "ST03-006", label: "Premium Card Collection 02", source: "Premium Card Collection 02"},
-	{number: "ST04-012", label: "1st Anniversary Event Pack", source: "1st Anniversary Event Pack"},
+	{number: "GD01-073", label: "Premium Card Collection 02", source: "Premium Card Collection 02", finish: "Holofoil"},
+	{number: "GD03-101", label: "Premium Card Collection 02", source: "Premium Card Collection 02", finish: "Holofoil"},
+	{number: "GD04-063", label: "Premium Card Collection 02", source: "Premium Card Collection 02", finish: "Holofoil"},
+	{number: "GD05-110", label: "Premium Card Collection 02", source: "Premium Card Collection 02", finish: "Holofoil"},
+	{number: "GD05-114", label: "Premium Card Collection 02", source: "Premium Card Collection 02", finish: "Holofoil"},
+	{number: "ST03-006", label: "Premium Card Collection 02", source: "Premium Card Collection 02", finish: "Holofoil"},
+	{number: "ST04-012", label: "1st Anniversary Event Pack", source: "1st Anniversary Event Pack", finish: "Holofoil"},
 	// Not an event pack, whatever a storefront files it beside. gcg-api
 	// knows the phrase "1st Anniversary Event Pack" and spends it on two
 	// cards, ST04-012 above and EXBP-028; for this one it writes a prize
 	// instead. A source that had the word and chose another is naming a
 	// second printing, not the same one twice.
-	{number: "GD01-100", label: "Serial Numbered Card Challenge Upper Ranks Prize", source: "Serial Numbered Card Challenge Upper Ranks Prize"},
+	{number: "GD01-100", label: "Serial Numbered Card Challenge Upper Ranks Prize", source: "Serial Numbered Card Challenge Upper Ranks Prize", finish: "Holofoil"},
 }
 
 // promoSetCode is the set the catalog files a promotional reprint under,
@@ -204,14 +209,15 @@ func numberFor(p tcgplayer.Product) string {
 // repeated and the name is what the card says.
 //
 // Only a collision is repaired, never a lone disagreement, and that
-// restraint is the whole of the rule. The catalog also files "EX Resource
+// restraint is the whole of the rule. The catalog once filed "EX Resource
 // (EXR-003)" under EXR-002 with nothing else in its group at that number,
-// and there the field is right: these cards are reprinted deck after deck,
-// so a starter deck carrying EXR-002 again is ordinary, and the upstream
-// naming only one set per printing cannot say otherwise. A rule that
-// trusted the name outright got that second case wrong - it moved a priced
-// product off the number it belongs to and left the number it had invented
-// to be minted, unpriced and unillustrated.
+// and nothing in the data told a mis-typed field from a reprint the name
+// got wrong: these cards are reprinted deck after deck. A rule that trusted
+// the name outright moved a priced product off a number and left the one
+// it had invented to be minted, unpriced and unillustrated; left alone,
+// the catalog has since filed that product at EXR-003 itself, which is
+// what the restraint buys - the correction arrives from the side that can
+// see the card.
 func renumberCollisions(singles []single) {
 	type slot struct {
 		group  int
@@ -377,55 +383,18 @@ func provenance(qual string) bool {
 
 var wordRe = regexp.MustCompile(`[a-z0-9']+`)
 
-// subjects name what a card is or what is drawn on it rather than what
-// promoted it: the mobile suit's form or part, the type it is built as, the
-// faction whose emblem a Resource token carries, the series an EX Base is
-// illustrated from. Every one of them is really a name parenthetical the
-// election could not learn, because it learns from a collector number sold
-// as several products and each of these is sold as one - the eleven
-// Promotional Resource Tokens are eleven numbers with one product apiece,
-// RP-011 through RP-021, one faction on each. Nothing promoted a Resource
-// for carrying the Zeon emblem, so the faction stays the variant it is.
-//
-// Named rather than read off the data for the same reason cmd/onepiece
-// names the DON!! subjects: nothing in the data tells a subject from a
-// treatment, and the test that comes closest - a label on one printing
-// alone - takes "SDCC 2026" and "Launch Kit 01" along with the factions.
-// parts name which piece of a multi-part card or token a printing is. They
-// read like the subjects below - both are what the card shows rather than
-// what promoted it - but a part is the whole of what tells one printing from
-// another: the Wire-Guided Arm token comes as a left hand and a right hand,
-// at one number, one rarity and one event, and dropping the part leaves the
-// two indistinguishable. A form or a faction never does that; it describes a
-// card that is already told apart by its number.
-//
-// So a part stays a promo type. What identifies a printing is exactly what a
-// promo type is for.
-var parts = map[string]bool{
-	"head": true, "left hand": true, "right hand": true, "tail booster": true,
-	"gn full shield": true, "gn high mega launcher": true,
-	"mirasoul flight unit": true, "apfsds round": true,
-}
-
-var subjects = map[string]bool{
-	// The form a mobile suit is in, and the mode it transforms to.
-	"2nd form": true, "middle form": true, "fighter mode": true,
-	"trooper mode": true, "waverider mode": true, "tail unit flight mode": true,
-	// The type or the custom a unit is built as.
-	"armored rru type": true, "ground heavy equipment type": true,
-	"heavy armed type": true, "guards type": true, "type-e": true,
-	"graze custom ii": true, "ryusei-go": true, "meteor": true,
-	// Who or what is drawn on it.
-	"char aznable emblem": true, "four snake eyes'": true,
-	"enhanced person number 5": true, "red": true,
-	// The faction a Resource token carries.
-	"earth alliance": true, "earth federation force": true,
-	"league militaire": true, "militia": true, "neo zeon": true, "oz": true,
-	"peacemaker team": true, "sanc kingdom": true,
-	"united emirates of orb": true, "vist foundation": true,
-	"zaft": true, "zeon force": true,
-	"asticassia school of technology": true,
-	// The series an illustration comes from.
+// tokenSubjects name what is drawn on a Resource or EX Base token: the
+// faction whose emblem it carries, the series it is illustrated from. The
+// list names every one of these tokens plainly - eleven products named
+// "Resource" and "EX Base" with the face in no field - so the name cannot
+// witness the parenthetical the way it does for every other card, and
+// nothing promoted a Resource for carrying the Zeon emblem. They stay the
+// variant they are. A row no product carries any more is reported.
+var tokenSubjects = map[string]bool{
+	"char aznable emblem": true, "earth alliance": true,
+	"earth federation force": true, "neo zeon": true, "oz": true,
+	"united emirates of orb": true, "vist foundation": true, "zaft": true,
+	"zeon force": true, "asticassia school of technology": true,
 	"mobile suit gundam: hathaway's flash":     true,
 	"mobile suit gundam: iron-blooded orphans": true,
 }
@@ -450,13 +419,55 @@ var spacedNumberRe = regexp.MustCompile(`(?i)\b(Vol\.|WCS|Mission)(\d)`)
 // Pack 01" through 05, while the singles say "Participant" on the first
 // four and "Participation" on the fifth. The pack has one name.
 //
-// "SP Ver." is the SP treatment with a word after it, and "SDCC" is the
-// convention the other printing of it spells out.
+// "SDCC" is the convention the other printing of it spells out.
 var spelledQual = strings.NewReplacer(
 	"Participant Pack", "Participation Pack",
 	"SDCC", "San Diego Comic-Con",
-	"SP Ver.", "SP",
 )
+
+// romanNumerals spell the way upstream writes a numeral the catalog writes
+// in letters: "Graze Custom Ⅱ" against "Graze Custom II".
+var romanNumerals = strings.NewReplacer("Ⅰ", "I", "Ⅱ", "II", "Ⅲ", "III", "Ⅳ", "IV", "Ⅴ", "V")
+
+// nameKey is a name or a qualifier reduced to what the two sources can be
+// compared by: case, spacing and the numeral spelling set aside.
+func nameKey(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(romanNumerals.Replace(s)), " "))
+}
+
+// upstreamSpelling is the name upstream gives a card whose parentheticals
+// are exactly the qualifiers elected into its name and whose other words
+// are the catalog's base name, or "" where no upstream name agrees on both.
+// It is what places a parenthetical where the card puts it.
+func upstreamSpelling(names []string, base string, quals []string) string {
+	want := map[string]bool{}
+	for _, q := range quals {
+		want[nameKey(q)] = true
+	}
+	for _, name := range names {
+		got := map[string]bool{}
+		for _, m := range parenRe.FindAllStringSubmatch(name, -1) {
+			got[nameKey(m[1])] = true
+		}
+		if len(got) != len(want) {
+			continue
+		}
+		agree := true
+		for q := range want {
+			if !got[q] {
+				agree = false
+				break
+			}
+		}
+		if agree && nameKey(parenRe.ReplaceAllString(name, "")) == nameKey(base) {
+			// Upstream's placement in the catalog's characters: a listing
+			// writes "III" and a space before the bracket, whatever the
+			// list does.
+			return strings.Join(strings.Fields(strings.ReplaceAll(romanNumerals.Replace(name), "(", " (")), " ")
+		}
+	}
+	return ""
+}
 
 // promoTypesOf is the labels a printing carries, one at a time, spelled the
 // one way and lowercased the way every datastore here spells a promo type.
@@ -469,21 +480,12 @@ func promoTypesOf(quals []string) []string {
 		qual = spelledQual.Replace(qual)
 		qual = spacedNumberRe.ReplaceAllString(qual, "$1 $2")
 		tag := strings.ToLower(strings.Join(strings.Fields(qual), " "))
-		if tag == "" || subjects[tag] || bareNumberingRe.MatchString(tag) {
+		if tag == "" || tokenSubjects[tag] || bareNumberingRe.MatchString(tag) {
 			continue
 		}
-		// A part is carried whole: it is not an occasion to be folded to,
-		// and the rules below would take "gn high mega launcher" for a
-		// name too long rather than the one thing naming that printing.
-		if parts[tag] {
-			if !slices.Contains(out, tag) {
-				out = append(out, tag)
-			}
-			continue
-		}
-		// Words, not slugs: subjects is keyed by them, and foldPromoTypes
-		// below still has to read the seams between them. The slug is put
-		// on there, once the whole vocabulary is in hand.
+		// Words, not slugs: tokenSubjects is keyed by them, and
+		// foldPromoTypes below still has to read the seams between them.
+		// The slug is put on there, once the whole vocabulary is in hand.
 		for _, named := range namedPromotions(tag) {
 			if named != "" && !slices.Contains(out, named) {
 				out = append(out, named)
@@ -528,6 +530,19 @@ func generalPromotion(tag string) string {
 	}
 	tag = setCodeHead.ReplaceAllString(tag, "")
 	tag = setCodePair.ReplaceAllString(tag, "")
+	// The set a promotion names in words rather than by code, which the
+	// card's own set says just the same: "Edition Beta Early Trial Event"
+	// is an early trial event, and folding it to its first two words made
+	// a promo type of the set.
+	for _, name := range setNameHeads {
+		if strings.HasPrefix(tag, name+" ") {
+			tag = strings.TrimPrefix(tag, name+" ")
+			break
+		}
+	}
+	// The brand in front of a promotion says who ran it, not what it is:
+	// a "BANDAI TCG+ Store Trial Event" is a store trial event.
+	tag = strings.TrimPrefix(tag, "bandai tcg+ ")
 	tag = runNumbering.ReplaceAllString(tag, "")
 	tag = runYear.ReplaceAllString(tag, "")
 	return strings.Join(strings.Fields(tag), " ")
@@ -539,6 +554,10 @@ var promoAbbrevs = map[string]string{
 	"sdcc": "san diego comic-con",
 	"wcs":  "world championship",
 }
+
+// setNameHeads are the sets' names, lower-cased and longest first, for the
+// same stripping the codes get. Filled in main once the sets are known.
+var setNameHeads []string
 
 var (
 	// The set a release event released, which the card's own set says.
@@ -719,14 +738,52 @@ func main() {
 	}
 	log.Printf("qualifiers: %d dropped as an echo of the rarity or the collector number", echoes)
 
-	// Per collector number within its group: a qualifier every product of
-	// the number carries is part of the name, not a variant. A number with
-	// a single product cannot make that call alone, so the name parts
-	// learned from the multi-product numbers decide for it - the same form
-	// or epithet decorates the number's every printing.
+	// The list, read here for the names it gives the cards and again
+	// below for the cards the catalog does not sell.
+	upstreamData, err := fetch(*gcgCards)
+	if err != nil {
+		log.Fatalln("gcg-api:", err)
+	}
+	var upstream []gcgCard
+	if err := json.Unmarshal(upstreamData, &upstream); err != nil {
+		log.Fatalln("gcg-api:", err)
+	}
+	// Stable order, so unchanged data keeps producing byte-identical output.
+	sort.Slice(upstream, func(i, j int) bool {
+		return upstream[i].Number < upstream[j].Number
+	})
+	upstreamNames := map[string][]string{}
+	for _, u := range upstream {
+		if u.Number != "" && u.Name != "" && !slices.Contains(upstreamNames[u.Number], u.Name) {
+			upstreamNames[u.Number] = append(upstreamNames[u.Number], u.Name)
+		}
+	}
+
+	// Which parentheticals are part of a card's name is the list's to say.
+	// Bandai names the card "Unicorn Gundam (Destroy Mode)" and "Zeong
+	// (Head)", and the catalog decorates the same products with the same
+	// parenthetical, so a qualifier that appears in parentheses in
+	// upstream's name for the number is the card's name and any other is
+	// the printing's variant. The election this replaces read a qualifier
+	// every product of a number carried as part of the name, which was
+	// right where it fired and blind where a number is sold as one
+	// product: forty-one subjects had to be named by hand to keep them out
+	// of the promo types, and the parts of a multi-part card - "(Head)",
+	// "(Tail Booster)" - were published as promotions. The six numbers
+	// upstream does not know keep that election, with its guard against a
+	// provenance being elected.
+	witnessed := func(number, qual string) bool {
+		key := "(" + nameKey(qual) + ")"
+		for _, name := range upstreamNames[number] {
+			if strings.Contains(nameKey(name), key) {
+				return true
+			}
+		}
+		return false
+	}
 	byNumber := map[string][]*single{}
 	for i := range singles {
-		if singles[i].number == "" {
+		if singles[i].number == "" || len(upstreamNames[singles[i].number]) > 0 {
 			continue
 		}
 		key := fmt.Sprintf("%d|%s", singles[i].product.GroupID, singles[i].number)
@@ -749,24 +806,58 @@ func main() {
 			}
 		}
 	}
-	var elected int
+	var elected, unwitnessed, placed int
 	for i := range singles {
 		s := &singles[i]
-		var name, variant []string
-		name = append(name, s.baseName)
+		known := len(upstreamNames[s.number]) > 0
+		var nameQuals, variant []string
 		for _, q := range s.quals {
-			if nameParens[q] {
-				name = append(name, "("+q+")")
-				elected++
+			isName := nameParens[q]
+			if known {
+				isName = witnessed(s.number, q)
+			}
+			if isName {
+				nameQuals = append(nameQuals, q)
 			} else {
 				variant = append(variant, q)
 			}
 		}
-		s.baseName = strings.Join(name, " ")
 		s.quals = variant
+		if len(nameQuals) == 0 {
+			continue
+		}
+		elected += len(nameQuals)
+		if !known {
+			unwitnessed += len(nameQuals)
+		}
+		// Spelled the way upstream places it where the two agree on the
+		// words: "Guncannon (108) & Guncannon (109)", not the catalog's
+		// parentheticals taken off and put back on the end.
+		if name := upstreamSpelling(upstreamNames[s.number], s.baseName, nameQuals); name != "" {
+			s.baseName = name
+			placed++
+			continue
+		}
+		name := []string{s.baseName}
+		for _, q := range nameQuals {
+			name = append(name, "("+q+")")
+		}
+		s.baseName = strings.Join(name, " ")
 	}
-	log.Printf("qualifiers: %d elected into a name, %d distinct spellings elected",
-		elected, len(nameParens))
+	log.Printf("qualifiers: %d elected into a name, %d of them on the %d numbers upstream does not name; %d names spelled as upstream places them",
+		elected, unwitnessed, len(byNumber), placed)
+	// A token face no product carries any more is a row doing nothing.
+	seenSubjects := map[string]bool{}
+	for _, s := range singles {
+		for _, q := range s.quals {
+			seenSubjects[strings.ToLower(strings.Join(strings.Fields(q), " "))] = true
+		}
+	}
+	for subject := range tokenSubjects {
+		if !seenSubjects[subject] {
+			log.Printf("token subjects: no product carries %q any more; the row does nothing", subject)
+		}
+	}
 
 	// Emit. Sets are the catalog groups that hold anything; a group with
 	// no product is a husk TCGplayer keeps around for a set it has not
@@ -797,6 +888,21 @@ func main() {
 		}
 		sets[codes[group.GroupID]] = set
 	}
+	// The sets' names, for the stripping the promo-type fold gives set
+	// codes: longest first, so "Deck Build Box Freedom Ascension" is tried
+	// before "Freedom Ascension".
+	for _, entry := range sets {
+		set, _ := entry.(map[string]any)
+		if name, _ := set["name"].(string); name != "" {
+			setNameHeads = append(setNameHeads, strings.ToLower(name))
+		}
+	}
+	sort.Slice(setNameHeads, func(i, j int) bool {
+		if len(setNameHeads[i]) != len(setNameHeads[j]) {
+			return len(setNameHeads[i]) > len(setNameHeads[j])
+		}
+		return setNameHeads[i] < setNameHeads[j]
+	})
 	log.Printf("promotional sets: %d of %d", promoSets, len(sets))
 	if skippedEmpty > 0 {
 		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
@@ -866,24 +972,12 @@ func main() {
 	// shares its number. Its id holds no product id at all, which is what
 	// keeps the two namespaces apart: a catalog id always carries
 	// "_<product id>" before its finish suffix and a minted one never can.
-	upstreamData, err := fetch(*gcgCards)
-	if err != nil {
-		log.Fatalln("gcg-api:", err)
-	}
-	var upstream []gcgCard
-	if err := json.Unmarshal(upstreamData, &upstream); err != nil {
-		log.Fatalln("gcg-api:", err)
-	}
 	carriedNumbers := map[string]bool{}
 	for _, s := range singles {
 		if s.number != "" {
 			carriedNumbers[s.number] = true
 		}
 	}
-	// Stable order, so unchanged data keeps producing byte-identical output.
-	sort.Slice(upstream, func(i, j int) bool {
-		return upstream[i].Number < upstream[j].Number
-	})
 	var minted, unplaced, unrated int
 	mintedIDs := map[string]bool{}
 	for _, u := range upstream {
@@ -1009,7 +1103,7 @@ func main() {
 			"number":  printing.number,
 			"setCode": promoSetCode,
 			"rarity":  base["rarity"],
-			"finish":  plainPrinting(&catalog),
+			"finish":  printing.finish,
 			"variant": printing.label,
 		}
 		if tags := promoTypesOf([]string{printing.label}); len(tags) > 0 {
