@@ -280,6 +280,42 @@ func componentEq(a, b string) bool {
 	return strings.EqualFold(strings.Join(strings.Fields(a), ""), strings.Join(strings.Fields(b), ""))
 }
 
+// foldPadding reduces a collector number to a spelling blind to the zeros a
+// digit run is padded with: "HER0156" and "HER156" fold alike, and so do
+// both faces of "WTR040 // WTR113" and "WTR40 // WTR113". It compares
+// numbers and never names one - the game numbers every set to a fixed
+// width, so two cards of one set never differ by padding alone.
+func foldPadding(number string) string {
+	return paddingRe.ReplaceAllStringFunc(number, func(run string) string {
+		if trimmed := strings.TrimLeft(run, "0"); trimmed != "" {
+			return trimmed
+		}
+		return "0"
+	})
+}
+
+var paddingRe = regexp.MustCompile(`\d+`)
+
+// spelledNumber is the collector number a product carries, spelled the way
+// its own name spells it where the Number field differs from that by zero
+// padding alone. The catalog pads two of its 167 hero promos to four
+// digits - "HER0156" in the field under a name that says "Dash I/O -
+// HER156" - where the card, the other 165 and the dataset all say three.
+// Read from the field, the number went out padded, the name's tail became
+// a variant for disagreeing with it, and the dataset's HER156 was minted a
+// second time beside the priced card.
+func spelledNumber(name, num string) string {
+	_, tail, found := strings.Cut(name, " - ")
+	tail = strings.TrimSpace(tail)
+	if !found || num == "" || tail == num || !numTailRe.MatchString(tail) {
+		return num
+	}
+	if foldPadding(strings.ToUpper(tail)) == foldPadding(strings.ToUpper(num)) {
+		return tail
+	}
+	return num
+}
+
 // restatesNumber reports whether a name tail restates the Number field. A
 // fused card numbers both faces ("LGS127 // LGS128") while the name wears
 // only the face it hangs off, so either side may carry the leading
@@ -591,7 +627,7 @@ func main() {
 			log.Fatalf("no sku printing: %q (%d) has no entry to carry it",
 				product.Name, product.ProductID)
 		}
-		num := product.Extended("Number")
+		num := spelledNumber(product.Name, product.Extended("Number"))
 		if num == "" {
 			// Art cards, counters, uncut-sheet pieces: the product id is
 			// the whole id, as it is for the numberless Pokemon singles.
@@ -742,7 +778,7 @@ func main() {
 		}
 		if number := strings.ToUpper(numberOf(row.ID)); number != "" {
 			if _, held := productByNumber[number]; !held {
-				productByNumber[number] = productID
+				productByNumber[foldPadding(number)] = productID
 			}
 		}
 		if setID := strings.ToUpper(setCodeOf(row.SetID)); setID != "" {
@@ -847,7 +883,7 @@ func main() {
 		if s.number == "" {
 			continue
 		}
-		number := strings.ToUpper(numberOf(s.number))
+		number := foldPadding(strings.ToUpper(numberOf(s.number)))
 		catalogNumbers[number] = true
 		if faces := strings.Split(number, "//"); len(faces) > 1 {
 			for _, face := range faces {
@@ -895,14 +931,17 @@ func main() {
 	var coveredByFace, coveredByProduct, coveredByName int
 	for _, row := range fabRows {
 		number := strings.ToUpper(numberOf(row.ID))
-		if number == "" || catalogNumbers[number] {
+		// Compared blind to padding, so a number the catalog spells with
+		// a zero more than the dataset is still the number it sells.
+		key := foldPadding(number)
+		if number == "" || catalogNumbers[key] {
 			continue
 		}
-		if faceNumbers[number] {
+		if faceNumbers[key] {
 			coveredByFace++
 			continue
 		}
-		if _, sold := productByNumber[number]; sold {
+		if _, sold := productByNumber[key]; sold {
 			coveredByProduct++
 			continue
 		}
@@ -1454,9 +1493,17 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	// document first, since a product's entries may sort after a minted
 	// one's.
 	pricedFabIDs := map[string]int{}
+	// And a minted entry at a priced card's set, number and name is that
+	// card a second time whatever it wears, compared blind to the zeros
+	// the catalog pads a number with: the dataset's HER156 beside the
+	// catalog's HER0156 is how this was found.
+	pricedCards := map[string]int{}
 	for _, card := range doc.Cards {
-		if card.FabID != "" && card.ExternalLinks.TcgPlayerID != 0 {
-			pricedFabIDs[card.FabID] = card.ExternalLinks.TcgPlayerID
+		if card.ExternalLinks.TcgPlayerID != 0 {
+			if card.FabID != "" {
+				pricedFabIDs[card.FabID] = card.ExternalLinks.TcgPlayerID
+			}
+			pricedCards[card.SetCode+"|"+foldPadding(card.Number)+"|"+strings.ToLower(card.Name)] = card.ExternalLinks.TcgPlayerID
 		}
 	}
 	for _, card := range doc.Cards {
@@ -1488,6 +1535,10 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			if priced, sold := pricedFabIDs[card.FabID]; sold {
 				return out, fmt.Errorf("minted %s is %s a second time: product %d already sells it",
 					card.ID, card.FabID, priced)
+			}
+			if priced, sold := pricedCards[card.SetCode+"|"+foldPadding(card.Number)+"|"+strings.ToLower(card.Name)]; sold {
+				return out, fmt.Errorf("minted %s is %q at %s a second time: product %d already sells it",
+					card.ID, card.Name, card.Number, priced)
 			}
 		}
 		other, seen := identities[identity]
