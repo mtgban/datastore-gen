@@ -258,17 +258,19 @@ func numberWritten(code string) string {
 	if idx := strings.IndexByte(code, '-'); idx >= 0 {
 		code = code[idx+1:]
 	}
-	return strings.Split(code, "/")[0]
+	return printedTotal.ReplaceAllString(strings.Join(strings.Fields(code), ""), "")
 }
+
+// printedTotal is the set size a public code prints after the number,
+// "227/298", which is not part of the number. A fused token's second face,
+// "T02//T04", is: the number is written as both faces and a card named
+// "Bird // Buff" is not the T02 the gallery lists alone.
+var printedTotal = regexp.MustCompile(`/\d+$`)
 
 // numberOf reduces a collector number or public code to the loader's
 // canonical form: what follows any set prefix, without the "/total" tail.
 func numberOf(code string) string {
-	if idx := strings.IndexByte(code, '-'); idx >= 0 {
-		code = code[idx+1:]
-	}
-	code = strings.Split(code, "/")[0]
-	return strings.ToLower(canonicalNumber(code))
+	return strings.ToLower(canonicalNumber(numberWritten(code)))
 }
 
 // canonicalNumber strips leading zeros from the digit run of a collector
@@ -297,6 +299,7 @@ func canonicalNumber(number string) string {
 // than only those the gallery published.
 func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string, printings []string) map[string]any {
 	name, qualifiers := splitQualifiers(product.Name)
+	qualifiers = unnamedQualifiers(qualifiers, name)
 	kept := keptQualifiers(qualifiers, number)
 	promoTypes := promoTypesOf(qualifiers, number)
 
@@ -501,8 +504,12 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 		// abbreviation - stops the publish rather than being repaired here.
 		setIDs := map[string]bool{}
 		for _, set := range blade.Sets.Items {
-			if set.ID == "" || set.Name == "" || set.ReleaseDate == "" {
-				return 0, 0, 0, 0, fmt.Errorf("set %q (%s) missing identity or date", set.Name, set.ID)
+			// The date is not demanded: a gallery set the catalog has no
+			// group for yet - Riot lists a set the morning before
+			// TCGplayer opens it - has none to give, and refusing the
+			// build over it would lose the nightly for every other set.
+			if set.ID == "" || set.Name == "" {
+				return 0, 0, 0, 0, fmt.Errorf("set %q (%s) missing identity", set.Name, set.ID)
 			}
 			if !codeShape.MatchString(set.ID) {
 				return 0, 0, 0, 0, fmt.Errorf("set code %q holds what a query cannot carry", set.ID)
@@ -664,7 +671,15 @@ func main() {
 	if err := json.Unmarshal(payload, &doc); err != nil {
 		log.Fatalln("gallery payload:", err)
 	}
-	blades, _ := doc["pageProps"].(map[string]any)["page"].(map[string]any)["blades"].([]any)
+	// Each level is checked on its own: a payload reshaped at the top -
+	// the empty document a bad fetch can hand over - would otherwise stop
+	// the build with a nil-interface panic rather than a sentence.
+	pageProps, _ := doc["pageProps"].(map[string]any)
+	page, _ := pageProps["page"].(map[string]any)
+	blades, _ := page["blades"].([]any)
+	if blades == nil {
+		log.Fatalln("gallery payload: no pageProps.page.blades to read; the page's shape has changed")
+	}
 	var gallery map[string]any
 	for _, b := range blades {
 		blade, ok := b.(map[string]any)
@@ -822,7 +837,7 @@ func main() {
 		// A group the gallery has no set for: the promotional ones, and a
 		// set sold before the gallery published it. Its printings are the
 		// catalog's alone, so they are minted here and the set with them.
-		var added, maxNum int
+		var added int
 		for _, product := range products {
 			if !slices.Contains(tcgSingles, product.ProductType) {
 				continue
@@ -830,16 +845,16 @@ func main() {
 			number := numberFor(product)
 			collector := 0
 			// A number that is not a bare ordinal leaves collector at
-			// zero, which simply does not raise the maximum.
+			// zero.
 			_, _ = fmt.Sscanf(strings.TrimLeft(product.Extended("Number"), "0"), "%d", &collector)
-			if collector > maxNum {
-				maxNum = collector
-			}
 
 			// The parenthetical qualifiers become promo types, so sibling
 			// promos share one clean name and are told apart by number or
-			// by the storefront's own wording matching the types.
+			// by the storefront's own wording matching the types. A
+			// qualifier the name already carries is the name, on this path
+			// as on the stamped one.
 			name, qualifiers := splitQualifiers(product.Name)
+			qualifiers = unnamedQualifiers(qualifiers, name)
 			kept := keptQualifiers(qualifiers, number)
 			promoTypes := promoTypesOf(qualifiers, number)
 
@@ -879,11 +894,15 @@ func main() {
 			continue
 		}
 
+		// No collectorNumberMax: a minted set's cards keep the numbers of
+		// the sets they were reprinted from - PR-293a is Origins' 293 - and
+		// the highest of those is another set's size, not this one's. The
+		// gallery states a size for the sets it publishes and this build
+		// invents none for the rest.
 		set := map[string]any{
-			"id":                 group.Abbreviation,
-			"name":               group.Name,
-			"collectorNumberMax": maxNum,
-			"releaseDate":        group.ReleaseDate(),
+			"id":          group.Abbreviation,
+			"name":        group.Name,
+			"releaseDate": group.ReleaseDate(),
 		}
 		// The promo type gates how a printing matches, so only the groups
 		// that hold promotional printings carry it: a set the gallery has
@@ -1033,6 +1052,20 @@ func main() {
 		}
 	}
 	log.Printf("sets: %d given a baseSetSize beside the gallery's collectorNumberMax", sized)
+	var undated []string
+	for _, entry := range setItems {
+		set, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if date, _ := set["releaseDate"].(string); date == "" {
+			undated = append(undated, fmt.Sprint(set["id"]))
+		}
+	}
+	if len(undated) > 0 {
+		sort.Strings(undated)
+		log.Printf("sets: %d published by the gallery with no catalog group to date them yet: %s", len(undated), strings.Join(undated, " "))
+	}
 
 	sets["items"] = setItems
 	cards["items"] = cardItems
