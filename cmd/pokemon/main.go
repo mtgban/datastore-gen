@@ -600,6 +600,29 @@ func restatesNumber(token, num string) bool {
 	return true
 }
 
+// saysFinish reports whether a tag says what the finish field already says
+// of the printing. The catalog writes a printing's finish into its product
+// name in more spellings than this datastore has finishes - "Holofoil",
+// "Holo" and "Holo Common" for a Holofoil printing, "Non-Holo" for a Normal
+// one - and the hand spellings fold the holo three onto "Holo", so a tag
+// compared against the slug of the finish alone caught "holofoil" and left
+// "holo" declaring 29 printings promotional and "nonholo" 74 for being the
+// finish they are priced as. The wording stays in the variant either way.
+func saysFinish(tag, finish string) bool {
+	if tag == promoSlug(finish) {
+		return true
+	}
+	switch tag {
+	case "holo":
+		return strings.HasSuffix(finish, "Holofoil") && !strings.HasPrefix(finish, "Reverse")
+	case "nonholo":
+		return finish == "Normal"
+	case "reverseholo":
+		return finish == "Reverse Holofoil"
+	}
+	return false
+}
+
 // restatesRarity reports whether a qualifier is a word-subset of the
 // product's own Rarity ("(Secret)" under "Secret Rare").
 func restatesRarity(qualifier, rarity string) bool {
@@ -683,6 +706,21 @@ func promoGroups(catalog tcgplayer.CatalogDump) map[int]bool {
 // carrying a number to say so instead.
 var bareNumberingRe = regexp.MustCompile(`^#?[0-9]{1,3}$`)
 
+// numberRangeRe matches a label that is a run of collector numbers. A
+// V-UNION is four cards sold as one product, and the catalog writes the
+// four numbers as a span: "Morpeko V-Union (SWSH287-290)" is SWSH287
+// through SWSH290. Which numbers, not what promoted them - and a promo type
+// of "swsh287290" is a numbering nobody would query for.
+var numberRangeRe = regexp.MustCompile(`^[A-Z]{0,5}[0-9]{1,3}-[0-9]{1,3}$`)
+
+// copyrightDateRe matches a label naming the year printed in a card's
+// copyright line. Trick or Trade reprinted its Gengar with the line reading
+// 2021 and again reading 2022, and the line is what tells the two apart, so
+// the label is a mark. It is not a date the card came out: read as one, the
+// year went out as the printing's release date, on a card its set already
+// dates to the year after.
+var copyrightDateRe = regexp.MustCompile(`(?i)^(?:19|20)[0-9]{2} copyright date$`)
+
 // pokemonListSep matches the four ways the catalog joins a list of them.
 var pokemonListSep = regexp.MustCompile(`\s*(?:,|&|/|\band\b)\s*`)
 
@@ -720,8 +758,10 @@ func allPokemon(qualifier string, pokemon map[string]bool) bool {
 // sixty cards of a deck apart.
 var stampPlaceRe = regexp.MustCompile(`^#[0-9]{1,3}\s+(\S.*)$`)
 
-// formeRe matches a label naming which shape a Pokemon is in.
-var formeRe = regexp.MustCompile(`(?i)^(?:.+ forme|form [a-z])$`)
+// formeRe matches a label naming which shape a Pokemon is in. A cloak is
+// the shape Burmy and Wormadam take from what they last hid in: "Burmy
+// (Plant Cloak)" beside its Sandy and Trash Cloaks.
+var formeRe = regexp.MustCompile(`(?i)^(?:.+ forme|form [a-z]|.+ cloak)$`)
 
 // deckPlaceRe splits a qualifier into a name and the number behind it.
 var deckPlaceRe = regexp.MustCompile(`^(.+?)\s+([0-9]{1,3})$`)
@@ -785,24 +825,101 @@ var variantOnlyQuals = map[string]bool{
 	"sabrina":            true,
 	"blaine":             true,
 	"giovanni":           true,
+	// What kind of card it is, which the game prints on the card and the
+	// catalog repeats in the name: a Prime is the HeartGold SoulSilver
+	// era's rare ("Absol (Prime)", at its own number), Alpha and Omega
+	// are the two Ancient Traits of Primal Clash, and a Supporter and a
+	// Rocket's Secret Machine are Trainer subtypes. None was promoted by
+	// anything, and each sits at a number of its own.
+	//
+	// "Basic" and "Special" on an energy are the same kind of fact and
+	// stay labels, as do the print runs "Red Cheeks", "Misprint", "Black
+	// Dot Error" and "No E-Reader": each of those shares its number with
+	// the plain printing, and the loader tells a plain listing from a
+	// decorated one by the label, where a mark narrows only when the
+	// listing names it. Until the loader ranks an unmarked printing over a
+	// marked one the way it ranks a plain one over a labelled one, moving
+	// them would send "Charizard" of Base Set to the Black Dot Error as
+	// readily as to the card.
+	"prime":                   true,
+	"alpha":                   true,
+	"omega":                   true,
+	"supporter":               true,
+	"rocket's secret machine": true,
+	// Which artwork. The Pikachu World Collection reprinted six Pikachu
+	// in nine languages and named each by the card it reprints: the
+	// Flying, Surfing, Ivy and Baby Pikachu beside the Base Set and
+	// Jungle ones, which read as the sets they are.
+	"flying":  true,
+	"surfing": true,
+	"ivy":     true,
+	"baby":    true,
+}
+
+// shelfNames are the groups that are a shelf rather than a set, beside the
+// Deck and Blister Exclusives the name already says: each holds a reprint
+// from anywhere in the game and writes which set it came from beside the
+// number, so a label there naming a set this datastore carries is where the
+// card was reprinted from and not what promoted it. Twelve Burger King
+// promos wrote "[Diamond & Pearl]" and twelve "[Platinum]", and fifty jumbo
+// cards named their source and nothing else, all of it published as
+// promotion until now.
+var shelfNames = map[string]bool{
+	"Jumbo Cards":                     true,
+	"Burger King Promos":              true,
+	"Miscellaneous Cards & Products":  true,
+	"Pikachu World Collection Promos": true,
+}
+
+// eraHeads are the series a set name or a label opens with, which the
+// catalog writes in front of a set's name where this datastore's own name
+// does not - "DP Legends Awakened" for our "Legends Awakened", "HGSS
+// Undaunted" for our "Undaunted" - or leaves off where ours carries it:
+// "Ruby & Sapphire" for our "EX Ruby and Sapphire". They used to be any
+// word of four letters or fewer, which read "With" as an era in front of
+// "Pokemon GO" and "Best" in front of "of Game".
+var eraHeads = map[string]bool{
+	"wotc": true, "ex": true, "dp": true, "dppt": true, "pl": true, "hgss": true,
+	"hs": true, "bw": true, "xy": true, "sm": true, "swsh": true, "sv": true,
+	"sve": true, "me": true, "mee": true, "pop": true,
+}
+
+// eraOf splits the era off a name that opens with one, and hands back
+// nothing where the name does not, or where nothing but a word or two would
+// be left - so nothing reads the first word of a two-word set as a prefix
+// of the second.
+func eraOf(name string) (era, rest string) {
+	head, rest, found := strings.Cut(name, " ")
+	if !found || !eraHeads[strings.ToLower(strings.TrimSuffix(head, ":"))] {
+		return "", ""
+	}
+	if !strings.Contains(rest, " ") && len(rest) < 4 {
+		return "", ""
+	}
+	return head, rest
+}
+
+// setNamed is the spelling under which a label names one of the sets this
+// datastore carries, or "" where it names none. The label is read whole and
+// then past its era: "DP Legends Awakened" against "Legends Awakened",
+// "HGSS Undaunted" against "Undaunted", beside an "EX Hidden Legends" that
+// matches whole.
+func setNamed(label string, setNames map[string]bool) string {
+	if key := mtgmatcherNormalize(label); setNames[key] {
+		return key
+	}
+	if _, rest := eraOf(label); rest != "" {
+		if key := mtgmatcherNormalize(rest); setNames[key] {
+			return key
+		}
+	}
+	return ""
 }
 
 // namesASet reports whether a label names one of the sets this datastore
-// carries, reading past the era the catalog writes in front where our own
-// name does not carry it: "DP Legends Awakened" against "Legends Awakened",
-// "HGSS Undaunted" against "Undaunted", beside an "EX Hidden Legends" that
-// matches whole. The head has to be short enough to be an era and there has
-// to be a name behind it, so nothing reads the first word of a two-word set
-// as a prefix of the second.
+// carries.
 func namesASet(label string, setNames map[string]bool) bool {
-	if setNames[mtgmatcherNormalize(label)] {
-		return true
-	}
-	head, rest, found := strings.Cut(label, " ")
-	if !found || len(head) > 4 || !strings.Contains(rest, " ") && len(rest) < 4 {
-		return false
-	}
-	return setNames[mtgmatcherNormalize(rest)]
+	return setNamed(label, setNames) != ""
 }
 
 // datePrintings gives a printing the date its labels stated, where its set
@@ -1045,7 +1162,23 @@ func printMark(s *single, setCode string) string {
 	return named
 }
 
-func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, mark string) (kept, left []string, year, found, spoken string) {
+// published is what this datastore states in fields of its own, which a
+// label is read against before it is taken for a promotion.
+type published struct {
+	// pokemon are the Pokemon, by normalized name.
+	pokemon map[string]bool
+	// setNames are the sets, under every spelling a label writes one in.
+	setNames map[string]bool
+	// tails are the labels the catalog writes on their own, and the ones an
+	// over-long label leaves behind once its set or Pokemon comes off. A
+	// shorter label splits only into one of these, so "Team Up Stamped"
+	// splits the way "Prismatic Evolutions Stamped" does and "Fossil Museum
+	// Exclusive" stays the promotion it is.
+	tails map[string]bool
+}
+
+func promoTypesOf(s *single, p published, onShelf bool, own map[string]bool, finish, mark string) (kept, left []string, year, found, spoken string) {
+	pokemon, setNames := p.pokemon, p.setNames
 	// A code card is a redemption slip, and its label names what the code
 	// unlocks or the box it came in: "Code Card - Steam Siege Collectible
 	// Pin 3 Pack Blister [Shiny Mega Gardevoir]", "[Ballonea Gym]",
@@ -1111,9 +1244,32 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 			}
 			q.text, lowered = rest, strings.ToLower(rest)
 		}
-		if variantOnlyQuals[lowered] {
+		// A label saying what the finish field says of this printing names
+		// no promotion. It is which copy of the number this is where two
+		// products share one: "Armaldo ex (Holo)" and "Armaldo ex
+		// (Non-Holo)" are two products at 016/017 of POP Series 1, told
+		// apart by nothing but the finish each is priced as, and a listing
+		// naming either has to reach the one it names.
+		if saysFinish(promoSlug(q.text), finish) {
+			left = append(left, lowered)
 			if found == "" && mark == "" {
 				found = lowered
+			}
+			continue
+		}
+		if variantOnlyQuals[lowered] {
+			if mark == "" {
+				// Two of these on one printing are two facts of one
+				// copy, the way markPrintings already joins them:
+				// "Darkness Energy (No E-Reader) (Special)" is the
+				// special energy from the deck printed without the
+				// strip, and read one at a time the second went out as
+				// a promotion.
+				if found == "" {
+					found = lowered
+				} else {
+					found += " " + lowered
+				}
 				continue
 			}
 			// Another mark holds the slot - a World Championship player on
@@ -1123,14 +1279,25 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 			out = append(out, promoSlug(q.text))
 			continue
 		}
+		// A label naming the set the card already sits in restates the
+		// set field, the way a number in a label restates the number:
+		// "Bagon (Black Star Promos)" sits in Nintendo Promos, which is
+		// the Nintendo Black Star Promos.
+		if own[mtgmatcherNormalize(q.text)] {
+			left = append(left, lowered)
+			continue
+		}
 		// Which set a promo reprints. The promo shelves hold a card from
 		// everywhere - "Sceptile" 010 reprinted out of EX Emerald beside
 		// the same number out of DP Stormfront - and the set it came from
-		// is which copy this is rather than what promoted it.
-		if onShelf && namesASet(q.text, setNames) {
-			left = append(left, lowered)
+		// is which copy this is rather than what promoted it. A shelf
+		// writes the word promo after the set now and then, "Best of Game
+		// Promo" for a jumbo of the Best of Game card, and says no more by
+		// it.
+		if label := strings.TrimSuffix(q.text, " Promo"); onShelf && namesASet(label, setNames) {
+			left = append(left, strings.ToLower(label))
 			if found == "" && mark == "" {
-				found = lowered
+				found = strings.ToLower(label)
 			}
 			continue
 		}
@@ -1152,7 +1319,8 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 			}
 			continue
 		}
-		if pokemon[mtgmatcherNormalize(q.text)] || bareNumberingRe.MatchString(q.text) {
+		if pokemon[mtgmatcherNormalize(q.text)] || bareNumberingRe.MatchString(q.text) ||
+			numberRangeRe.MatchString(q.text) || copyrightDateRe.MatchString(q.text) {
 			left = append(left, lowered)
 			if found == "" {
 				found = lowered
@@ -1183,15 +1351,31 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 			continue
 		}
 		text := q.text
+		// The facts this one label states beside its promotion, which
+		// together are the mark of the copy: the place in a deck and the
+		// deck, "#42 Charizard Stamped" being card 42 of the Charizard
+		// deck. Read one at a time the place was a mark only where the
+		// guard restored it, and Charmander 18/147 sits in that deck at
+		// four places, three of them Promo and one Common, so the Common
+		// one collided with nothing and went out marked with the deck
+		// alone - which a listing naming any of the four places named.
+		var stated []string
 		if m := stampPlaceRe.FindStringSubmatch(text); m != nil {
 			// The stamp is the promotion and the place in the deck is the
 			// mark: Battle Academy stamps all sixty cards of a deck alike,
 			// so "#1 Charizard Stamped" and its "#16" are one promotion
 			// and two printings.
 			text = m[1]
-			left = append(left, strings.TrimPrefix(strings.Fields(q.text)[0], "#"))
+			place := strings.TrimPrefix(strings.Fields(q.text)[0], "#")
+			left = append(left, place)
+			stated = append(stated, place)
 		}
 		if m := runSeries.FindStringSubmatch(text); m != nil {
+			// "Fezandipiti ex (Series 7)" sits in a set already named
+			// Prize Pack Series Cards, and what this leaves of it is the
+			// word series alone. It stays, for the same reason the print
+			// runs above do: it is the one thing telling the loader that
+			// a listing naming no series means the unlabelled printing.
 			text = m[1]
 			if found == "" {
 				found = "series " + m[2]
@@ -1203,37 +1387,51 @@ func promoTypesOf(s *single, pokemon, setNames map[string]bool, onShelf bool, ma
 				continue
 			}
 		}
-		// A label too long to be a name is usually a fact this datastore
-		// already publishes with a promotion stuck to it: "Prismatic
-		// Evolutions Stamped" is the set the promo reprints beside the
-		// stamp, and "Alolan Ninetales Half Deck" the Pokemon beside the
-		// deck. The fact becomes the mark it is everywhere else and the
-		// promotion keeps the token.
+		// A label that is a set and nothing else is which set this
+		// reprints, whole. The shelf test above asks the same thing of
+		// the shelves that hold a card from everywhere; this asks it of
+		// a label too long to be a promotion's name wherever it sits.
+		// Only of one too long: "Gym Challenge" is a set of 2000 and the
+		// tournament tier it is named for on the promo shelves, and read
+		// as the set it would mark three promotions with a reprint that
+		// never happened.
+		if len(promoSlug(text)) > promoTypeLimit && namesASet(text, setNames) {
+			left = append(left, strings.ToLower(text))
+			if found == "" && mark == "" {
+				found = strings.ToLower(text)
+			}
+			continue
+		}
+		// A label opening with a fact this datastore already publishes is
+		// that fact with a promotion stuck to it: "Prismatic Evolutions
+		// Stamped" is the set the promo reprints beside the stamp, and
+		// "Alolan Ninetales Half Deck" the Pokemon beside the deck. The
+		// fact becomes the mark it is everywhere else and the promotion
+		// keeps the token.
 		//
-		// Only where the token is too long. The rest of what this game
-		// promotes is named after a championship or a shelf whose name is
-		// simply long - "North America International Championship",
-		// "Build-A-Bear Workshop Exclusive" - and folding those would
-		// leave a worse token than the one it took away.
-		if len(promoSlug(text)) > promoTypeLimit {
-			// A label that is a set and nothing else is which set this
-			// reprints, whole. The shelf test above asks the same thing of
-			// the shelves that hold a card from everywhere; this asks it of
-			// a label too long to be a promotion's name wherever it sits.
-			if namesASet(text, setNames) {
-				left = append(left, strings.ToLower(text))
-				if found == "" && mark == "" {
-					found = strings.ToLower(text)
-				}
-				continue
-			}
-			if stem, rest := publishedPrefix(text, pokemon, setNames); rest != "" {
-				left = append(left, strings.ToLower(stem))
-				if found == "" && mark == "" {
-					found = strings.ToLower(stem)
-				}
-				text = rest
-			}
+		// Past promoTypeLimit the split is forced, because the token would
+		// be no use whole. Under it the split happens only where what is
+		// left is a promotion in its own right - a label the catalog writes
+		// on its own, or one the forced splits leave behind - so that "Team
+		// Up Stamped" splits the way "Prismatic Evolutions Stamped" does
+		// and "XY Evolutions Prerelease", whole at exactly the limit, the
+		// way the longer prereleases do, while "Fossil Museum Exclusive" is
+		// not read as the 1999 set with a museum stuck to it and "Black
+		// and White Tour Promo" not as the set with a tour. A stem left
+		// with only the word promo behind it was the set's promo and says
+		// no more: "Best of Game Promo" is a jumbo of the Best of Game
+		// card.
+		if stem, rest := publishedPrefix(text, pokemon, setNames); rest != "" &&
+			(len(promoSlug(text)) > promoTypeLimit || p.tails[rest] || strings.EqualFold(rest, "Promo")) {
+			left = append(left, strings.ToLower(stem))
+			stated = append(stated, strings.ToLower(stem))
+			text = rest
+		}
+		if len(stated) > 0 && found == "" && mark == "" {
+			found = strings.Join(stated, " ")
+		}
+		if strings.EqualFold(text, "Promo") {
+			continue
 		}
 		out = append(out, promoSlug(text))
 	}
@@ -3654,12 +3852,37 @@ func main() {
 	// 101, which is true of 111 of the 116 that name a set we carry.
 	//
 	// That is provenance, not promotion, so it leaves the promo types and
-	// stays the variant it already was. Scoped to those shelves because
-	// the same test unscoped reads "Gym Challenge" as the 2000 set rather
-	// than the tournament tier, and "Base Set" and "Jungle" off cards that
-	// only picture them.
-	setNames := map[string]bool{}
-	exclusiveShelf := map[string]bool{}
+	// stays the variant it already was. Scoped to the shelves because the
+	// same test unscoped reads "Gym Challenge" as the 2000 set rather than
+	// the tournament tier the promo shelves name.
+	//
+	// The other shelves are named in shelfNames: the jumbo cards, the
+	// Burger King and World Collection promos and the miscellany, each of
+	// which holds a reprint from anywhere and writes where from beside it
+	// - "Hoopa EX (Ancient Origins)" at 036/098, "Chimchar [Diamond &
+	// Pearl]" at 076/130.
+	facts := published{
+		pokemon:  pokemon,
+		setNames: map[string]bool{},
+		tails:    map[string]bool{},
+	}
+	// The spellings a set is written under: the name whole; without its
+	// era, because a label writes the set either way ("Ruby & Sapphire"
+	// for our "EX Ruby and Sapphire"); without its code, which this
+	// datastore writes in front with a colon and a label never writes at
+	// all ("Twilight Masquerade Stamped" for our "SV06: Twilight
+	// Masquerade"); and as tcgdex spells it, which is how the catalog
+	// writes a promo set on a jumbo card ("Charizard GX (SM Black Star
+	// Promos)" for a reprint out of our "SM Promos"), a promo set being its
+	// family too ("Bewear GX (Black Star Promos)").
+	//
+	// A set's own spellings are kept by code as well, for a label that
+	// names the set the card is already in - the whole name, the tcgdex
+	// name and the family, and not the era-less one, which is a card kind
+	// as often as a set: "Delta Species" inside EX Delta Species says which
+	// of its cards are the delta ones.
+	own := map[string]map[string]bool{}
+	shelf := map[string]bool{}
 	for code, entry := range sets {
 		set, isMap := entry.(map[string]any)
 		if !isMap {
@@ -3669,21 +3892,46 @@ func main() {
 		if name == "" {
 			continue
 		}
-		setNames[mtgmatcherNormalize(name)] = true
-		// And without its era, because a label writes the set either way:
-		// "Ruby & Sapphire" for our "EX Ruby and Sapphire". The same head
-		// test namesASet uses to read past one.
-		if head, rest, found := strings.Cut(name, " "); found && len(head) <= 4 && strings.Contains(rest, " ") {
-			setNames[mtgmatcherNormalize(rest)] = true
+		whole := []string{name}
+		if alias, aliased := setAliases[name]; aliased {
+			whole = append(whole, alias)
+			if strings.HasSuffix(alias, "Black Star Promos") {
+				whole = append(whole, "Black Star Promos")
+			}
 		}
-		// And without its code, which this datastore writes in front with
-		// a colon and a label never writes at all: "Twilight Masquerade
-		// Stamped" for our "SV06: Twilight Masquerade".
+		spellings := slices.Clone(whole)
+		if _, rest := eraOf(name); rest != "" {
+			spellings = append(spellings, rest)
+		}
 		if _, rest, found := strings.Cut(name, ": "); found && rest != "" {
-			setNames[mtgmatcherNormalize(rest)] = true
+			spellings = append(spellings, rest)
 		}
-		if strings.HasSuffix(name, "Exclusives") {
-			exclusiveShelf[code] = true
+		own[code] = map[string]bool{}
+		for _, spelling := range whole {
+			own[code][mtgmatcherNormalize(spelling)] = true
+		}
+		for _, spelling := range spellings {
+			facts.setNames[mtgmatcherNormalize(spelling)] = true
+		}
+		if strings.HasSuffix(name, "Exclusives") || shelfNames[name] {
+			shelf[code] = true
+		}
+	}
+	setNames := facts.setNames
+	// The labels a promotion is written as on its own: every label the
+	// catalog writes, and whatever a label too long for a token leaves
+	// behind once the set or Pokemon it opens with comes off.
+	for label := range written {
+		facts.tails[label] = true
+	}
+	for i := range singles {
+		for _, q := range singles[i].quals {
+			if len(promoSlug(q.text)) <= promoTypeLimit {
+				continue
+			}
+			if _, rest := publishedPrefix(q.text, pokemon, setNames); rest != "" {
+				facts.tails[rest] = true
+			}
 		}
 	}
 
@@ -3745,7 +3993,7 @@ func main() {
 				// A printing whose only label was a Pokemon has a variant
 				// and no promo types, so the key stays off rather than
 				// carrying an empty list.
-				tags, left, year, found, spoken := promoTypesOf(s, pokemon, setNames, exclusiveShelf[setCodeFor(s.product)], mark)
+				tags, left, year, found, spoken := promoTypesOf(s, facts, shelf[setCodeFor(s.product)], own[setCodeFor(s.product)], finish, mark)
 				if spoken != "" {
 					entry["language"] = spoken
 				}
@@ -3761,7 +4009,7 @@ func main() {
 				// and as a tag that declares a printing promotional for
 				// being the finish it is.
 				tags = slices.DeleteFunc(tags, func(tag string) bool {
-					return tag == promoSlug(finish)
+					return saysFinish(tag, finish)
 				})
 				if len(tags) > 0 {
 					entry["promoTypes"] = tags
