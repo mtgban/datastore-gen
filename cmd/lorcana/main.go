@@ -77,9 +77,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"regexp"
 	"slices"
@@ -369,7 +367,7 @@ func finishesSold(item map[string]any, finishNames map[string]string) []string {
 	var out []string
 	seen := map[string]bool{}
 	if links, ok := item["externalLinks"].(map[string]any); ok {
-		for _, name := range stringsOf(links["tcgPrintings"]) {
+		for _, name := range emit.StringsOf(links["tcgPrintings"]) {
 			// Kept in TCGplayer's own spelling, deduplicated by the finish
 			// it names: two printings the matcher folds together are one
 			// printing, and listing both would give the card two uuids
@@ -390,7 +388,7 @@ func finishesSold(item map[string]any, finishNames map[string]string) []string {
 	// or the rule below did - and the names come from the same dump either
 	// way rather than from a list written here.
 	var holo int
-	for _, foilType := range stringsOf(item["foilTypes"]) {
+	for _, foilType := range emit.StringsOf(item["foilTypes"]) {
 		want := finishNonfoil
 		switch {
 		case canonicalFinish(foilType) == finishNonfoil:
@@ -550,24 +548,6 @@ func cardID(value any) (int, bool) {
 	return 0, false
 }
 
-// stringsOf reads a list of strings back off a decoded document, where a
-// slice this build wrote itself comes back as []any.
-func stringsOf(value any) []string {
-	switch list := value.(type) {
-	case []string:
-		return list
-	case []any:
-		var out []string
-		for _, item := range list {
-			if name, ok := item.(string); ok {
-				out = append(out, name)
-			}
-		}
-		return out
-	}
-	return nil
-}
-
 // printingUUID is the uuid a printing prices: the card's for the plain
 // printing, and the card's with the finish on the end for a foil. The finish
 // is the matcher's spelling of it rather than TCGplayer's - a uuid that
@@ -694,25 +674,6 @@ func normalizeName(name string) string {
 	return b.String()
 }
 
-// fetch reads a local path, or an http(s) URL when one is given. The
-// LorcanaJSON download location is deliberately not hardcoded: CI already
-// holds it in vars.DATASTORE_LORCANA and passes it in, so there is one place
-// to change if upstream moves.
-func fetch(location string) ([]byte, error) {
-	if !strings.HasPrefix(location, "http://") && !strings.HasPrefix(location, "https://") {
-		return os.ReadFile(location)
-	}
-	resp, err := http.Get(location)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", location, resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
-}
-
 // card is the handful of fields the merge reads out of a generically decoded
 // LorcanaJSON card, so everything else survives the round trip untouched.
 type card struct {
@@ -817,7 +778,7 @@ func main() {
 	log.Printf("catalog: %d groups, %d products (%d singles)",
 		len(catalog.Groups), len(catalog.Products), singles)
 
-	payload, err := fetch(*source)
+	payload, err := emit.Fetch(*source)
 	if err != nil {
 		log.Fatalln("lorcana source:", err)
 	}
@@ -1152,8 +1113,8 @@ func main() {
 			// Rainbow Pillars is not a Rainbow Pillars card. The plain
 			// printing is not a treatment and carries none.
 			var labels []any
-			for _, foilType := range stringsOf(item["foilTypes"]) {
-				if finishOf(foilType, stringsOf(item["foilTypes"]), sold) != finish {
+			for _, foilType := range emit.StringsOf(item["foilTypes"]) {
+				if finishOf(foilType, emit.StringsOf(item["foilTypes"]), sold) != finish {
 					continue
 				}
 				label := treatmentLabel(foilType)

@@ -35,9 +35,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"regexp"
 	"slices"
@@ -75,7 +73,7 @@ func galleryPayload(location string) ([]byte, error) {
 	if location != "" {
 		return os.ReadFile(location)
 	}
-	page, err := fetch(galleryPageURL)
+	page, err := emit.Fetch(galleryPageURL)
 	if err != nil {
 		return nil, err
 	}
@@ -83,24 +81,7 @@ func galleryPayload(location string) ([]byte, error) {
 	if m == nil {
 		return nil, fmt.Errorf("%s: no buildId in the page", galleryPageURL)
 	}
-	return fetch(fmt.Sprintf(galleryDataURL, m[1]))
-}
-
-func fetch(url string) ([]byte, error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
+	return emit.Fetch(fmt.Sprintf(galleryDataURL, m[1]))
 }
 
 // releaseDate reduces a group's publishedOn timestamp to the bare day the
@@ -108,25 +89,6 @@ func fetch(url string) ([]byte, error) {
 
 // tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
 // for a category, published next to the datastore it describes.
-
-// stringsOf reads a list of strings back off a decoded document: this build
-// carries the gallery payload as generic JSON, so a slice it wrote itself
-// comes back as []any.
-func stringsOf(value any) []string {
-	switch list := value.(type) {
-	case []string:
-		return list
-	case []any:
-		var out []string
-		for _, item := range list {
-			if name, ok := item.(string); ok {
-				out = append(out, name)
-			}
-		}
-		return out
-	}
-	return nil
-}
 
 // finishesByProduct maps each product to the finishes it is sold in, named
 // as TCGplayer names them - which is how the other six games name theirs,
@@ -980,7 +942,7 @@ func main() {
 		// the matcher changes how it spells a finish - silently, since a
 		// uuid nobody stored resolves to nothing rather than erroring.
 		// Named here, it moves only when this build says so.
-		sold := stringsOf(item["finishes"])
+		sold := emit.StringsOf(item["finishes"])
 		if len(sold) == 0 {
 			// A printing the catalog sells nothing for names no finish,
 			// and the loader reads it as sold in both. Saying so is what

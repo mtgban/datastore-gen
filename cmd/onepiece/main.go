@@ -98,9 +98,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"regexp"
 	"slices"
@@ -183,22 +181,6 @@ func cardImage(s single, bandaiID string) string {
 		return "https://static.dotgg.gg/onepiece/card/" + s.number + ".webp"
 	}
 	return emit.ImageURL(s.product.ImageURL)
-}
-
-// fetch reads a local path, or an http(s) URL when one is given.
-func fetch(location string) ([]byte, error) {
-	if !strings.HasPrefix(location, "http://") && !strings.HasPrefix(location, "https://") {
-		return os.ReadFile(location)
-	}
-	resp, err := http.Get(location)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", location, resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
 }
 
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
@@ -1175,7 +1157,7 @@ func main() {
 			catalog.Category.CategoryID, onepieceCategory)
 	}
 
-	punkData, err := fetch(*punkCards)
+	punkData, err := emit.Fetch(*punkCards)
 	if err != nil {
 		log.Fatalln("punk-records:", err)
 	}
@@ -1191,7 +1173,7 @@ func main() {
 	// the annotation for all of its printings. A One Piece collector number
 	// holds no underscore of its own, so the first one always starts the
 	// suffix.
-	packsData, err := fetch(*punkPacks)
+	packsData, err := emit.Fetch(*punkPacks)
 	if err != nil {
 		log.Fatalln("punk-records packs:", err)
 	}
