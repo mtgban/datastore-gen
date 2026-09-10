@@ -145,6 +145,7 @@ var tcgSingles = tcgplayer.SinglesProductTypes(onepieceCategory)
 // the official card list.
 type punkCard struct {
 	CardID string `json:"card_id"`
+	Name   string `json:"name"`
 	ImgURL string `json:"img_url"`
 
 	// PackID is the Bandai product the printing was handed out in, which
@@ -390,8 +391,9 @@ var qualSpellings = map[string]string{
 // hangs deck ranges off one - "Beginners Deck Party [ST-23] - [ST-28]",
 // "ST15 - ST20 Release Event Pack" - and cutting there would halve a range.
 var qualSplits = map[string][]string{
-	"leader pack - live action": {"Leader Pack", "Live Action"},
-	"pre-errata demo deck":      {"Pre-Errata", "Demo Deck"},
+	"leader pack - live action":                  {"Leader Pack", "Live Action"},
+	"pre-errata demo deck":                       {"Pre-Errata", "Demo Deck"},
+	"3rd anniversary tournament 3 brothers pack": {"3rd Anniversary Tournament", "3 Brothers Pack"},
 }
 
 // cutPlacing splits a label that ends in one, longest tail first so "2nd
@@ -529,48 +531,6 @@ func promoReleaseDate(year, month, setDate string) string {
 	return fmt.Sprintf("%s-%02d-01", year, at)
 }
 
-// markPrintings gives a printing the mark saying which copy of its number it
-// is, where nothing else says. The labels it marks with are the DON!! card
-// subjects promoTypesOf left out - rightly, since nothing promoted a DON!!
-// card for having Nami on it - and 212 printings read as duplicates of each
-// other without them, every one of them a DON!! card.
-//
-// The mark a printing already wears is kept and the subject written before
-// it, because an instalment and a subject are both marks and a card can wear
-// both: "Mihawk & Zoro Double Pack Set Vol. 3" is one of two subjects in one
-// of eleven volumes.
-func markPrintings(cards []any, leftOut map[string][]string) int {
-	identity := func(item map[string]any) string {
-		return fmt.Sprint(item["name"], "|", item["number"], "|", item["setCode"], "|",
-			item["rarity"], "|", item["finish"], "|", item["promoTypes"], "|",
-			item["watermark"], "|", item["language"])
-	}
-	shared := map[string]int{}
-	for _, raw := range cards {
-		if item, ok := raw.(map[string]any); ok {
-			shared[identity(item)]++
-		}
-	}
-	var marked int
-	for _, raw := range cards {
-		item, ok := raw.(map[string]any)
-		if !ok || shared[identity(item)] < 2 {
-			continue
-		}
-		left := leftOut[fmt.Sprint(item["id"])]
-		if len(left) == 0 {
-			continue
-		}
-		mark := strings.Join(left, " ")
-		if held, worn := item["watermark"].(string); worn {
-			mark += " " + held
-		}
-		item["watermark"] = mark
-		marked++
-	}
-	return marked
-}
-
 // datePrintings turns the year a label stated into the date it is, where the
 // set does not already state it, and clears what noteWhen stashed. See
 // promoReleaseDate.
@@ -597,32 +557,6 @@ func datePrintings(cards []any, sets map[string]any) int {
 	return dated
 }
 
-// promoTypeLimit is how long a promo type may read before it stops being a
-// name and starts being a sentence. A query carries a token, and a token
-// nobody can type is one nobody will.
-const promoTypeLimit = 22
-
-// saysNothing is a word a name must not end on: one that joins two others,
-// a bare number, punctuation left where a strip took something out, and one
-// that would leave a list of names cut in half. shorterName cuts at whole
-// words and the cut can land on any of them - "Extra Grand Battle for",
-// "Premium Card Collection 6", "Beginners Deck Party [] - []", "Anniversary
-// Set Ace, Luffy," - each of which reads as a sentence broken off rather
-// than as the name of anything.
-var (
-	joiningWord = map[string]bool{
-		"a": true, "and": true, "at": true, "for": true, "in": true,
-		"of": true, "on": true, "the": true, "to": true, "vs": true,
-		"vs.": true, "with": true, "x": true,
-	}
-	bareNumber = regexp.MustCompile(`^[0-9]{1,3}$`)
-)
-
-func saysNothing(field string) bool {
-	return promoSlug(field) == "" || joiningWord[strings.ToLower(field)] ||
-		bareNumber.MatchString(field) || strings.HasSuffix(field, ",")
-}
-
 // tidyLabel drops what a strip leaves behind: the brackets that held a set
 // code, and the dash between two of them. "Beginners Deck Party [ST-23] -
 // [ST-28] Participation Pack" comes out of the set-code strip as "Beginners
@@ -638,35 +572,94 @@ func tidyLabel(label string) string {
 	return strings.Join(kept, " ")
 }
 
-// shorterName folds a label too long to be one to the promotion it names,
-// and hands back what it dropped. The catalog writes a shelf's whole product
-// name where a promotion's name would do: "Premium Card Collection -Best
-// Selection Vol. 1-" and "Premium Card Collection -Live Action Edition-" are
-// one collection issued twice, and which issue it was is a mark like any
-// other instalment.
-//
-// The fold takes whole words and stops at the first that would carry the
-// token past the limit, so what is left is always a name the catalog wrote
-// rather than a truncation of one.
-func shorterName(label string) (stem, rest string) {
-	fields := strings.Fields(label)
-	if len(promoSlug(label)) <= promoTypeLimit || len(fields) < 2 {
-		return label, ""
-	}
-	kept := 0
-	for i := 1; i <= len(fields); i++ {
-		if len(promoSlug(strings.Join(fields[:i], " "))) > promoTypeLimit {
+// epithetKey is a name or a qualifier reduced to what the catalog and the
+// list can be compared by: the list writes "Mr.2.Bon.Kurei(Bentham)" with
+// no space before the bracket and dots for the spaces.
+func epithetKey(s string) string {
+	return strings.NewReplacer(" ", "", ".", "").Replace(strings.ToLower(s))
+}
+
+// packSeam is a label naming an occasion and the pack or set it handed out:
+// "Store Championship Participation Pack" is a store championship and a
+// participation pack, "Offline Regional Finalist Card Set" an offline
+// regional and a finalist card set, and a query naming either should reach
+// the printing. Cut at the seam, the two are two tokens.
+var packSeam = regexp.MustCompile(`^(.+?)\s+((?:participation|participant|winner|campaign|celebration|event|finalist|champion|top players?) (?:pack|card set|card)|trophy card|textured chase promo|chase promo|textured foil)$`)
+
+// releaseEvent is the one occasion whose name ends in a word the seam
+// reads as a pack's: "Release Event Pack" is the release event's event
+// pack, not a release's event pack.
+const releaseEvent = "release event"
+
+// shelfHeads are the collections issued several times, whose label names
+// the collection and then the issue: "Premium Card Collection Best Selection
+// Vol. 1" and "Premium Card Collection Live Action Edition" are one
+// collection, and which issue it was is the mark's to say, like any other
+// instalment.
+var shelfHeads = []string{
+	"premium card collection", "official playmat", "sound loader",
+	"special goods set", "illustration box", "learn together deck set",
+	"ultra deck",
+}
+
+// shelfTails are the products a label names after what it collects: "Seven
+// Warlords of the Sea Binder Set" is the binder set, and the crew is the
+// issue.
+var shelfTails = []string{"binder set"}
+
+// gameName is the game's own name in front of a shelf, which every card of
+// the game could wear.
+const gameName = "one piece card game "
+
+// setNameHeads are the sets' names, lower-cased and longest first, for the
+// same stripping the codes get: "Starter Deck 11: Uta Deck Battle" is a deck
+// battle, and the deck is the card's own set. Filled in main once the sets
+// are known.
+var setNameHeads []string
+
+// splitLabel cuts a label at its seam: the promotions it names, and the
+// issue it names them for. This replaced a cut at a length, which took a
+// promotion's first two words whatever they were and left the rest as a
+// mark: "Super Leader Alternate Art" came out as "superleaderalternate" with
+// "art" for a mark, and "Online Regional Finalist Card Set" four different
+// ways depending on what stood in front of it. A long name that names one
+// thing stays one token; the vocabulary check holds a long token against
+// the sets, not against a ruler.
+func splitLabel(label string) (stems []string, issue string) {
+	label = strings.TrimPrefix(label, gameName)
+	for _, name := range setNameHeads {
+		// A label that is a set's name and nothing else says which
+		// product reprinted the card - "Ultra Deck: The Three Captains" on
+		// a Romance Dawn card - which is which copy of the number this is,
+		// a mark, and promoted nothing.
+		if label == name {
+			return nil, label
+		}
+		if strings.HasPrefix(label, name+" ") {
+			label = strings.TrimPrefix(label, name+" ")
 			break
 		}
-		kept = i
 	}
-	for kept > 1 && saysNothing(fields[kept-1]) {
-		kept--
+	if rest := strings.TrimPrefix(label, releaseEvent+" "); rest != label && rest != "" {
+		if rest == "pack" {
+			rest = "event pack"
+		}
+		return []string{releaseEvent, rest}, ""
 	}
-	if kept == 0 || kept == len(fields) {
-		return label, ""
+	for _, shelf := range shelfHeads {
+		if strings.HasPrefix(label, shelf+" ") {
+			return []string{shelf}, strings.TrimPrefix(label, shelf+" ")
+		}
 	}
-	return strings.Join(fields[:kept], " "), strings.Join(fields[kept:], " ")
+	for _, shelf := range shelfTails {
+		if strings.HasSuffix(label, " "+shelf) {
+			return []string{shelf}, strings.TrimSuffix(label, " "+shelf)
+		}
+	}
+	if m := packSeam.FindStringSubmatch(label); m != nil {
+		return []string{m[1], m[2]}, ""
+	}
+	return []string{label}, ""
 }
 
 // noteWhen stashes what promoTypesOf took off the labels, for datePrintings
@@ -705,6 +698,7 @@ var promoSpellings = map[string]string{
 	"offline regionals":         "offline regional",
 	"one piece anniversary set": "anniversary set",
 	"participation":             "participant",
+	"regionals":                 "regional",
 }
 
 // deckMark matches a label that is a deck and whose deck it is, which says
@@ -790,19 +784,23 @@ func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool
 		if rest == "" {
 			continue
 		}
-		stem, _ := shorterName(rest)
-		// Everything the token did not take is the mark: the count of
-		// which running this is, and the words the fold dropped off the
-		// end. Setting the second aside for the collision guard alone
+		stems, _ := splitLabel(rest)
+		// Everything the tokens did not take is the mark: the count of
+		// which running this is, and the issue of a collection issued more
+		// than once. Setting the second aside for the collision guard alone
 		// published nothing for the printings that did not collide, so a
 		// listing naming the issue had no issue to name.
-		if of := markLeft(dated, stem); of != "" {
+		if of := markLeft(dated, strings.Join(stems, " ")); of != "" {
 			instalments = append(instalments, of)
 		}
-		if spelled, named := promoSpellings[stem]; named {
-			stem = spelled
+		for _, stem := range stems {
+			if spelled, named := promoSpellings[stem]; named {
+				stem = spelled
+			}
+			if slug := promoSlug(stem); slug != "" && !slices.Contains(out, slug) {
+				out = append(out, slug)
+			}
 		}
-		out = append(out, promoSlug(stem))
 		if placing != "" {
 			out = append(out, promoSlug(placing))
 		}
@@ -1237,9 +1235,18 @@ func main() {
 	}
 
 	punkByNumber := map[string][]string{}
-	for id := range punk {
+	// What the list calls the card at each number, the witness for which
+	// parenthetical is the card's name.
+	punkNames := map[string][]string{}
+	for id, card := range punk {
 		base, _, _ := strings.Cut(id, "_")
 		punkByNumber[base] = append(punkByNumber[base], id)
+		if card.Name != "" && !slices.Contains(punkNames[base], card.Name) {
+			punkNames[base] = append(punkNames[base], card.Name)
+		}
+	}
+	for _, names := range punkNames {
+		sort.Strings(names)
 	}
 	for _, ids := range punkByNumber {
 		sort.Strings(ids)
@@ -1292,12 +1299,51 @@ func main() {
 	for i := range singles {
 		byNumber[singles[i].number] = append(byNumber[singles[i].number], &singles[i])
 	}
+	// Which parentheticals are part of a card's name is the list's to say.
+	// Bandai names the card "Miss Doublefinger(Zala)" and "Mr.2.Bon.Kurei
+	// (Bentham)", and the catalog decorates the same products with the same
+	// epithet, so a qualifier that appears in parentheses in the list's
+	// name for the number is the card's name and any other is the
+	// printing's variant. The vote below, a qualifier every product of a
+	// number carries, is kept for the numbers the list does not name. It
+	// was right on the epithets and wrong on the promos: a promo number
+	// sold plain and as "[Winner]", both wearing the event, was named after
+	// the event - "Smoker (Pre-Release)", "Monkey.D.Luffy (4th Anniversary)"
+	// - which the list names plainly. Measured before it was written: of
+	// the 109 parentheticals in names today, the list witnesses 97, does
+	// not know the number of 6, and names the card plainly on the 6 that
+	// were wrong.
+	witnessed := func(number, qual string) (bool, bool) {
+		names := punkNames[number]
+		if len(names) == 0 {
+			return false, false
+		}
+		key := "(" + epithetKey(qual) + ")"
+		for _, name := range names {
+			if strings.Contains(epithetKey(name), key) {
+				return true, true
+			}
+		}
+		return false, true
+	}
+	var witnessedNames, votedNames int
+	// What the list has witnessed anywhere is a name everywhere: the same
+	// epithet decorates the character's every printing, and the promo
+	// numbers the list does not know - P-148 is "Mr.3 (Galdino)" - take
+	// the verdict its Romance Dawn printing reached.
 	nameParens := map[string]bool{}
+	for i := range singles {
+		for _, q := range singles[i].quals {
+			if named, _ := witnessed(singles[i].number, q); named {
+				nameParens[q] = true
+			}
+		}
+	}
 	for _, bucket := range byNumber {
 		sort.Slice(bucket, func(i, j int) bool {
 			return bucket[i].product.ProductID < bucket[j].product.ProductID
 		})
-		if len(bucket) < 2 {
+		if len(bucket) < 2 || len(punkNames[bucket[0].number]) > 0 {
 			continue
 		}
 		common := map[string]int{}
@@ -1316,9 +1362,21 @@ func main() {
 		// Decide before mutating: the membership test must read every
 		// product's original qualifiers, not the ones a fold already moved.
 		isName := map[string]bool{}
-		if len(bucket) < 2 {
+		if len(punkNames[bucket[0].number]) > 0 {
+			for _, s := range bucket {
+				for _, q := range s.quals {
+					if named, _ := witnessed(s.number, q); named {
+						isName[q] = true
+						witnessedNames++
+					}
+				}
+			}
+		} else if len(bucket) < 2 {
 			for _, q := range bucket[0].quals {
 				isName[q] = nameParens[q]
+				if isName[q] {
+					votedNames++
+				}
 			}
 		} else {
 			common := map[string]int{}
@@ -1329,6 +1387,9 @@ func main() {
 			}
 			for q, n := range common {
 				isName[q] = n == len(bucket)
+				if isName[q] {
+					votedNames += n
+				}
 			}
 		}
 		for _, s := range bucket {
@@ -1345,6 +1406,8 @@ func main() {
 			s.quals = variant
 		}
 	}
+	log.Printf("names: %d parentheticals kept in a name on the list's word, %d by the vote where the list names no card",
+		witnessedNames, votedNames)
 
 	// A season in front of what it handed out is two labels. The catalog
 	// repeats the season on every pack of it, so a celebration pack of one
@@ -1622,6 +1685,18 @@ func main() {
 		}
 		sets[codes[group.GroupID]] = set
 	}
+	for _, entry := range sets {
+		set, _ := entry.(map[string]any)
+		if name, _ := set["name"].(string); name != "" {
+			setNameHeads = append(setNameHeads, strings.ToLower(name))
+		}
+	}
+	sort.Slice(setNameHeads, func(i, j int) bool {
+		if len(setNameHeads[i]) != len(setNameHeads[j]) {
+			return len(setNameHeads[i]) > len(setNameHeads[j])
+		}
+		return setNameHeads[i] < setNameHeads[j]
+	})
 	log.Printf("promotional sets: %d of %d", promoSets, len(sets))
 	if skippedEmpty > 0 {
 		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
@@ -1659,9 +1734,6 @@ func main() {
 	}
 
 	var cards []any
-	// What promoTypesOf left out of each entry, keyed by the entry's id,
-	// for markPrintings to put back where it is doing the distinguishing.
-	leftOut := map[string][]string{}
 	var nonEnglish int
 	for _, s := range singles {
 		group := groupByID[s.product.GroupID]
@@ -1690,14 +1762,11 @@ func main() {
 				// The same labels as a list. Joined, "Alternate Art Manga"
 				// cannot be read back into the two it holds, and the
 				// matcher declares and narrows on them one at a time.
-				tags, left, year, month, instalment, mark := promoTypesOf(s.baseName, s.product.Extended("Rarity"), s.quals, cardNames)
+				tags, _, year, month, instalment, mark := promoTypesOf(s.baseName, s.product.Extended("Rarity"), s.quals, cardNames)
 				if len(tags) > 0 {
 					entry["promoTypes"] = tags
 				}
 				noteWhen(entry, year, month, instalment, mark)
-				if len(left) > 0 {
-					leftOut[fmt.Sprint(entry["id"])] = left
-				}
 			}
 			if s.language != "" {
 				entry["language"] = s.language
@@ -1821,14 +1890,11 @@ func main() {
 			if printing.label != "" {
 				tags = append(tags, printing.label)
 			}
-			labels, left, year, month, instalment, mark := promoTypesOf(fmt.Sprint(src["name"]), fmt.Sprint(src["rarity"]), tags, cardNames)
+			labels, _, year, month, instalment, mark := promoTypesOf(fmt.Sprint(src["name"]), fmt.Sprint(src["rarity"]), tags, cardNames)
 			if len(labels) > 0 {
 				entry["promoTypes"] = labels
 			}
 			noteWhen(entry, year, month, instalment, mark)
-			if len(left) > 0 {
-				leftOut[fmt.Sprint(entry["id"])] = left
-			}
 		}
 		// The blueprint is what this printing was minted from, and until
 		// now it was legible only inside the uuid - the one fact about a
@@ -1895,9 +1961,6 @@ func main() {
 		linked++
 	}
 	log.Printf("external links: %d cards carry their bandaiId under externalLinks as well", linked)
-
-	log.Printf("watermarks: %d printings marked by which copy of the number they are",
-		markPrintings(cards, leftOut))
 
 	log.Printf("release dates: %d printings dated by a year their label stated, where the set states another",
 		datePrintings(cards, sets))
