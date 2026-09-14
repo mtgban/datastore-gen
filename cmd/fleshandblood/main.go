@@ -134,6 +134,12 @@ type fabRow struct {
 	// Pitch is the value the card pitches for, 1 to 3, which the catalog
 	// also carries as "Pitch Value" and gets wrong now and then.
 	Pitch string `json:"pitch"`
+	// Artists is the credit the catalog never carries at all - not blank,
+	// absent - so a number two products share is otherwise nothing a
+	// listing can tell apart by (byNumber's own epithet election runs on
+	// the name and the finish, neither of which differs between "Aurora
+	// (Marvel)" and "Aurora (Marvel)" once the qualifier is folded away).
+	Artists []string `json:"artists"`
 }
 
 // fabSet is the slice of a the-fab-cube set this build reads, the name and
@@ -739,6 +745,12 @@ func main() {
 	// The pitch the dataset gives each product's printings, kept where
 	// every printing of the product agrees.
 	pitchByProduct := map[int]map[string]bool{}
+	// The credit the dataset gives each product, the union of every row's
+	// own list: a fused product's two rows each carry one face's artist
+	// alone - "Ash" and "Aether Ashwing" on the two sides of one token -
+	// and dropping either to a single "the first one wins" would credit
+	// the printing for only half the art it actually carries.
+	artistsByProduct := map[int][]string{}
 	// The card product a dataset number is sold as, by the product id the
 	// dataset writes on its rows. It is what decides below whether a number
 	// is carried: the catalog spells a number its own way often enough -
@@ -772,6 +784,11 @@ func main() {
 				pitchByProduct[productID] = map[string]bool{}
 			}
 			pitchByProduct[productID][color] = true
+		}
+		for _, artist := range row.Artists {
+			if !sliceContains(artistsByProduct[productID], artist) {
+				artistsByProduct[productID] = append(artistsByProduct[productID], artist)
+			}
 		}
 		if !cardProducts[productID] {
 			continue
@@ -1192,6 +1209,9 @@ func main() {
 			}
 			if id, found := fabIDs[productID]; found {
 				entry["fabId"] = id
+			}
+			if artists := artistsByProduct[productID]; len(artists) > 0 {
+				entry["artist"] = strings.Join(artists, " & ")
 			}
 			cards = append(cards, entry)
 		}
