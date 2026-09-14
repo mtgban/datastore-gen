@@ -8,7 +8,7 @@
 # binary was committed three times before anyone noticed. The history had
 # to be rewritten to get it out.
 #
-# So the default is now no, and the exceptions are the seven things that
+# So the default is now no, and the exceptions are the things that
 # genuinely live here. A new game needs no change to this file; a new root
 # file that does belong gets one line, and until it does `git add` says so
 # out loud rather than quietly taking a binary.
@@ -25,5 +25,7 @@
 !/.revive.toml
 !/LICENSE
 !/README.md
+!/AGENTS.md
+!/SPECIFICATIONS.md
 !/go.mod
 !/go.sum
