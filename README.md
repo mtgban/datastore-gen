@@ -258,8 +258,9 @@ each datastore at `b2://mtgban-datastore/<game>/tcgplayer-catalog.json.xz`.
 
 ## Publishing
 
-The `publish` workflow runs daily at 07:00 UTC, two hours after the catalog
-dump, and on demand for one game or all of them. It downloads the dump from
+The `publish` workflow runs daily at 12:37 UTC, late enough to clear the
+catalog dump however late it lands, and on demand for one game or all of
+them. It downloads the dump from
 B2, builds the datastore, compresses it, and uploads it to
 `b2://mtgban-datastore/<game>/<game>.json.xz`. Consumers decompress by
 suffix, so the extension matters. It needs the secrets
