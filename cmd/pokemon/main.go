@@ -192,6 +192,25 @@ type tcgdexSet struct {
 	} `json:"serie"`
 }
 
+// tcgdexSymbolURL turns the bare path the API hands back in Symbol into one
+// that actually answers. The field is always "https://assets.tcgdex.net/univ/<series>/<id>/symbol",
+// and for the first nine days this shipped, appending an extension there
+// worked - .webp answered, and so did .png. It stopped: as of this build,
+// nothing under univ/ resolves in any extension, and tcgdex's own asset
+// docs (https://tcgdex.dev/assets) describe a locale-scoped path instead,
+// "en/<series>/<id>/symbol.png" - no webp, no universal. This build already
+// reads everything else tcgdex serves through en (card images, notably),
+// so univ is swapped for it here rather than left as the vendor's own word
+// for where the asset lives.
+//
+// tcgdex still claims a symbol for some sets it does not serve one for
+// under this path either - 21 of the 169 it names one for, mostly the
+// trainer-kit half-decks - the same shape as a claimed id resolving to a
+// 404 elsewhere in this build. Those carry none, same as before.
+func tcgdexSymbolURL(raw string) string {
+	return strings.Replace(raw, "/univ/", "/en/", 1) + ".png"
+}
+
 // tcgdexCard is the slice of a tcgdex card this build reads.
 type tcgdexCard struct {
 	ID       string `json:"id"`
@@ -3682,13 +3701,11 @@ func main() {
 			set["abbreviation"] = group.Abbreviation
 		}
 		// The mark the set's cards print, from the tcgdex set the group
-		// joined. tcgdex hands back an extension-less asset URL and serves
-		// several encodings off it; webp is the smallest, and the one the
-		// card images already ask for. A group that joined no set, or joined
-		// one tcgdex holds no symbol for, carries none, and whatever renders
-		// this falls back to drawing the set code.
+		// joined. A group that joined no set, or joined one tcgdex holds no
+		// symbol for, carries none, and whatever renders this falls back to
+		// drawing the set code.
 		if dex := joinedSets[group.GroupID]; dex != nil && dex.Symbol != "" {
-			set["symbol"] = dex.Symbol + ".webp"
+			set["symbol"] = tcgdexSymbolURL(dex.Symbol)
 			symboled++
 		}
 		// The type is what tells the matcher a printing is promotional, so
@@ -3765,7 +3782,7 @@ func main() {
 			set["name"] = dex.Name
 			set["releaseDate"] = dex.ReleaseDate
 			if dex.Symbol != "" {
-				set["symbol"] = dex.Symbol + ".webp"
+				set["symbol"] = tcgdexSymbolURL(dex.Symbol)
 				symboled++
 			}
 		}
