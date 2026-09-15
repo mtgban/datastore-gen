@@ -224,6 +224,12 @@ semantics a datastore change must respect. The ones that have bitten:
   game has not published before.
 - **A total no printing prints** ("Blastoise 2/25" on a 25-card shelf) is
   the loader's to forgive (go-mtgban#542), not the datastore's to publish.
+- **A change to the document's shape is a paired change.** The envelope
+  parses as nothing in a consumer that does not unwrap it, so the loader
+  side lands and deploys before the writer does (go-mtgban#604), and reads
+  both shapes for as long as a file built before the change might still
+  arrive. Anything that moves what `data` holds owes the same order, and
+  `meta.version` is what tells a reader it has to care.
 
 The go-mtgban pre-push hook sources its `.env` and runs the loader word test
 against the datastores in the local `output/` directory. A vocabulary
@@ -285,10 +291,20 @@ subagent's report is evidence to check against the file, not a finding.
 - `STORE_DIR` for the vocabulary check must be absolute; `go test` runs the
   binary in `internal/vocabulary`, and `STORE_DIR=.` reads nothing (that
   shipped once and broke every publish until #65).
-- Riftbound's datastore is the gallery payload itself: the cards are at
-  `pageProps.page.blades[].cards.items[]`, not under a top-level `cards`
-  key. A reader that stops at the top level reports the game empty and
-  clean. `internal/vocabulary` and `internal/datastorediff` know the path.
+- Every datastore is a `{"meta":…,"data":…}` envelope (SPECIFICATIONS
+  §2), but a file on disk may still be the bare pre-envelope shape: a
+  baseline, a published datastore not yet rebuilt, the old side of a diff.
+  That stays true until every game has published once under the envelope,
+  which is when the bare half goes.
+  Read one through `emit.Unwrap` (or `emit.UnwrapDocument`) and never by
+  hand: an envelope is `meta` *and* `data`, and a peel that keys on `data`
+  alone silently re-roots into any document that happens to publish a
+  field by that name.
+- Riftbound's datastore is the gallery payload itself, under the envelope's
+  `data`: the cards are at `data.pageProps.page.blades[].cards.items[]`,
+  not under a `cards` key at any level. A reader that stops at the top
+  level reports the game empty and clean. `internal/vocabulary` and
+  `internal/datastorediff` know the path.
 - Lorcana's card ids are integers (LorcanaJSON's own; a minted product is
   the negated product id), and each card carries a `printings[]` array with
   a uuid per finish (`1951`, `1951_foil`, `m-714954_holofoil`).

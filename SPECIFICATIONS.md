@@ -2,8 +2,8 @@
 
 What the builders read, what they publish, and what every build is held
 to. `AGENTS.md` says how to work here; this document says what "here" is.
-Facts below were read off the code on 2026-09-14 (master at `698813b`);
-where a number is quoted it is that day's.
+Facts below were read off the code on 2026-09-14 (master at `9d3c8cd`,
+with #73's envelope); where a number is quoted it is that day's.
 
 Module `github.com/mtgban/datastore-gen`, Go 1.25. Direct dependencies:
 `github.com/mtgban/go-tcgplayer` (the catalog reader) and
@@ -40,21 +40,70 @@ onepiece 49 hand-carried pre-errata printings, gundam 8 tokens.
 
 ## 2. The document
 
-Every game but Riftbound and Lorcana writes this shape; the two exceptions
-are in §2.5.
+One envelope per file: `meta` says when the file was built and which
+schema it is, `data` holds the document. The shape is MTGJSON's own idiom
+(`mtgmatcher/magic`'s `AllPrintings{Meta, Data}`), spelled once in
+`emit.Envelope` for all eight builders.
 
 ```json
 {
-  "game": "pokemon",
-  "sets":   { "<setCode>": { ...set } },
-  "cards":  [ { ...card } ],
-  "sealed": [ { ...sealed } ]
+  "meta": {
+    "date":    "2026-09-14",
+    "version": "1"
+  },
+  "data": {
+    "game":   "pokemon",
+    "sets":   { "<setCode>": { ...set } },
+    "cards":  [ { ...card } ],
+    "sealed": [ { ...sealed } ]
+  }
 }
 ```
 
+`meta` is encoded from a struct, not a map, so it is written first: the
+version exists to be read before the rest is decoded, and a sorted map put
+it in the last sixty bytes of the file behind everything it qualifies.
+`meta.date` is the build's own date, UTC (`emit.Today`); `meta.version` is
+`emit.SchemaVersion`, and moves only when what `data` holds changes in a
+way a reader must know about before it decodes.
+
+`meta` says nothing else. The game in particular stays in the document,
+where it has always been and where the loaders' wrong-file guard reads it:
+nothing detects a game from a file, callers name the game to `Open`, and
+putting it in `meta` would split one fact across two places and buy nothing.
+
+`data` holds exactly what used to sit at the top level, unchanged: a reader
+that unwraps `data` decodes what it always did. Every game but Riftbound
+and Lorcana writes the `game`/`sets`/`cards`/`sealed` shape above; those
+two put their upstream payload there whole, and are in §2.5.
+
 Before encoding, `emit.PlainQuotes` rewrites every typographic quote in the
-document to its ASCII form, so the check that re-reads the file sees what
-is published and a query spells names the way the file does.
+payload to its ASCII form, so the check that re-reads the file sees what is
+published and a query spells names the way the file does; the envelope goes
+around it afterwards, and `meta` carries no prose to rewrite.
+
+Both shapes have to read on the way *in*. A previous datastore — what
+`-against` measures a build against, and what `datastorediff` reads as the
+old side — stays bare until it is itself rebuilt, so every reader here
+peels through `emit.Unwrap`, or `emit.UnwrapDocument` where it holds the
+document already decoded. Neither spells the peel again.
+
+A document is an envelope when it carries **both** `meta` and `data`, both
+objects. `data` alone is not the test: a document is free to publish a
+field of its own by that name, and peeling on the key alone would re-root
+a reader into it and lose the real document without saying so. None of the
+eight games publishes either key bare today — Lorcana's upstream carries
+`metadata`, which is a different name — and asking for both keeps that
+true should one ever start. A `meta.version` this build does not know is
+refused (`emit.ErrUnknownSchema`), not decoded on the chance that `data`
+still reads: that refusal is what writing the version first is for.
+
+Reading both shapes is a migration cost, not a feature, and it ends on a
+condition rather than a date: once every game has published once under the
+envelope, no bare file can still arrive — the published datastores and the
+baselines beside them are enveloped alike — and `Unwrap` can refuse a
+document that is not one instead of handing it back whole. Until then a
+new reader takes the helper rather than spelling a peel of its own.
 
 ### 2.1 Sets
 
@@ -142,17 +191,20 @@ entry stand beside a priced one without a check.
 ### 2.5 The two other shapes
 
 **Riftbound** publishes the card-gallery payload itself with the catalog
-merged in, so `mtgmatcher/riftbound` reads it unchanged. The cards are at
-`pageProps.page.blades[].cards.items[]`; each item keeps the gallery's own
-fields (`id`, `name`, `publicCode`, `set.value.{id,label}`,
-`rarity.value.id`, `finishes`, `cardImage.url`, `tcgplayerProductId`) and
-gains `setCode`, `number`, `image` and `externalLinks.tcgPlayerId` for
-consumers that read every game alike. A catalog product the gallery has no
-row for is adopted as a printing with the same shape. There is no top-level
-`cards` key; `internal/vocabulary`, `internal/datastorediff` and
-`internal/baseline` (through a reader the builder supplies) walk the path.
+merged in, under `data`, so `mtgmatcher/riftbound` reads it unchanged. The
+cards are at `data.pageProps.page.blades[].cards.items[]`; each item keeps
+the gallery's own fields (`id`, `name`, `publicCode`,
+`set.value.{id,label}`, `rarity.value.id`, `finishes`, `cardImage.url`,
+`tcgplayerProductId`) and gains `setCode`, `number`, `image` and
+`externalLinks.tcgPlayerId` for consumers that read every game alike. A
+catalog product the gallery has no row for is adopted as a printing with
+the same shape. There is no `cards` key at any level;
+`internal/vocabulary`, `internal/datastorediff` and `internal/baseline`
+(through a reader the builder supplies) walk the path.
 
-**Lorcana** publishes LorcanaJSON's card objects with the catalog merged in:
+**Lorcana** publishes LorcanaJSON's card objects with the catalog merged in,
+likewise whole under `data` — upstream's own `metadata` key travels with
+them untouched, and is not the envelope's `meta`:
 `externalLinks.tcgPlayerId` and `tcgPlayerExtraIds`, `tcgPrintings` (the
 catalog's printing names sold), and a `printings[]` array of
 `{finish, id, promoTypes}` with one uuid per finish the catalog sells;
@@ -248,7 +300,10 @@ the promo shelves) carries no size; 58 of Pokemon's 226 sets are like that.
 
 ## 4. Invariants every build enforces
 
-`validate` re-reads the encoded output before anything is written. Refused
+`validate` re-reads the encoded output before anything is written,
+peeling it through `emit.Unwrap` first: the output is the envelope now,
+and a check that decoded the top level would validate a shape nothing
+publishes. Refused
 in every game: a card missing its identity fields; an id outside the id
 shape; a number carrying whitespace; a duplicate id; two entries wearing
 one identity under different products (`name|number|setCode|variant|…`, the
@@ -330,13 +385,22 @@ Per-game notes an agent needs:
 `OrderedFinishes`, `PromoSlug`, `PlainQuotes`, `ImageURL`, `Fetch`,
 `StringsOf`. The nine helpers every builder used to carry; one spelling
 each. `PromoSlug` and `FinishSlug` are one function under two names.
+`Envelope`, `Today` and the `SchemaVersion` constant spell §2's wrapper;
+`Unwrap`, `UnwrapDocument` and `ErrUnknownSchema` read it back. One
+spelling each, for all eight builders and for every reader of a built
+file — the peel was eleven copies of a `json.RawMessage` peek before, and
+a discriminator that has to be fixed in eleven places is fixed in none.
 
 **`internal/baseline`** — `Counts`, `Count`, `Reader`, `Regression`,
 `Options{Against, Tolerance, FitPath, Unit}`, `Guard`. Riftbound hands
-`Guard` a reader of its own for its shape.
+`Guard` a reader of its own for its shape. `Count` peels through
+`emit.Unwrap`: the baseline on disk is a previous build's output, and
+stays bare until a build publishes over it.
 
 **`internal/vocabulary`** — `TokenLimit`, `Slug`, `Printing`, `Problems`,
-`Check`, `SetNames`, `ReadDatastore`, `ErrNotDatastore`. `Slug` is kept
+`Check`, `SetNames`, `ReadDatastore`, `ErrNotDatastore`; `SetNames` and
+`ReadDatastore` peel through `emit`, the envelope being plumbing rather
+than an answer this package re-derives. `Slug` is kept
 separate from `emit.PromoSlug` on purpose: a check that spelled its tokens
 with the builders' own function would pass a builder whose spelling had
 gone wrong. `TestPublishedVocabulary` reads `STORE_DIR/<game>.json` for the
@@ -345,7 +409,9 @@ eight games, skipping a file that is absent or still the raw upstream.
 **`internal/datastorediff`** — `Compare(before, after) (Change, error)`,
 `Change.String()`: ids added and removed, fields published and dropped
 (by name), values reworded, sets and sealed counted, with a leaf-by-leaf
-fallback for the Riftbound shape. Only meaningful when both files were
+fallback for the Riftbound shape. Either side may be enveloped or bare, a
+build being routinely compared against an older published file, and both
+are peeled by `emit.UnwrapDocument`. Only meaningful when both files were
 built from one catalog.
 
 ## 7. Workflows
@@ -387,8 +453,10 @@ every game.
 go-mtgban loads each file through `mtgmatcher/<game>` and locates it by
 environment variable: `FLESHANDBLOOD_PATH`, `GUNDAM_PATH`, `LORCANA_PATH`,
 `ONEPIECE_PATH`, `PALWORLD_PATH`, `POKEMON_PATH`, `RIFTBOUND_PATH`,
-`YUGIOH_PATH`, absolute paths. What it reads, and therefore what a change
-here must keep true:
+`YUGIOH_PATH`, absolute paths. All eight loaders take §2's envelope or a
+bare document (go-mtgban#604), so a datastore rebuilt into the new shape
+and one not yet rebuilt both load. What it reads, and therefore what a
+change here must keep true:
 
 - **Identity** is `name` + `number` (+ `rarity` where the game sells one
   number at several rarities; + `total` in Pokemon), narrowed by the
@@ -410,8 +478,9 @@ here must keep true:
   taught passes through as itself.
 - **`originalReleaseDate`** is preferred over the set's date wherever the
   loader dates a card; `language` refuses a listing in another language.
-- **Riftbound** is read as the gallery payload; **Lorcana** as LorcanaJSON
-  with `printings[]` deciding the uuids.
+- **Riftbound** is read as the gallery payload and **Lorcana** as
+  LorcanaJSON, both from under `data`, with Lorcana's `printings[]`
+  deciding the uuids.
 
 The measurement that ties the two sides together is go-mtgban's
 `TestReplayCatalogNames` (`REPLAY_CATALOG=<catalog> <GAME>_PATH=<file>

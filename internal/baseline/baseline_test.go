@@ -62,6 +62,27 @@ func TestCountReadsTheTopLevelShape(t *testing.T) {
 	}
 }
 
+// TestCountReadsTheEnvelopeShape pins that Count reads the same counts off
+// a datastore wrapped in the {"meta":...,"data":...} envelope as off the
+// bare document: the baseline a build compares against may already be one,
+// or may not be yet, and Guard hands this build's own encoded output - now
+// always wrapped - to Count the same way.
+func TestCountReadsTheEnvelopeShape(t *testing.T) {
+	bare, err := Count([]byte(`{"cards":[{"setCode":"A"},{"setCode":"A"},{"setCode":"B"}],"sealed":[{},{}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapped, err := Count([]byte(`{"meta":{"date":"2026-09-14","version":"1","game":"pokemon"},` +
+		`"data":{"cards":[{"setCode":"A"},{"setCode":"A"},{"setCode":"B"}],"sealed":[{},{}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrapped.Cards != bare.Cards || wrapped.Sealed != bare.Sealed ||
+		wrapped.BySet["A"] != bare.BySet["A"] || wrapped.BySet["B"] != bare.BySet["B"] {
+		t.Errorf("Count(wrapped) = %+v, want %+v", wrapped, bare)
+	}
+}
+
 // TestGuardOnlyMovesTheBaselineForward pins the high-water mark: a build
 // inside the tolerance still publishes but is not fit to become the next
 // baseline, and a build at least as large is.
