@@ -20,6 +20,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/mtgban/datastore-gen/internal/emit"
 )
 
 // Counts is what a datastore holds: the two totals, and the card count per
@@ -35,7 +37,18 @@ type Counts struct {
 // products at the top level, which is every game but Riftbound. A game
 // whose datastore is shaped otherwise reads its own counts and hands them
 // to Guard through a Reader of its own.
+//
+// data may be bare, or wrapped in a {"meta":...,"data":...} envelope: the
+// baseline a build compares against is the previous run's own output, which
+// predates the envelope until a build publishes one, so both shapes have to
+// read here for as long as any baseline file on disk might still be the
+// older one.
 func Count(data []byte) (Counts, error) {
+	data, err := emit.Unwrap(data)
+	if err != nil {
+		return Counts{}, err
+	}
+
 	var doc struct {
 		Cards []struct {
 			SetCode string `json:"setCode"`

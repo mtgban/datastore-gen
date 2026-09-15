@@ -1130,7 +1130,8 @@ func main() {
 	// document, so the check below sees what will be published.
 	emit.PlainQuotes(doc)
 
-	if err := json.NewEncoder(&buf).Encode(doc); err != nil {
+	envelope := emit.Envelope(emit.Today(), doc)
+	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -1230,6 +1231,11 @@ var idShape = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 // existing, every finish one of the printing names, and every product's
 // entries covering exactly the sku printings the catalog lists for it.
 func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
+	data, err := emit.Unwrap(data)
+	if err != nil {
+		return counts{}, err
+	}
+
 	var doc struct {
 		Game string `json:"game"`
 		Sets map[string]struct {
