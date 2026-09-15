@@ -31,6 +31,38 @@ func TestUnchangedIsEmpty(t *testing.T) {
 	}
 }
 
+// wrap puts payload under the {"meta":...,"data":...} envelope, meta.date
+// set to date so a test can vary the one field every build changes.
+func wrap(date string, payload []byte) []byte {
+	return []byte(`{"meta":{"date":"` + date + `","version":"1","game":"test"},"data":` + string(payload) + `}`)
+}
+
+// TestEnvelopeShapeComparesLikeBare pins the transition this migration
+// causes: one build publishes the bare document and the next publishes the
+// same content wrapped in the envelope. Compare must see that as no change,
+// not as every card arriving and the old ones leaving - and meta.date,
+// which is different on every build, must not register as a leaf changing
+// either.
+func TestEnvelopeShapeComparesLikeBare(t *testing.T) {
+	bare := doc(`[{"id":"a","name":"A"}]`, `{"AAA":{"name":"A"}}`, noSealed)
+
+	c := compare(t, bare, wrap("2026-09-14", bare))
+	if !c.Empty() {
+		t.Errorf("Empty() = false comparing bare against the same content wrapped: %s", c)
+	}
+
+	c = compare(t, wrap("2026-09-14", bare), wrap("2026-09-15", bare))
+	if !c.Empty() {
+		t.Errorf("Empty() = false comparing two wrapped builds that differ only in meta.date: %s", c)
+	}
+
+	changed := doc(`[{"id":"a","name":"A","language":"en"}]`, `{"AAA":{"name":"A"}}`, noSealed)
+	c = compare(t, wrap("2026-09-14", bare), wrap("2026-09-15", changed))
+	if c.FieldsAdded["language"] != 1 {
+		t.Errorf("wrapped vs wrapped: FieldsAdded[language] = %d, want 1", c.FieldsAdded["language"])
+	}
+}
+
 // TestFieldPublishedIsNotRewording is the distinction the whole package
 // exists for. A commit that starts publishing a field and one that reworded
 // a field already published both change the same entries, and only the

@@ -1302,7 +1302,8 @@ func main() {
 	// document, so the check below sees what will be published.
 	emit.PlainQuotes(doc)
 
-	if err := json.NewEncoder(&buf).Encode(doc); err != nil {
+	envelope := emit.Envelope(emit.Today(), doc)
+	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -1413,6 +1414,11 @@ var codeShape = regexp.MustCompile(`^[A-Z0-9-]+$`)
 var idShape = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
+	data, err := emit.Unwrap(data)
+	if err != nil {
+		return counts{}, err
+	}
+
 	var doc struct {
 		Game string `json:"game"`
 		Sets map[string]struct {
@@ -1510,7 +1516,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		}
 		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 	}
-	err := coverage(gotFinishes, wantFinishes)
+	err = coverage(gotFinishes, wantFinishes)
 	if err != nil {
 		return out, err
 	}
