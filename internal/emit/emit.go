@@ -18,6 +18,8 @@
 package emit
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -162,6 +164,132 @@ func Fetch(location string) ([]byte, error) {
 		return nil, fmt.Errorf("%s: HTTP %d", location, resp.StatusCode)
 	}
 	return io.ReadAll(resp.Body)
+}
+
+// SchemaVersion is the datastore schema version every published envelope's
+// meta.version carries. It moves only when the shape data holds changes in
+// a way a reader must know about before decoding it.
+const SchemaVersion = "1"
+
+// Today is the build date, in the form meta.date carries it everywhere.
+func Today() string {
+	return time.Now().UTC().Format("2006-01-02")
+}
+
+// envelope is the published document. It is a struct rather than a map so
+// that meta is encoded before data: a map's keys are sorted, which would
+// put fourteen megabytes of cards ahead of the two fields a reader wants
+// first, and meta.version exists precisely to be read before the rest is
+// decoded. MTGJSON writes AllPrintings the same way round.
+type envelope struct {
+	Meta struct {
+		Date    string `json:"date"`
+		Version string `json:"version"`
+	} `json:"meta"`
+	Data any `json:"data"`
+}
+
+// Envelope wraps a datastore's payload in the {"meta":...,"data":...} shape
+// every builder now publishes, MTGJSON's own idiom for the same purpose
+// (mtgmatcher/magic's AllPrintings). date is the build date, from Today.
+//
+// meta says when the document was built and which schema it is, and nothing
+// else. The game stays inside data, where the document has always named it
+// and where the loaders' wrong-file guard still reads it: moving it here
+// would have split one fact across two places and bought nothing, since
+// nothing detects a game from it - callers name the game to Open.
+//
+// data is everything that used to sit at the top level, unchanged, so a
+// reader that unwraps "data" and decodes it sees exactly what it always has.
+func Envelope(date string, data any) any {
+	var out envelope
+	out.Meta.Date = date
+	out.Meta.Version = SchemaVersion
+	out.Data = data
+	return out
+}
+
+// ErrUnknownSchema says a document is an envelope whose meta.version this
+// build does not know. A reader that cannot say what data holds must not
+// guess at it, so the version is refused rather than ignored: this is the
+// check meta.version is written first for.
+var ErrUnknownSchema = errors.New("unknown datastore schema version")
+
+// Unwrap returns the document a datastore file holds: the payload of a
+// {"meta":...,"data":...} envelope, or the file itself where it is not one.
+//
+// Every reader in this repository takes a file that may be either shape - a
+// baseline on disk, the old side of a diff, a published datastore not yet
+// rebuilt - so the peel is spelled here once rather than in each of them.
+//
+// An envelope is meta AND data, both objects. Data alone is not enough: a
+// document is free to publish a field of its own called "data", and peeling
+// on that key alone would re-root a reader into it and lose the real
+// document without saying so. None of the eight games publishes either key
+// bare today (Lorcana's upstream carries "metadata", which is a different
+// name), and requiring both keeps it that way should one ever start.
+func Unwrap(document []byte) ([]byte, error) {
+	// Pointers, so an absent key and a null one are alike nil: "data": null
+	// decodes into a non-nil json.RawMessage holding the four bytes "null",
+	// which is not a payload and must not be peeled into.
+	var envelope struct {
+		Meta *json.RawMessage `json:"meta"`
+		Data *json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(document, &envelope); err != nil {
+		return nil, err
+	}
+	if envelope.Meta == nil || envelope.Data == nil {
+		return document, nil
+	}
+	if !holdsObject(*envelope.Meta) || !holdsObject(*envelope.Data) {
+		return document, nil
+	}
+	// Past here the document is an envelope, so a meta that will not read
+	// is a broken envelope rather than a document to fall back on.
+	var meta struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(*envelope.Meta, &meta); err != nil {
+		return nil, fmt.Errorf("meta: %w", err)
+	}
+	if meta.Version != SchemaVersion {
+		return nil, fmt.Errorf("%w: %q, not %q", ErrUnknownSchema, meta.Version, SchemaVersion)
+	}
+	return *envelope.Data, nil
+}
+
+// UnwrapDocument is Unwrap for a document already decoded, which is how the
+// readers that compare two datastores leaf by leaf hold one. The rule is
+// the same one, so the two cannot drift apart.
+func UnwrapDocument(document map[string]any) (map[string]any, error) {
+	meta, wrapped := document["meta"].(map[string]any)
+	data, holds := document["data"].(map[string]any)
+	if !wrapped || !holds {
+		return document, nil
+	}
+	version, _ := meta["version"].(string)
+	if version != SchemaVersion {
+		return nil, fmt.Errorf("%w: %q, not %q", ErrUnknownSchema, version, SchemaVersion)
+	}
+	return data, nil
+}
+
+// holdsObject says whether a raw value is a JSON object, which both halves
+// of an envelope are. A string, a list or null under either key says the
+// document is not one.
+func holdsObject(value json.RawMessage) bool {
+	for _, b := range value {
+		switch b {
+		case ' ', '\t', '\r', '\n':
+			continue
+		case '{':
+			return true
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // StringsOf reads a list of strings back off an entry, which holds them as
