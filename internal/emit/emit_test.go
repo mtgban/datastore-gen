@@ -1,6 +1,9 @@
 package emit
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -156,6 +160,50 @@ func TestFetchReadsAFileOrTheWire(t *testing.T) {
 	}
 }
 
+// TestEnvelopeShape pins the shape every builder now publishes: meta names
+// the build date and the schema version and nothing else, and data carries
+// the payload exactly as given - encoding the result and reading "data"
+// back off it is how every dual-shape reader in this migration finds it.
+// meta is encoded first, which is why Envelope returns a struct: a reader
+// that wants the version before decoding fourteen megabytes has to meet it
+// first, and a map would sort "data" ahead of it.
+func TestEnvelopeShape(t *testing.T) {
+	got := Envelope("2026-09-14", map[string]any{"sets": "x"})
+
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Meta struct {
+			Date    string `json:"date"`
+			Version string `json:"version"`
+		} `json:"meta"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Meta.Date != "2026-09-14" || decoded.Meta.Version != SchemaVersion {
+		t.Errorf("meta = %+v", decoded.Meta)
+	}
+	// meta leads, so a reader meets the version before the payload.
+	if !bytes.HasPrefix(encoded, []byte(`{"meta":`)) {
+		t.Errorf("document opens %.24q, want it to open with meta", encoded)
+	}
+	if !reflect.DeepEqual(decoded.Data, map[string]any{"sets": "x"}) {
+		t.Errorf("data = %v, want the payload unchanged", decoded.Data)
+	}
+}
+
+// TestTodayIsYYYYMMDD pins the one shape meta.date may take.
+func TestTodayIsYYYYMMDD(t *testing.T) {
+	got := Today()
+	if _, err := time.Parse("2006-01-02", got); err != nil {
+		t.Errorf("Today() = %q: %v", got, err)
+	}
+}
+
 // TestStringsOfReadsBothShapes pins the list before and after encoding, and
 // that an empty string in it is nothing.
 func TestStringsOfReadsBothShapes(t *testing.T) {
@@ -167,5 +215,87 @@ func TestStringsOfReadsBothShapes(t *testing.T) {
 	}
 	if got := StringsOf("a"); got != nil {
 		t.Errorf("StringsOf(string) = %v, want nil", got)
+	}
+}
+
+// TestUnwrapPeelsOnlyAnEnvelope holds the discriminator to "meta and data,
+// both objects". The case that matters is the decoy: a bare document free
+// to publish a field of its own called "data" must come back whole, because
+// peeling on that key alone would silently re-root the reader into it.
+func TestUnwrapPeelsOnlyAnEnvelope(t *testing.T) {
+	envelope := `{"meta":{"date":"2026-09-14","version":"1"},"data":{"game":"pokemon"}}`
+	for _, tc := range []struct {
+		name     string
+		document string
+		want     string
+	}{
+		{"an envelope is peeled", envelope, `{"game":"pokemon"}`},
+		{"a bare document is whole", `{"game":"pokemon","sets":{}}`, `{"game":"pokemon","sets":{}}`},
+		{"a decoy data key is not an envelope", `{"game":"pokemon","data":{"x":1}}`, `{"game":"pokemon","data":{"x":1}}`},
+		{"meta alone is not an envelope", `{"meta":{"version":"1"},"game":"x"}`, `{"meta":{"version":"1"},"game":"x"}`},
+		{"null data is not a payload", `{"meta":{"version":"1"},"data":null}`, `{"meta":{"version":"1"},"data":null}`},
+		{"a data string is not a payload", `{"meta":{"version":"1"},"data":"nope"}`, `{"meta":{"version":"1"},"data":"nope"}`},
+		{"a data list is not a payload", `{"meta":{"version":"1"},"data":[1]}`, `{"meta":{"version":"1"},"data":[1]}`},
+		{"riftbound's bare shape is whole", `{"__N_SSG":true,"pageProps":{"page":{}}}`, `{"__N_SSG":true,"pageProps":{"page":{}}}`},
+		{"lorcana's metadata is not meta", `{"metadata":{"formatVersion":"2"},"cards":[]}`, `{"metadata":{"formatVersion":"2"},"cards":[]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Unwrap([]byte(tc.document))
+			if err != nil {
+				t.Fatalf("Unwrap: %v", err)
+			}
+			if string(got) != tc.want {
+				t.Errorf("Unwrap = %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestUnwrapRefusesAnotherSchema is what meta.version is written first for:
+// a version this build does not know is refused, not decoded on the chance
+// that data still reads.
+func TestUnwrapRefusesAnotherSchema(t *testing.T) {
+	document := []byte(`{"meta":{"date":"2026-09-14","version":"2"},"data":{"game":"pokemon"}}`)
+	if _, err := Unwrap(document); !errors.Is(err, ErrUnknownSchema) {
+		t.Errorf("Unwrap error = %v, want ErrUnknownSchema", err)
+	}
+	decoded := map[string]any{
+		"meta": map[string]any{"version": "2"},
+		"data": map[string]any{"game": "pokemon"},
+	}
+	if _, err := UnwrapDocument(decoded); !errors.Is(err, ErrUnknownSchema) {
+		t.Errorf("UnwrapDocument error = %v, want ErrUnknownSchema", err)
+	}
+}
+
+// TestUnwrapAgreesWithItself holds the two spellings to one rule, since a
+// bytes reader and a decoded reader that disagreed would peel one file two
+// ways.
+func TestUnwrapAgreesWithItself(t *testing.T) {
+	for _, document := range []string{
+		`{"meta":{"date":"d","version":"1"},"data":{"game":"pokemon"}}`,
+		`{"game":"pokemon","sets":{}}`,
+		`{"game":"pokemon","data":{"x":1}}`,
+		`{"meta":{"version":"1"},"data":null}`,
+	} {
+		peeled, err := Unwrap([]byte(document))
+		if err != nil {
+			t.Fatalf("Unwrap %s: %v", document, err)
+		}
+		var asBytes map[string]any
+		if err := json.Unmarshal(peeled, &asBytes); err != nil {
+			t.Fatalf("decode %s: %v", peeled, err)
+		}
+		var whole map[string]any
+		if err := json.Unmarshal([]byte(document), &whole); err != nil {
+			t.Fatalf("decode %s: %v", document, err)
+		}
+		asDocument, err := UnwrapDocument(whole)
+		if err != nil {
+			t.Fatalf("UnwrapDocument %s: %v", document, err)
+		}
+		if !reflect.DeepEqual(asBytes, asDocument) {
+			t.Errorf("%s: Unwrap = %v, UnwrapDocument = %v", document, asBytes, asDocument)
+		}
 	}
 }
