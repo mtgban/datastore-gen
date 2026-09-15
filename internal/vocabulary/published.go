@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/mtgban/datastore-gen/internal/emit"
 )
 
 // ErrNotDatastore says a file is not a built datastore. The games whose
@@ -76,6 +78,11 @@ func SetNames(path string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	raw, err = emit.Unwrap(raw)
+	if err != nil {
+		return nil, err
+	}
+
 	var payload struct {
 		Sets map[string]struct {
 			Name string `json:"name"`
@@ -107,7 +114,11 @@ func ReadDatastore(path string) ([]Printing, error) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, err
 	}
-	cards := cardsOf(payload)
+	document, err := emit.UnwrapDocument(payload)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	cards := cardsOf(document)
 	if len(cards) == 0 {
 		return nil, fmt.Errorf("%s: %w", path, ErrNotDatastore)
 	}

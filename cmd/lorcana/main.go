@@ -1324,7 +1324,8 @@ func main() {
 	// document, so the check below sees what will be published.
 	emit.PlainQuotes(doc)
 
-	if err := json.NewEncoder(&buf).Encode(doc); err != nil {
+	envelope := emit.Envelope(emit.Today(), doc)
+	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -1402,6 +1403,11 @@ type counts struct {
 var codeShape = regexp.MustCompile(`^[A-Z0-9-]+$`)
 
 func validate(data []byte, cardProducts map[int]bool) (counts, error) {
+	data, err := emit.Unwrap(data)
+	if err != nil {
+		return counts{}, err
+	}
+
 	var doc struct {
 		Sets map[string]struct {
 			Name        string `json:"name"`

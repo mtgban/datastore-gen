@@ -436,6 +436,11 @@ func splitQualifiers(name string) (string, []string) {
 var codeShape = regexp.MustCompile(`^[A-Z0-9-]+$`)
 
 func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, identified int, err error) {
+	data, err = emit.Unwrap(data)
+	if err != nil {
+		return 0, 0, 0, 0, err
+	}
+
 	var doc struct {
 		PageProps struct {
 			Page struct {
@@ -549,6 +554,11 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 }
 
 func countDatastore(data []byte) (baseline.Counts, error) {
+	data, err := emit.Unwrap(data)
+	if err != nil {
+		return baseline.Counts{}, err
+	}
+
 	var doc struct {
 		PageProps struct {
 			Page struct {
@@ -1055,7 +1065,8 @@ func main() {
 	// document, so the check below sees what will be published.
 	emit.PlainQuotes(doc)
 
-	if err := json.NewEncoder(&buf).Encode(doc); err != nil {
+	envelope := emit.Envelope(emit.Today(), doc)
+	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
 		log.Fatalln(err)
 	}
 
