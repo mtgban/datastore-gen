@@ -1008,11 +1008,6 @@ var handCarriedPrintings = []handCarried{
 // nonCodeRe matches the runs a set code cannot carry.
 var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
-// setCodeOf reduces a catalog abbreviation to what a search query can carry.
-// A set code is typed after "is:", and a query is split on whitespace before
-// a filter ever sees it, so a code holding a space cannot be asked for:
-// "is:OP11 RE" reaches the filter as "is:OP11". Every run of anything but a
-// letter or a digit becomes one dash, and the ends are trimmed of them.
 // idStem spells a collector number for the inside of a uuid: a number can
 // carry the set total it is printed with ("1/1000"), and a slash in a uuid
 // is a path separator wherever one is written down. Every run of anything
@@ -1021,8 +1016,21 @@ func idStem(number string) string {
 	return strings.ToLower(strings.Trim(nonCodeRe.ReplaceAllString(number, "-"), "-"))
 }
 
+// setCodeOf reduces a catalog abbreviation to what a search query can carry.
+// A set code is typed after "is:", and a query is split on whitespace before
+// a filter ever sees it, so a code holding a space cannot be asked for:
+// "is:OP11 RE" reaches the filter as "is:OP11". Every run of anything but a
+// letter or a digit becomes one dash, and the ends are trimmed of them.
+//
+// The result is folded up. A set code is a case-insensitive token to every
+// reader of it - the matcher's GetSet, GetUUIDsInSet and GetSealedUUIDsInSet
+// all fold the caller's spelling up before the lookup - so a code that is
+// not already folded is one nothing can find, however it is written. The
+// catalog spells an abbreviation however it likes: Gundam's Edition Beta is
+// "GD01_b", and the set code "GD01-b" it used to mint was listed everywhere
+// and found nowhere.
 func setCodeOf(abbreviation string) string {
-	return strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-")
+	return strings.ToUpper(strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-"))
 }
 
 // packKey reduces a Bandai pack label and a TCGplayer group abbreviation to
@@ -2046,7 +2054,10 @@ func coverage(got, want map[int][]string) error {
 // codeShape is what a set code has to look like to be asked for: a search
 // query is split on whitespace before a filter sees it and on the colon that
 // names the filter, so a code holding either can never be typed after "is:".
-var codeShape = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+// Folded up, because every reader of a code folds the spelling it is asked
+// with before the lookup - an unfolded code is listed everywhere and found
+// nowhere, which is what Gundam's "GD01-b" was.
+var codeShape = regexp.MustCompile(`^[A-Z0-9-]+$`)
 
 // idShape is what a uuid has to look like wherever one is written down: a
 // slash is a path separator and a space ends a word, and a uuid travels

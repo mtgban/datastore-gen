@@ -430,7 +430,10 @@ func splitQualifiers(name string) (string, []string) {
 // codeShape is what a set code has to look like to be asked for: a search
 // query is split on whitespace before a filter sees it and on the colon that
 // names the filter, so a code holding either can never be typed after "is:".
-var codeShape = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+// Folded up, because every reader of a code folds the spelling it is asked
+// with before the lookup - an unfolded code is listed everywhere and found
+// nowhere, which is what Gundam's "GD01-b" was.
+var codeShape = regexp.MustCompile(`^[A-Z0-9-]+$`)
 
 func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, identified int, err error) {
 	var doc struct {
