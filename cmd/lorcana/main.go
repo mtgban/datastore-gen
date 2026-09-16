@@ -47,7 +47,7 @@
 // the product name, the group's set code — its abbreviation, or the
 // abbreviation with the group id suffixed where an earlier group already
 // claimed it, so two groups can never fold onto one set — the collector
-// number where there is one and 0 where there is none, the rarity, the
+// number where there is one and none where there is none, the rarity, the
 // printings as foil types, and the language for a printing sold in no
 // English sku. The day upstream publishes the real card, its own entry
 // claims the product id and the minted one stops being minted.
@@ -221,8 +221,11 @@ func mintedID(productID int) int {
 
 // mintedNumber splits a catalog collector number into the integer upstream
 // files a card under and the letter tail it calls the card's variant
-// ("25a"), reading through the "/total" tail the catalog writes. A product
-// with no number at all is filed under 0, as the numberless promos are.
+// ("25a"), reading through the "/total" tail the catalog writes.
+//
+// A product the catalog files with no number at all parses to 0 here, the
+// way an empty string does. That 0 is the parse and not the card, so the
+// caller asks whether the catalog wrote a number before spelling one.
 func mintedNumber(code string) (int, string) {
 	digits := number(code)
 	i := 0
@@ -1077,11 +1080,23 @@ func main() {
 	// consumer reading a number and a total does not have to know which
 	// game it is holding to find the denominator - the same argument that
 	// gives every game one "image".
+	//
+	// The number is spelled here too: upstream publishes an integer, and
+	// the other seven datastores write the string §2.2 describes, which is
+	// the only spelling an absence survives. JSON has one zero, so a
+	// consumer decoding an integer of its own reads the same 0 for a card
+	// that prints none and for "Bruno Madrigal", which is 0/204. A minted
+	// card took both of these from the catalog above and is already
+	// written this way.
 	var totalled int
 	for _, raw := range items {
 		item, ok := raw.(map[string]any)
 		if !ok {
 			continue
+		}
+		number, published := item["number"].(float64)
+		if published {
+			item["number"] = strconv.Itoa(int(number))
 		}
 		total := printedTotal(item)
 		if total == "" {
@@ -1091,25 +1106,6 @@ func main() {
 		totalled++
 	}
 	log.Printf("totals: %d cards carry the denominator their face prints", totalled)
-
-	// The number as a string, which is how the other seven datastores
-	// spell it (§2.2) and the only spelling that can be absent. Upstream
-	// publishes an integer and JSON has one zero: a consumer decoding it
-	// into an integer of its own reads the same 0 for a card that prints
-	// none and for "Bruno Madrigal", which is 0/204, and there is no
-	// spelling of an absent integer that says otherwise. A minted card
-	// took its own from the catalog above and is already written this way.
-	for _, raw := range items {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		number, isNumber := item["number"].(float64)
-		if !isNumber {
-			continue
-		}
-		item["number"] = strconv.Itoa(int(number))
-	}
 
 	// The labels, over both kinds of card at once: what upstream publishes
 	// and what only a product name says are the same kind of fact, and a
