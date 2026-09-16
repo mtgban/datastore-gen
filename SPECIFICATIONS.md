@@ -86,7 +86,7 @@ Common to every game:
 | `id` | the entry's uuid, see §2.4; unique across the file |
 | `name` | the card's name, as the game's own list spells it; parentheticals that are part of the name stay (`"Dark Magician (Arkana)"`, `"Unicorn Gundam (Destroy Mode)"`) |
 | `setCode` | key into `sets` |
-| `number` | the collector number as the card prints it, without the printed total (`"SWSH252"`, `"GD03-057"`, `"072"`, `"Z"`); absent on the few products the catalog files with none |
+| `number` | the collector number as the card prints it, without the printed total (`"SWSH252"`, `"GD03-057"`, `"072"`, `"Z"`); a string in every game, because an absent number and a printed `0` are different facts and an integer spells them alike; absent on the few products the catalog files with none |
 | `total` | Pokemon and Lorcana: the printed total behind the slash (`"167"`, `"204"`, Lorcana's promo runs `"P1"`), kept apart because it is the set's fact and the only thing telling `8/102` from `8/130`, or `1/204` from `1/P1` |
 | `rarity` | the catalog's rarity, corrected where the catalog's own name says another (Yu-Gi-Oh reads a rarity written into a name as the rarity) |
 | `finish` | the catalog's printing name for the sku this entry prices: `Normal`, `Holofoil`, `Reverse Holofoil`, `1st Edition`, `Unlimited`, `Rainbow Foil`, `Cold Foil`… One entry per sku printing; the catalog decides which exist |
@@ -317,7 +317,10 @@ Per-game notes an agent needs:
   upstream files them under one and tells them apart by the denominator
   (§3.4); the puzzle inserts, lore cards and oversized components the
   catalog files with no `Number` carry no number rather than a `0`, which
-  is only what an empty string parses to.
+  is only what an empty string parses to. The number is a string like
+  every other game's, which it was not until the absence had to survive a
+  consumer's own decoding: `validate` re-reads it as one, so a build
+  publishing an integer again cannot get past the decode.
 - **onepiece**: DON!! cards are all named `DON!! Card`, so the character on
   one is the mark, tested against the card names in the catalog with the
   epithet fold (`Rocks D. Xebec` is `Rocks.D.Xebec`); labels are cut at the

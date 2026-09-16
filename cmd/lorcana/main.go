@@ -1046,7 +1046,7 @@ func main() {
 		// apart was the name the number was supposed to confirm. A card
 		// the catalog files with no number carries none.
 		if catalogNumber != "" {
-			item["number"] = num
+			item["number"] = strconv.Itoa(num)
 		}
 		_, total, printsTotal := strings.Cut(catalogNumber, "/")
 		if printsTotal && total != "" {
@@ -1091,6 +1091,25 @@ func main() {
 		totalled++
 	}
 	log.Printf("totals: %d cards carry the denominator their face prints", totalled)
+
+	// The number as a string, which is how the other seven datastores
+	// spell it (§2.2) and the only spelling that can be absent. Upstream
+	// publishes an integer and JSON has one zero: a consumer decoding it
+	// into an integer of its own reads the same 0 for a card that prints
+	// none and for "Bruno Madrigal", which is 0/204, and there is no
+	// spelling of an absent integer that says otherwise. A minted card
+	// took its own from the catalog above and is already written this way.
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		number, isNumber := item["number"].(float64)
+		if !isNumber {
+			continue
+		}
+		item["number"] = strconv.Itoa(int(number))
+	}
 
 	// The labels, over both kinds of card at once: what upstream publishes
 	// and what only a product name says are the same kind of fact, and a
@@ -1393,9 +1412,14 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 			ReleaseDate string `json:"releaseDate"`
 		} `json:"sets"`
 		Cards []struct {
-			ID            int    `json:"id"`
-			FullName      string `json:"fullName"`
-			SetCode       string `json:"setCode"`
+			ID       int    `json:"id"`
+			FullName string `json:"fullName"`
+			SetCode  string `json:"setCode"`
+			// A string, as §2.2 spells it and the other seven games write
+			// it. Declaring the type here is the whole of the guard: this
+			// re-reads the encoded output, so a build that went back to
+			// publishing an integer could not get past the decode.
+			Number        string `json:"number"`
 			ExternalLinks struct {
 				TcgPlayerID     int   `json:"tcgPlayerId"`
 				TcgPlayerExtras []int `json:"tcgPlayerExtraIds"`
