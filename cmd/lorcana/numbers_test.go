@@ -84,3 +84,47 @@ func TestMintedNumber(t *testing.T) {
 		}
 	}
 }
+
+// TestValidateNumber pins the contract the number is published under, which
+// validate holds by declaring its type: a card carries the number as a
+// string or carries none at all. The corners are the ones that used to
+// collide - a product the catalog files with no number, and "Bruno
+// Madrigal", which really is numbered 0 - and the refusal is what stops a
+// build going back to the integer spelling that told those two apart
+// nowhere.
+func TestValidateNumber(t *testing.T) {
+	document := func(card string) []byte {
+		return []byte(`{"sets":{"1":{"name":"The First Chapter"}},"cards":[` + card + `],"sealed":[]}`)
+	}
+	for _, tt := range []struct {
+		desc    string
+		card    string
+		refused bool
+	}{{
+		desc: "a number, as a string",
+		card: `{"id":1,"fullName":"Ariel - On Human Legs","setCode":"1","number":"1"}`,
+	}, {
+		desc: "the card that really prints 0 keeps it",
+		card: `{"id":2,"fullName":"Bruno Madrigal - Undetected Uncle","setCode":"1","number":"0"}`,
+	}, {
+		desc: "a letter no integer could hold",
+		card: `{"id":3,"fullName":"Dalmatian Puppy","setCode":"1","number":"4a"}`,
+	}, {
+		desc: "an insert the catalog files with no number",
+		card: `{"id":4,"fullName":"Azurite Sea Puzzle Insert","setCode":"1"}`,
+	}, {
+		desc:    "the integer spelling, which tells those two apart nowhere",
+		card:    `{"id":5,"fullName":"Ariel - On Human Legs","setCode":"1","number":1}`,
+		refused: true,
+	}} {
+		t.Run(tt.desc, func(t *testing.T) {
+			_, err := validate(document(tt.card), map[int]bool{})
+			if tt.refused && err == nil {
+				t.Error("the build was accepted, want it refused")
+			}
+			if !tt.refused && err != nil {
+				t.Errorf("the build was refused: %v", err)
+			}
+		})
+	}
+}
