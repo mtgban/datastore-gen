@@ -481,8 +481,16 @@ func normalizeSetName(name string) string {
 // holding either cannot be asked for: "is:OP11 RE" reaches the filter as
 // "is:OP11" and "is:crz:gg" names a filter called crz. Every run of anything
 // but a letter or a digit becomes one dash, and the ends are trimmed of them.
+//
+// The result is folded up. A set code is a case-insensitive token to every
+// reader of it - the matcher's GetSet, GetUUIDsInSet and GetSealedUUIDsInSet
+// all fold the caller's spelling up before the lookup - so a code that is
+// not already folded is one nothing can find, however it is written. The
+// catalog spells an abbreviation however it likes: Gundam's Edition Beta is
+// "GD01_b", and the set code "GD01-b" it used to mint was listed everywhere
+// and found nowhere.
 func setCodeOf(abbreviation string) string {
-	return strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-")
+	return strings.ToUpper(strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-"))
 }
 
 func setCodes(groups []tcgplayer.Group) map[int]string {
@@ -798,7 +806,8 @@ func main() {
 				productByNumber[foldPadding(number)] = productID
 			}
 		}
-		if setID := strings.ToUpper(setCodeOf(row.SetID)); setID != "" {
+		setID := setCodeOf(row.SetID)
+		if setID != "" {
 			if groupsByDatasetSet[setID] == nil {
 				groupsByDatasetSet[setID] = map[int]int{}
 			}
@@ -973,7 +982,7 @@ func main() {
 	sameName := map[string][]string{}
 	for _, number := range mintableOrder {
 		row := mintable[number][0]
-		group, sold := groupBySales[strings.ToUpper(setCodeOf(row.SetID))]
+		group, sold := groupBySales[setCodeOf(row.SetID)]
 		if !sold || !numberlessNames[group][strings.ToLower(row.Name)] {
 			continue
 		}
@@ -1084,7 +1093,7 @@ func main() {
 				codeByName[name] = codes[group.GroupID]
 			}
 		}
-		abbreviation := strings.ToUpper(setCodeOf(group.Abbreviation))
+		abbreviation := setCodeOf(group.Abbreviation)
 		if abbreviation == "" {
 			continue
 		}
@@ -1099,7 +1108,7 @@ func main() {
 	mintedSetCode := map[string]string{}
 	var mintedSets int
 	for _, number := range mintableOrder {
-		setID := strings.ToUpper(setCodeOf(mintable[number][0].SetID))
+		setID := setCodeOf(mintable[number][0].SetID)
 		if setID == "" {
 			log.Fatalf("dataset row %q names no set", mintable[number][0].ID)
 		}
@@ -1232,7 +1241,7 @@ func main() {
 	for _, number := range mintableOrder {
 		rows := mintable[number]
 		row := rows[0]
-		code := mintedSetCode[strings.ToUpper(setCodeOf(row.SetID))]
+		code := mintedSetCode[setCodeOf(row.SetID)]
 		rarity := fabRarity[row.Rarity]
 		if rarity == "" && row.Rarity != "" {
 			log.Printf("dataset rarity %q on %s is not one this datastore spells", row.Rarity, row.ID)
@@ -1439,7 +1448,10 @@ func coverage(got, want map[int][]string) error {
 // codeShape is what a set code has to look like to be asked for: a search
 // query is split on whitespace before a filter sees it and on the colon that
 // names the filter, so a code holding either can never be typed after "is:".
-var codeShape = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+// Folded up, because every reader of a code folds the spelling it is asked
+// with before the lookup - an unfolded code is listed everywhere and found
+// nowhere, which is what Gundam's "GD01-b" was.
+var codeShape = regexp.MustCompile(`^[A-Z0-9-]+$`)
 
 // idShape is what a uuid has to look like wherever one is written down: a
 // slash is a path separator and a space ends a word, and a uuid travels

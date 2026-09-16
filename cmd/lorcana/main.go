@@ -193,7 +193,12 @@ func setCodes(groups []tcgplayer.Group) map[int]string {
 	codes := map[int]string{}
 	used := map[string]bool{}
 	for _, group := range ordered {
-		code := group.Abbreviation
+		// Folded up, because every reader of a set code folds the spelling
+		// it is asked with before the lookup: a code that is not already
+		// folded is one nothing can find. The catalog abbreviates as it
+		// likes, and no Lorcana group is mixed-case today, so this only
+		// says which spelling wins the day one is.
+		code := strings.ToUpper(group.Abbreviation)
 		if used[code] {
 			code = fmt.Sprintf("%s-%d", code, group.GroupID)
 			log.Printf("%s: abbreviation %s already taken, set code %s minted",
@@ -1316,7 +1321,10 @@ type counts struct {
 // codeShape is what a set code has to look like to be asked for: a search
 // query is split on whitespace before a filter sees it and on the colon that
 // names the filter, so a code holding either can never be typed after "is:".
-var codeShape = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+// Folded up, because every reader of a code folds the spelling it is asked
+// with before the lookup - an unfolded code is listed everywhere and found
+// nowhere, which is what Gundam's "GD01-b" was.
+var codeShape = regexp.MustCompile(`^[A-Z0-9-]+$`)
 
 func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 	var doc struct {
