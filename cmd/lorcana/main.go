@@ -246,7 +246,32 @@ func mintedNumber(code string) (int, string) {
 // promoGrouping is not one of them. It reads like a label - "P3", "CC1" -
 // but the identifier says what it is: a promo is numbered "1/P3" the way a
 // normal card is numbered "1/204", and the grouping is the denominator.
-// Where a card is numbered is not what promoted it.
+// Where a card is numbered is not what promoted it. It is read as the
+// denominator instead, by printedTotal.
+
+// printedTotal is the denominator the card's face prints after its number:
+// the set's size for a card of the set ("1/204"), and the run's own label
+// for a promo ("1/P1"). Upstream writes it in two places and they never
+// disagree - promoGrouping on the 185 promos, the leading "N/D" of
+// fullIdentifier on all 3242 cards - so either would do for all but seven,
+// whose identifier spells the promo number last ("1 TFC • EN • 1/P1") and
+// leaves the head with no denominator at all. promoGrouping is read first
+// for those seven.
+//
+// The number alone does not name a card: a set's promos are numbered from
+// 1 alongside the set's own cards, and 155 of Lorcana's (set, number) pairs
+// named two cards because of it. The total is what tells them apart, which
+// is the same thing it does for Pokemon.
+func printedTotal(raw map[string]any) string {
+	grouping, _ := raw["promoGrouping"].(string)
+	if grouping != "" {
+		return grouping
+	}
+	identifier, _ := raw["fullIdentifier"].(string)
+	head, _, _ := strings.Cut(identifier, "•")
+	_, total, _ := strings.Cut(strings.TrimSpace(head), "/")
+	return strings.TrimSpace(total)
+}
 
 // nameQualRe finds the parentheticals a minted product's name carries. No
 // upstream name has one, so this reads the minted printings alone.
@@ -995,7 +1020,8 @@ func main() {
 	mintedByGroup := map[string]int{}
 	for _, product := range mintable {
 		group := groupByID[product.GroupID]
-		num, variant := mintedNumber(product.Extended("Number"))
+		catalogNumber := product.Extended("Number")
+		num, variant := mintedNumber(catalogNumber)
 		links := map[string]any{"tcgPlayerId": product.ProductID}
 		if names := printings[product.ProductID]; len(names) > 0 {
 			links["tcgPrintings"] = names
@@ -1005,13 +1031,26 @@ func main() {
 			"fullName": product.Name,
 			"name":     product.Name,
 			"setCode":  codes[group.GroupID],
-			"number":   num,
 			"rarity":   product.Extended("Rarity"),
 			"images": map[string]any{
 				"full":      emit.ImageURL(product.ImageURL),
 				"thumbnail": product.ImageURL,
 			},
 			"externalLinks": links,
+		}
+		// The puzzle inserts, the lore cards and the oversized components
+		// are sold as products and print no collector number, and the
+		// catalog files them with none. Numbering them 0 is not reading
+		// the card, it is what an empty string parses to: it put 173 of
+		// them on one number per set, where the only thing telling them
+		// apart was the name the number was supposed to confirm. A card
+		// the catalog files with no number carries none.
+		if catalogNumber != "" {
+			item["number"] = num
+		}
+		_, total, printsTotal := strings.Cut(catalogNumber, "/")
+		if printsTotal && total != "" {
+			item["total"] = total
 		}
 		if variant != "" {
 			item["variant"] = variant
@@ -1031,6 +1070,27 @@ func main() {
 	}
 	log.Printf("minted: %d cards for products upstream does not carry, by group %v",
 		len(mintable), mintedByGroup)
+
+	// The printed total, on the cards upstream publishes; a minted one took
+	// its own from the catalog's Number above, and carries neither of the
+	// fields read here. The field is the one Pokemon already fills, so a
+	// consumer reading a number and a total does not have to know which
+	// game it is holding to find the denominator - the same argument that
+	// gives every game one "image".
+	var totalled int
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		total := printedTotal(item)
+		if total == "" {
+			continue
+		}
+		item["total"] = total
+		totalled++
+	}
+	log.Printf("totals: %d cards carry the denominator their face prints", totalled)
 
 	// The labels, over both kinds of card at once: what upstream publishes
 	// and what only a product name says are the same kind of fact, and a

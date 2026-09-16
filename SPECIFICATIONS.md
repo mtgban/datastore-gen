@@ -87,7 +87,7 @@ Common to every game:
 | `name` | the card's name, as the game's own list spells it; parentheticals that are part of the name stay (`"Dark Magician (Arkana)"`, `"Unicorn Gundam (Destroy Mode)"`) |
 | `setCode` | key into `sets` |
 | `number` | the collector number as the card prints it, without the printed total (`"SWSH252"`, `"GD03-057"`, `"072"`, `"Z"`); absent on the few products the catalog files with none |
-| `total` | Pokemon: the printed total behind the slash (`"167"`), kept apart because it is the set's fact and the only thing telling `8/102` from `8/130` |
+| `total` | Pokemon and Lorcana: the printed total behind the slash (`"167"`, `"204"`, Lorcana's promo runs `"P1"`), kept apart because it is the set's fact and the only thing telling `8/102` from `8/130`, or `1/204` from `1/P1` |
 | `rarity` | the catalog's rarity, corrected where the catalog's own name says another (Yu-Gi-Oh reads a rarity written into a name as the rarity) |
 | `finish` | the catalog's printing name for the sku this entry prices: `Normal`, `Holofoil`, `Reverse Holofoil`, `1st Edition`, `Unlimited`, `Rainbow Foil`, `Cold Foil`… One entry per sku printing; the catalog decides which exist |
 | `variant` | the catalog's qualifiers, joined with spaces, wording untouched: the prose everything below is distilled from |
@@ -246,6 +246,15 @@ Palworld publish none and none is derived from the highest number carried.
 A pooled set whose cards print different totals (World Championship Decks,
 the promo shelves) carries no size; 58 of Pokemon's 226 sets are like that.
 
+A card's own `total` is the denominator its face prints, which is not the
+set's size and is not always a number: Lorcana numbers a set's promos from
+1 alongside the set's own cards and prints the run in place of the size,
+`1/P1` beside `1/204`, so the number alone named two cards on 155 of its
+(set, number) pairs. Lorcana's is read from `promoGrouping` where upstream
+writes one and from the leading `N/D` of `fullIdentifier` otherwise; the
+two never disagree on the 185 cards carrying both, and the grouping is
+read first only because seven identifiers spell the promo number last.
+
 ## 4. Invariants every build enforces
 
 `validate` re-reads the encoded output before anything is written. Refused
@@ -304,6 +313,11 @@ Per-game notes an agent needs:
   are three products); promotional reprints TCGplayer does not sell are
   hand-carried in `handCarriedPrintings` and stand down when a product
   appears.
+- **lorcana**: a set code covers the set and its promo runs alike, because
+  upstream files them under one and tells them apart by the denominator
+  (§3.4); the puzzle inserts, lore cards and oversized components the
+  catalog files with no `Number` carry no number rather than a `0`, which
+  is only what an empty string parses to.
 - **onepiece**: DON!! cards are all named `DON!! Card`, so the character on
   one is the mark, tested against the card names in the catalog with the
   epithet fold (`Rocks D. Xebec` is `Rocks.D.Xebec`); labels are cut at the
