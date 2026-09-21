@@ -181,6 +181,69 @@ func sliceContains(haystack []string, needle string) bool {
 	return false
 }
 
+// printRunPrintings name a print run rather than a finish. TCGplayer files
+// the WotC-era runs this way: a set that sold both prices every card in a
+// pair of them - "1st Edition" beside "Unlimited", or the holo pair - where
+// every later set prices the plain "Normal" and "Holofoil".
+var printRunPrintings = map[string]bool{
+	"1st Edition":          true,
+	"1st Edition Holofoil": true,
+	"Unlimited":            true,
+	"Unlimited Holofoil":   true,
+}
+
+// dropStrayPrintRuns takes a print run off a product that sells a plain
+// printing too, which is the catalog hanging a run's skus on the wrong
+// product rather than a printing that exists.
+//
+// A run and a finish are alternatives, never both: of every product this
+// category carries, one names both - Base Set's Alakazam (42346), sold as
+// "Holofoil" and as "1st Edition Holofoil". The ten groups that sell both
+// runs never mix them, carrying ("1st Edition", "Unlimited") 761 times, the
+// holo pair 179 times and "Normal" alone 64 times; the three groups where a
+// run is the exception carry it alone, which is the real thing - the two
+// Machamps the starter deck sold under Deck Exclusives, a WoTC Promo
+// misprint and a prerelease, none of them sold in any other printing.
+//
+// The run those skus name is already priced where it belongs. TCGplayer
+// files the first-edition and shadowless printings as a set of their own,
+// so Alakazam 001/102 is 106996 in "Base Set (Shadowless)", which prices
+// "1st Edition Holofoil" itself; the entry this dropped was a second,
+// unpriced copy of that printing filed under the unlimited set, and a
+// lookup naming Base Set and the run answered with it instead.
+func dropStrayPrintRuns(c *tcgplayer.CatalogDump, printings map[int][]string) int {
+	name := map[int]string{}
+	for _, p := range c.Products {
+		name[p.ProductID] = p.Name
+	}
+	// Sorted, so the log a build is compared by reads the same every time.
+	ids := make([]int, 0, len(printings))
+	for id := range printings {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
+	var dropped int
+	for _, id := range ids {
+		var kept, left []string
+		for _, n := range printings[id] {
+			if printRunPrintings[n] {
+				left = append(left, n)
+				continue
+			}
+			kept = append(kept, n)
+		}
+		if len(left) == 0 || len(kept) == 0 {
+			continue
+		}
+		printings[id] = kept
+		dropped += len(left)
+		log.Printf("print run: %q (%d) names %s beside %s; the run is the set it is filed under, not a printing here",
+			name[id], id, strings.Join(left, ", "), strings.Join(kept, ", "))
+	}
+	return dropped
+}
+
 // tcgdexSet is the slice of a tcgdex set this build reads.
 type tcgdexSet struct {
 	ID          string `json:"id"`
@@ -553,6 +616,59 @@ func totalsBySet(cards []any) map[string]string {
 		}
 	}
 	return out
+}
+
+// numberWidthsBySet is how wide the catalog pads a plain number in each set,
+// for the sets that pad every one of them the same. A minted card takes its
+// number from upstream, which pads nothing - tcgdex calls Base Set's Machamp
+// card "8" where the catalog calls its 101 shelfmates "001" through "102" -
+// and a number published narrower than the set it sits in is a number no
+// search for the set's own spelling finds: the loader keeps what is
+// published as Number and reduces it to PlainNumber separately, so "8" and
+// "008" answer apart.
+//
+// Only a set that agrees with itself lends a width. The catalog pads by
+// group rather than by category and 124 of its 223 numbered sets hold
+// numbers of two or three widths at once; those say nothing about how wide a
+// card of theirs should be and are left alone. Of the 358 minted entries, one
+// sits in a set that agrees and is narrower than it: Machamp, the single Base
+// Set card the catalog has no Base Set product for.
+func numberWidthsBySet(cards []any) map[string]int {
+	widths := map[string]map[int]bool{}
+	for _, item := range cards {
+		entry, isMap := item.(map[string]any)
+		if !isMap {
+			continue
+		}
+		code, _ := entry["setCode"].(string)
+		number, _ := entry["number"].(string)
+		if code == "" || number == "" || !isAllDigits(number) {
+			continue
+		}
+		if widths[code] == nil {
+			widths[code] = map[int]bool{}
+		}
+		widths[code][len(number)] = true
+	}
+	out := map[string]int{}
+	for code, seen := range widths {
+		if len(seen) != 1 {
+			continue
+		}
+		for width := range seen {
+			out[code] = width
+		}
+	}
+	return out
+}
+
+func isAllDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 // mintedIDBase is the id stem of an entry that names no product: the
@@ -3169,6 +3285,9 @@ func main() {
 		placeholders, filled, placeholders-filled)
 
 	printings := printingNames(&catalog)
+	if strays := dropStrayPrintRuns(&catalog, printings); strays > 0 {
+		log.Printf("print run: %d stray run printings dropped", strays)
+	}
 
 	// Split the products: every single becomes card entries per sku
 	// printing, Sealed Products become sealed. "N/A" is a spelling of no
@@ -4077,9 +4196,11 @@ func main() {
 	// trailing letter is a different thing: 75a is the set's own card 75 in
 	// alternate art and shares its denominator.
 	totalBySet := totalsBySet(cards)
+	// Read before anything is minted, so the widths are the catalog's own.
+	widthBySet := numberWidthsBySet(cards)
 
 	var mintedCards, mintedWithoutArt int
-	var mintedTotals int
+	var mintedTotals, mintedPadded int
 	// The sets tcgdex carries that the catalog already sells under another
 	// name. The gate above only asks whether a tcgdex card joined a
 	// product, and a join fails wherever the two sources cut a set
@@ -4256,6 +4377,15 @@ func main() {
 			if card.LocalID != "" {
 				emitNumber(entry, numberOf(card.LocalID))
 				own, _ := entry["number"].(string)
+				if width, agreed := widthBySet[mintedSetCode[card.Set.ID]]; agreed &&
+					isAllDigits(own) && len(own) < width {
+					padded := strings.Repeat("0", width-len(own)) + own
+					entry["number"] = padded
+					own = padded
+					mintedPadded++
+					log.Printf("minted: %s numbers %q where %s pads to %d; published as %q",
+						card.ID, card.LocalID, mintedSetCode[card.Set.ID], width, padded)
+				}
 				if _, printed := entry["total"]; !printed && own != "" && own[0] >= '0' && own[0] <= '9' {
 					if total, sole := totalBySet[mintedSetCode[card.Set.ID]]; sole {
 						entry["total"] = total
@@ -4280,8 +4410,8 @@ func main() {
 		log.Printf("minted: %d refused as names the catalog sells with no collector number to tell them apart", unnumberedTwins)
 	}
 	if mintedCards > 0 {
-		log.Printf("minted: %d entries over %d tcgdex cards the catalog has no product for (%d of those cards have no art upstream, %d took the set's own printed total)",
-			mintedCards, len(mintable), mintedWithoutArt, mintedTotals)
+		log.Printf("minted: %d entries over %d tcgdex cards the catalog has no product for (%d of those cards have no art upstream, %d took the set's own printed total, %d took the set's own number width)",
+			mintedCards, len(mintable), mintedWithoutArt, mintedTotals, mintedPadded)
 	}
 	cardsIn := map[string]int{}
 	for _, entry := range cards {
