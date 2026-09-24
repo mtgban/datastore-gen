@@ -719,6 +719,54 @@ type card struct {
 	foilTypes []string
 }
 
+// oneCardPerID leaves one card per upstream id. The id is what every
+// printing's uuid is spelled from, so two cards under one would share the
+// first card's uuids and its prices, and validate refuses the build.
+//
+// A card repeated exactly is dropped: it is the same card twice, and no
+// field of it is lost. A different card under an id already taken is kept,
+// on the id spelled from its own product, the way a minted product's is;
+// one naming no product is dropped, since nothing prices it. It returns the
+// cards kept, in their order, and what it did to each repeat.
+func oneCardPerID(items []any) ([]any, []string) {
+	first := map[int][]byte{}
+	var kept []any
+	var repeats []string
+	for _, item := range items {
+		raw, ok := item.(map[string]any)
+		if !ok {
+			kept = append(kept, item)
+			continue
+		}
+		id, ok := cardID(raw["id"])
+		if !ok {
+			kept = append(kept, item)
+			continue
+		}
+		encoded, _ := json.Marshal(raw)
+		seen, taken := first[id]
+		if !taken {
+			first[id] = encoded
+			kept = append(kept, item)
+			continue
+		}
+		if bytes.Equal(seen, encoded) {
+			repeats = append(repeats, fmt.Sprintf("%d repeated, dropped", id))
+			continue
+		}
+		links, _ := raw["externalLinks"].(map[string]any)
+		product, _ := links["tcgPlayerId"].(float64)
+		if product == 0 {
+			repeats = append(repeats, fmt.Sprintf("%d named by a second card with no product, dropped", id))
+			continue
+		}
+		raw["id"] = mintedID(int(product))
+		repeats = append(repeats, fmt.Sprintf("%d named by a second card, carried as %d", id, mintedID(int(product))))
+		kept = append(kept, item)
+	}
+	return kept, repeats
+}
+
 func decodeCard(item any) (card, bool) {
 	raw, ok := item.(map[string]any)
 	if !ok {
@@ -824,6 +872,11 @@ func main() {
 	items, _ := doc["cards"].([]any)
 	if len(items) == 0 {
 		log.Fatalln("lorcana source: no cards")
+	}
+	items, repeats := oneCardPerID(items)
+	if len(repeats) > 0 {
+		log.Printf("lorcana: %d cards repeat an id another card already has: %s",
+			len(repeats), strings.Join(repeats, ", "))
 	}
 
 	var cards []card
