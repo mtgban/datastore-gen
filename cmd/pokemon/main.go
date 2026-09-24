@@ -22,7 +22,8 @@
 // many names wear as a dash suffix is stripped only when it restates the
 // Number field; a number-like tail that disagrees comes off as well, since
 // no card is named with a number, and is said out loud - the typo could be
-// in either field - while originalName keeps the catalog's wording.
+// in either field. The catalog dump keeps its wording under the entry's
+// tcgPlayerId.
 //
 // Every product the catalog types as a card becomes an entry, and validate
 // refuses a build that left one out: a shape nobody has seen yet stops the
@@ -2213,8 +2214,7 @@ func decompose(p tcgplayer.Product, num, year string) (single, int) {
 			// A number-shaped tail that disagrees with the Number field is
 			// a number all the same - "Exploud - 3/106" filed at 003/109,
 			// "Jirachi V - 299" at SWSH299 - and no card is named with one.
-			// It comes off the name and is said out loud; originalName
-			// keeps the catalog's wording for the listing that copies it.
+			// It comes off the name and is said out loud.
 			if skip == 3 && numberLikeRe.MatchString(tail) {
 				log.Printf("dash number: %q drops tail %q, Number is %q", p.Name, tail, num)
 				base = strings.TrimSpace(base[:idx])
@@ -4114,14 +4114,6 @@ func main() {
 				"externalLinks": map[string]any{
 					"tcgPlayerId": productID,
 				},
-			}
-			// The catalog's own wording, kept where it differs from the
-			// name published above. A storefront copies TCGplayer's
-			// product name verbatim - number, qualifiers and all - so
-			// something has to hold the spelling a listing will arrive
-			// in once the name here stops carrying it.
-			if s.product.Name != entry["name"] {
-				entry["originalName"] = s.product.Name
 			}
 			if s.number != "" {
 				emitNumber(entry, numberOf(s.number))

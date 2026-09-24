@@ -145,7 +145,6 @@ Common to every game:
 | `watermark` | the mark: which copy of this number the printing is (§3.2); absent when none |
 | `language` | the printing's language where it is not the game's default (`"Japanese"`, `"German"`) |
 | `originalReleaseDate` | a date a label stated that the set's date does not cover (§3.3) |
-| `originalName` | Pokemon: the catalog's own name where the published name differs from it (a number tail stripped) |
 | `image` | the catalog image at the 400-wide rendition; Pokemon and Lorcana also carry `images.{full,thumbnail}` |
 | `externalLinks` | `tcgPlayerId` on every priced entry; the upstream id beside it or instead of it: `fabId`, `tcgdexId`, `cardmarketId`, `bandaiId`, `konamiId`, `cardTraderId` |
 | `color`, `type`, `attribute`, `artist` | game facts where the source carries them: Flesh and Blood pitch colour, Gundam and Palworld colour and card type, Yu-Gi-Oh attribute, One Piece colour and type |
