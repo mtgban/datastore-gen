@@ -155,13 +155,10 @@ func catalogFinishes(c *tcgplayer.CatalogDump) []string {
 	return out
 }
 
-// canonicalFinish spells a finish the way the matcher spells it, which is
-// what a uuid carries. The datastore names a finish the way TCGplayer prices
-// it; the uuids were spelled this way before it did, and a uuid that moves
-// resolves to nothing rather than erroring, so the two vocabularies are kept
-// apart here rather than merged. It has to agree with go-mtgban's
-// CanonicalFinish exactly, the way this repository duplicates every helper
-// it shares rather than depending on it.
+// canonicalFinish spells a finish the way a uuid carries it. The datastore
+// names a finish the way TCGplayer prices it; the uuids were spelled this way
+// before it did, and a uuid that moves resolves to nothing rather than
+// erroring, so the two vocabularies are kept apart here rather than merged.
 func canonicalFinish(name string) string {
 	var out strings.Builder
 	for _, r := range strings.ToLower(name) {

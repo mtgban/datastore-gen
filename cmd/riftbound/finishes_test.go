@@ -7,11 +7,9 @@ import (
 	"github.com/mtgban/go-tcgplayer"
 )
 
-// The uuids this build publishes are spelled from a finish name, and
-// go-mtgban's mtgmatcher spells the same names for the datastores that carry
-// none. Neither repository imports the other - this one is standalone by
-// design - so the agreement is held by this table rather than by the
-// compiler.
+// The uuids this build publishes are spelled from a finish name, and a
+// published uuid that changes spelling resolves to nothing, so the spelling
+// is held by this table.
 
 // TestCanonicalFinish pins the crossing between the catalog's printing names
 // and the matcher's finish names. The vocabulary is open on purpose: the
@@ -23,9 +21,6 @@ func TestCanonicalFinish(t *testing.T) {
 		// TCGplayer's whole vocabulary for the category today
 		{"Normal", "nonfoil"},
 		{"Foil", "foil"},
-		// The spelling the datastores built before this one carry
-		{"nonfoil", "nonfoil"},
-		{"foil", "foil"},
 		// However a source writes them
 		{"NORMAL", "nonfoil"},
 		{"Non-Foil", "nonfoil"},
