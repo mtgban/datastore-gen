@@ -922,11 +922,11 @@ func decompose(p tcgplayer.Product, num string) single {
 // Print Errata" printings are, and all 13 of them are the catalog's. A
 // blueprint with no collector number is a sealed product, not a printing.
 //
-// The alternate art is read from the version wording and never from the
-// number, because CardTrader's trailing letters do not mean one thing:
-// OP01-064e is the plain printing and OP01-064a the alternate art, while
-// OP01-070e is the alternate art and OP01-070ae the plain one. The wording
-// says "Alternate Art" or it does not.
+// The parent is the printing the blueprint's image shows, which the
+// Cardmarket product it names agrees with. CardTrader's version wording
+// does not: it says "Alternate Art" over OP01-070e's plain art, and nothing
+// over the alternate arts of OP01-070ae, OP01-003 and OP01-025a. Nor does
+// its number, which letters most alternate arts "a" but not OP01-003's.
 type handCarried struct {
 	// number is the card's collector number.
 	number string
@@ -966,8 +966,9 @@ var handCarriedPrintings = []handCarried{
 	{"OP01-002", "", "", "Beta Pre-Errata", "", 0, 277470},
 	{"OP01-002", "Parallel", "", "Alpha Pre-Errata", "", 755413, 277478},
 	{"OP01-002", "Parallel", "", "Beta Pre-Errata", "", 0, 277477},
-	{"OP01-003", "", "", "Pre-Errata", "", 755414, 277276},
+	{"OP01-003", "", "", "Pre-Errata", "", 768137, 319049},
 	{"OP01-003", "", "", "Pre-Errata Demo Deck", "", 873904, 374952},
+	{"OP01-003", "Parallel", "", "Pre-Errata", "", 755414, 277276},
 	{"OP01-005", "", "OP-RP", "", "Normal", 719315, 260377},
 	{"OP01-006", "", "", "Pre-Errata", "", 755415, 277513},
 	{"OP01-013", "", "OP-RP", "", "Normal", 719316, 260772},
@@ -975,7 +976,7 @@ var handCarriedPrintings = []handCarried{
 	{"OP01-016", "Parallel", "", "Alpha Pre-Errata", "", 755416, 277442},
 	{"OP01-016", "Parallel", "", "Beta Pre-Errata", "", 0, 277443},
 	{"OP01-016", "", "OP-RP", "", "Normal", 719314, 260791},
-	{"OP01-025", "", "", "Pre-Errata", "", 865609, 366332},
+	{"OP01-025", "Parallel", "", "Pre-Errata", "", 865609, 366332},
 	{"OP01-026", "", "", "Pre-Errata", "", 768145, 319050},
 	{"OP01-040", "Parallel", "", "Pre-Errata", "", 768200, 319051},
 	{"OP01-047", "", "", "Alpha Pre-Errata", "", 755417, 277454},
@@ -991,8 +992,8 @@ var handCarriedPrintings = []handCarried{
 	{"OP01-064", "", "", "Pre-Errata", "", 0, 244443},
 	{"OP01-064", "Box Topper", "", "Pre-Errata", "", 755420, 244685},
 	{"OP01-069", "", "", "Pre-Errata", "", 0, 244686},
-	{"OP01-070", "", "", "Pre-Errata", "", 755422, 244688},
-	{"OP01-070", "Parallel", "", "Pre-Errata", "", 755421, 244687},
+	{"OP01-070", "", "", "Pre-Errata", "", 755421, 244687},
+	{"OP01-070", "Parallel", "", "Pre-Errata", "", 755422, 244688},
 	{"OP01-071", "", "", "Pre-Errata", "", 0, 244689},
 	{"OP01-087", "", "", "Alpha Pre-Errata", "", 0, 277564},
 	{"OP01-087", "", "", "Beta Pre-Errata", "", 0, 277565},
@@ -1009,7 +1010,7 @@ var handCarriedPrintings = []handCarried{
 	{"OP05-032", "", "", "Pre-Errata", "", 0, 272131},
 	{"OP06-023", "", "PRB-01", "Reprint", "", 799353, 310301},
 	{"OP13-077", "", "", "Pre-Errata", "", 0, 354998},
-	{"OP13-119", "", "", "Pre-Errata", "", 857345, 354999},
+	{"OP13-119", "Wanted Poster", "", "Pre-Errata", "", 857345, 354999},
 	{"ST03-009", "", "", "Alpha Pre-Errata", "", 0, 320712},
 }
 
