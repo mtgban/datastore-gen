@@ -320,7 +320,8 @@ one identity under different products (`name|number|setCode|variant|…`, the
 exact tuple per game); a card in an unknown set; a product emitting a
 finish twice or emitting a set of finishes other than the catalog's skus
 for it (**coverage, the zero-skip invariant**); a sealed entry missing its
-identity or its set. Per game on top: a Pokemon priced card with no image,
+identity or its set. Per game on top: a Pokemon build whose every priced
+card has no image (one card without is logged, not refused),
 a Pokemon set holding nothing, a Yu-Gi-Oh card with no product id (it
 mints nothing), a Flesh and Blood minted entry wearing a priced entry's
 `fabId` or its set, number and name, a Lorcana product claimed by two cards
