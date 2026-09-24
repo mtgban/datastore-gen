@@ -108,6 +108,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/go-cardmarket"
 	"github.com/mtgban/go-tcgplayer"
 )
 
@@ -951,9 +952,7 @@ type handCarried struct {
 	// finish overrides the parent printing's, empty where it is the
 	// parent's own. A Revision Pack reissue is the one thing here that is
 	// not the parent in every physical respect: it prints a foil card
-	// without the foil, which is the whole of what distinguishes it. It
-	// also settles the one parent TCGplayer sells in both finishes,
-	// OP01-005, whose pre-errata is the booster's foil Rare.
+	// without the foil, which is the whole of what distinguishes it.
 	finish string
 	// cardmarket is the product Cardmarket sells it as, 0 where it sells
 	// none: with no TCGplayer id, this is the only id it can be priced by.
@@ -976,7 +975,7 @@ var handCarriedPrintings = []handCarried{
 	{"OP01-003", "", "", "Pre-Errata", "", 768137, 319049},
 	{"OP01-003", "", "", "Pre-Errata Demo Deck", "", 873904, 374952},
 	{"OP01-003", "Parallel", "", "Pre-Errata", "", 755414, 277276},
-	{"OP01-005", "", "", "Pre-Errata", "Foil", 768138, 409172},
+	{"OP01-005", "", "", "Pre-Errata", "", 768138, 409172},
 	{"OP01-005", "", "OP-RP", "", "Normal", 719315, 260377},
 	{"OP01-006", "", "", "Pre-Errata", "", 755415, 277513},
 	{"OP01-013", "", "", "Pre-Errata", "", 0, 409174},
@@ -1027,6 +1026,262 @@ var handCarriedPrintings = []handCarried{
 	{"OP13-077", "", "", "Pre-Errata", "", 0, 354998},
 	{"OP13-119", "Wanted Poster", "", "Pre-Errata", "", 857345, 354999},
 	{"ST03-009", "", "", "Alpha Pre-Errata", "", 0, 320712},
+}
+
+// finishByRarity is the finish each set sells a rarity in, read off the
+// plain printings TCGplayer sells in one finish only, and left out where
+// they disagree: OP01's rares are foil in all 23 such products.
+func finishByRarity(cards []any) map[string]string {
+	finishes := map[string]map[string]bool{}
+	rarityOf := map[string]string{}
+	for _, entry := range cards {
+		e, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		links, _ := e["externalLinks"].(map[string]any)
+		variant, _ := e["variant"].(string)
+		_, translated := e["language"]
+		if links["tcgPlayerId"] == nil || variant != "" || translated {
+			continue
+		}
+		product := fmt.Sprint(links["tcgPlayerId"])
+		if finishes[product] == nil {
+			finishes[product] = map[string]bool{}
+		}
+		finishes[product][fmt.Sprint(e["finish"])] = true
+		rarityOf[product] = fmt.Sprintf("%v|%v", e["setCode"], e["rarity"])
+	}
+	seen := map[string]map[string]bool{}
+	for product, sold := range finishes {
+		if len(sold) != 1 {
+			continue
+		}
+		if seen[rarityOf[product]] == nil {
+			seen[rarityOf[product]] = map[string]bool{}
+		}
+		for finish := range sold {
+			seen[rarityOf[product]][finish] = true
+		}
+	}
+	byRarity := map[string]string{}
+	for key, sold := range seen {
+		if len(sold) != 1 {
+			continue
+		}
+		for finish := range sold {
+			byRarity[key] = finish
+		}
+	}
+	return byRarity
+}
+
+// parentFinish is the finish a printing takes from its parent's candidates,
+// sorted by id: the parent's own, or where TCGplayer sells the parent in
+// both finishes, the one its set sells that rarity in. Three of OP01's
+// rares are sold both ways, and a corrected run of one is the booster's
+// foil card.
+func parentFinish(candidates []map[string]any, byRarity map[string]string) string {
+	src := candidates[0]
+	for _, c := range candidates[1:] {
+		if c["finish"] == src["finish"] {
+			continue
+		}
+		if finish, known := byRarity[fmt.Sprintf("%v|%v", src["setCode"], src["rarity"])]; known {
+			return finish
+		}
+		break
+	}
+	return fmt.Sprint(src["finish"])
+}
+
+// correctedEntry spells a printing the catalog does not sell - a corrected
+// run, a reissue - as its parent's card in every respect but the id, the
+// set it is sold on, the finish, the label and the links.
+func correctedEntry(src map[string]any, id, number, setCode, finish, parent, label string, links map[string]any, cardNames map[string]bool) map[string]any {
+	entry := map[string]any{
+		"id":            id,
+		"name":          src["name"],
+		"number":        number,
+		"setCode":       setCode,
+		"rarity":        src["rarity"],
+		"color":         src["color"],
+		"type":          src["type"],
+		"finish":        finish,
+		"image":         src["image"],
+		"externalLinks": links,
+	}
+	// A reissue sold on a shelf that names it needs no label saying
+	// so: every card in the revision pack set is a revision pack card.
+	variant := strings.TrimSpace(parent + " " + label)
+	if variant == "" {
+		return entry
+	}
+	entry["variant"] = variant
+	// The two the variant was joined from, not the words it was
+	// joined into: "Alternate Art" is one label and splitting the
+	// string would make it two.
+	var tags []string
+	if parent != "" {
+		tags = append(tags, parent)
+	}
+	if label != "" {
+		tags = append(tags, label)
+	}
+	labels, _, year, month, instalment, mark := promoTypesOf(fmt.Sprint(src["name"]), fmt.Sprint(src["rarity"]), tags, cardNames)
+	if len(labels) > 0 {
+		entry["promoTypes"] = labels
+	}
+	noteWhen(entry, year, month, instalment, mark)
+	return entry
+}
+
+// preErrataShelf ends the name of a Cardmarket shelf selling a set's first,
+// corrected print run card by card. "Romance Dawn (Pre-Errata)" is the only
+// one in 2026-09.
+const preErrataShelf = " (Pre-Errata)"
+
+// shelfNumberRe reads the collector number out of a Cardmarket product's
+// name ("Alvida (OP01-064)"): its number field holds the digits alone.
+var shelfNumberRe = regexp.MustCompile(`\(([A-Z]+[0-9]*-[0-9]+)\)`)
+
+// mintFromCardmarket adds a row for every product of Cardmarket's
+// pre-errata shelves that no hand-carried row carries: the corrected runs
+// CardTrader has no blueprint for, which no other source lists - 39 of the
+// 78 on the shelf in 2026-09. Each is its parent's card the way a
+// hand-carried row is, with its id minted from the Cardmarket product,
+// which is the only id it can be priced by.
+//
+// The parent is the number's plain printing, or its alternate art where
+// Cardmarket's rarity says "Alternate Art" and the number's own set holds
+// exactly one. A product whose number and art a hand-carried run already
+// covers is passed over: Cardmarket sells one Bepo where CardTrader tells
+// the alpha run from the beta, and it is one of those two, not a third.
+func mintFromCardmarket(path string, cards []any, printed map[string][]map[string]any, carried, carriedArt map[string]bool, byRarity map[string]string, cardNames map[string]bool) ([]any, int) {
+	file, err := os.Open(path)
+	if err != nil {
+		log.Fatalln("cardmarket catalog:", err)
+	}
+	defer file.Close()
+	catalog, err := cardmarket.LoadCatalog(file)
+	if err != nil {
+		log.Fatalln("cardmarket catalog:", err)
+	}
+
+	shelves := map[int]string{}
+	for id, expansion := range catalog.Data.Expansions {
+		if set, found := strings.CutSuffix(expansion.Name, preErrataShelf); found && set != "" {
+			shelves[id] = strings.Trim(preErrataShelf, " ()")
+		}
+	}
+	if len(shelves) == 0 {
+		log.Fatalln("cardmarket: the catalog holds no pre-errata shelf; either it was renamed or the file is not the One Piece one")
+	}
+
+	// The products a row already prices through, and the variants each
+	// number is printed in, for the alternate art.
+	claimed := map[int]bool{}
+	for _, entry := range cards {
+		e, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		links, _ := e["externalLinks"].(map[string]any)
+		if id, ok := links["cardmarketId"].(int); ok {
+			claimed[id] = true
+		}
+	}
+	variants := map[string][]string{}
+	for key := range printed {
+		if number, variant, _ := strings.Cut(key, "|"); variant != "" {
+			variants[number] = append(variants[number], variant)
+		}
+	}
+
+	ids := make([]int, 0, len(catalog.Data.Products))
+	for id, product := range catalog.Data.Products {
+		if _, onShelf := shelves[product.ExpansionID]; onShelf {
+			ids = append(ids, id)
+		}
+	}
+	sort.Ints(ids)
+
+	var minted, byHand, sameRun, passed int
+	for _, id := range ids {
+		product := catalog.Data.Products[id]
+		if claimed[id] {
+			byHand++
+			continue
+		}
+		fields := shelfNumberRe.FindStringSubmatch(product.Name)
+		if fields == nil {
+			log.Printf("cardmarket: %d %q names no collector number; not minted", id, product.Name)
+			passed++
+			continue
+		}
+		number := fields[1]
+		own := packKey(strings.SplitN(number, "-", 2)[0])
+		inOwnSet := func(variant string) []map[string]any {
+			var in []map[string]any
+			for _, c := range printed[number+"|"+variant] {
+				if packKey(fmt.Sprint(c["setCode"])) == own {
+					in = append(in, c)
+				}
+			}
+			return in
+		}
+		parent := ""
+		if product.Rarity == "Alternate Art" {
+			var arts []string
+			for _, variant := range variants[number] {
+				if len(inOwnSet(variant)) > 0 && !slices.Contains(arts, variant) {
+					arts = append(arts, variant)
+				}
+			}
+			if len(arts) != 1 {
+				log.Printf("cardmarket: %d %q is an alternate art and %s prints %d in %s; not minted",
+					id, product.Name, number, len(arts), own)
+				passed++
+				continue
+			}
+			parent = arts[0]
+		}
+		if carriedArt[number+"|"+parent] {
+			sameRun++
+			continue
+		}
+		candidates := inOwnSet(parent)
+		if len(candidates) == 0 {
+			log.Printf("cardmarket: %d %q has no %q printing of %s to read from; not minted",
+				id, product.Name, parent, number)
+			passed++
+			continue
+		}
+		sort.Slice(candidates, func(i, j int) bool {
+			return fmt.Sprint(candidates[i]["id"]) < fmt.Sprint(candidates[j]["id"])
+		})
+		src := candidates[0]
+		setCode := fmt.Sprint(src["setCode"])
+		label := shelves[product.ExpansionID]
+		variant := strings.TrimSpace(parent + " " + label)
+		key := fmt.Sprintf("%v|%s|%s|%s", src["name"], number, setCode, variant)
+		if carried[key] {
+			log.Printf("cardmarket: %s %q is sold as a product now; %d stands down", number, variant, id)
+			passed++
+			continue
+		}
+		carried[key] = true
+		// "_mkm<product id>" cannot meet a catalog id's "_<product id>" or
+		// a hand-carried "_ct<blueprint id>", however the numbers fall.
+		finish := parentFinish(candidates, byRarity)
+		entryID := fmt.Sprintf("%s_mkm%d%s", idStem(number), id, emit.FinishSuffix(finish))
+		cards = append(cards, correctedEntry(src, entryID, number, setCode, finish, parent, label,
+			map[string]any{"cardmarketId": id}, cardNames))
+		minted++
+	}
+	log.Printf("cardmarket: of the pre-errata shelf, %d carried by hand, %d a run a hand-carried printing covers, %d passed over",
+		byHand, sameRun, passed)
+	return cards, minted
 }
 
 // nonCodeRe matches the runs a set code cannot carry.
@@ -1168,6 +1423,7 @@ func main() {
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 68 (required)")
 	punkCards := flag.String("punk-cards", punkCardsURL, "punk-records cards_by_id file, path or URL")
 	punkPacks := flag.String("punk-packs", punkPacksURL, "punk-records packs file, path or URL")
+	cardmarketCatalogPath := flag.String("cardmarket-catalog", "", "published Cardmarket catalog, read for the pre-errata printings no other source lists (required)")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -1175,6 +1431,9 @@ func main() {
 
 	if *catalogPath == "" {
 		log.Fatalln("-tcg-catalog is required: the dump carries the printings and the ids")
+	}
+	if *cardmarketCatalogPath == "" {
+		log.Fatalln("-cardmarket-catalog is required: nothing else lists the pre-errata printings, and their loss is too small for the baseline guard to catch")
 	}
 	catalogData, err := os.ReadFile(*catalogPath)
 	if err != nil {
@@ -1829,6 +2088,10 @@ func main() {
 			printed[number+"|"+variant] = append(printed[number+"|"+variant], e)
 		}
 	}
+	byRarity := finishByRarity(cards)
+	// The number and art of every corrected run carried by hand, which a
+	// Cardmarket product of the same printing must not mint a second time.
+	carriedArt := map[string]bool{}
 	var minted, stoodDown int
 	for _, printing := range handCarriedPrintings {
 		// A number is carried by its own set and by every later one
@@ -1875,46 +2138,19 @@ func main() {
 			continue
 		}
 		carried[key] = true
+		// A reissue is sold on a shelf of its own and was never a
+		// corrected run, so it leaves the number's art to Cardmarket.
+		if printing.set == "" {
+			carriedArt[printing.number+"|"+printing.parent] = true
+		}
 
 		// A catalog id carries "_<product id>" before its finish suffix,
 		// so "_ct<blueprint id>" cannot meet one however the numbers
 		// fall, and the suffix stays last the way every other id here
 		// spells it.
-		finish := fmt.Sprint(src["finish"])
+		finish := parentFinish(candidates, byRarity)
 		if printing.finish != "" {
 			finish = printing.finish
-		}
-		entry := map[string]any{
-			"id": fmt.Sprintf("%s_ct%d%s", idStem(printing.number),
-				printing.blueprint, emit.FinishSuffix(finish)),
-			"name":    src["name"],
-			"number":  printing.number,
-			"setCode": setCode,
-			"rarity":  src["rarity"],
-			"color":   src["color"],
-			"type":    src["type"],
-			"finish":  finish,
-			"image":   src["image"],
-		}
-		// A reissue sold on a shelf that names it needs no label saying
-		// so: every card in the revision pack set is a revision pack card.
-		if variant != "" {
-			entry["variant"] = variant
-			// The two the variant was joined from, not the words it was
-			// joined into: "Alternate Art" is one label and splitting the
-			// string would make it two.
-			var tags []string
-			if printing.parent != "" {
-				tags = append(tags, printing.parent)
-			}
-			if printing.label != "" {
-				tags = append(tags, printing.label)
-			}
-			labels, _, year, month, instalment, mark := promoTypesOf(fmt.Sprint(src["name"]), fmt.Sprint(src["rarity"]), tags, cardNames)
-			if len(labels) > 0 {
-				entry["promoTypes"] = labels
-			}
-			noteWhen(entry, year, month, instalment, mark)
 		}
 		// The blueprint is what this printing was minted from, and until
 		// now it was legible only inside the uuid - the one fact about a
@@ -1927,11 +2163,16 @@ func main() {
 		if printing.cardmarket != 0 {
 			links["cardmarketId"] = printing.cardmarket
 		}
-		entry["externalLinks"] = links
-		cards = append(cards, entry)
+		id := fmt.Sprintf("%s_ct%d%s", idStem(printing.number), printing.blueprint, emit.FinishSuffix(finish))
+		cards = append(cards, correctedEntry(src, id, printing.number, setCode, finish,
+			printing.parent, printing.label, links, cardNames))
 		minted++
 	}
 	log.Printf("hand-carried printings: %d carried, %d stood down", minted, stoodDown)
+
+	var mkmMinted int
+	cards, mkmMinted = mintFromCardmarket(*cardmarketCatalogPath, cards, printed, carried, carriedArt, byRarity, cardNames)
+	log.Printf("cardmarket: minted %d pre-errata printings only Cardmarket sells", mkmMinted)
 
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID

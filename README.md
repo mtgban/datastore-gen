@@ -228,7 +228,7 @@ location and can be overridden with a path or URL:
 ```sh
 go run ./cmd/riftbound      -tcg-catalog tcgplayer-catalog.json -o riftbound.json
 go run ./cmd/lorcana        -tcg-catalog tcgplayer-catalog.json -lorcana allCards.json -o lorcana.json
-go run ./cmd/onepiece       -tcg-catalog tcgplayer-catalog.json -o onepiece.json
+go run ./cmd/onepiece       -tcg-catalog tcgplayer-catalog.json -cardmarket-catalog cardmarket_catalog.json -o onepiece.json
 go run ./cmd/yugioh         -tcg-catalog tcgplayer-catalog.json -o yugioh.json
 go run ./cmd/fleshandblood  -tcg-catalog tcgplayer-catalog.json -o fleshandblood.json
 go run ./cmd/pokemon        -tcg-catalog tcgplayer-catalog.json -cardmarket-catalog cardmarket_catalog.json -o pokemon.json
@@ -238,8 +238,9 @@ go run ./cmd/palworld       -tcg-catalog tcgplayer-catalog.json -o palworld.json
 
 `-lorcana` and `-cardmarket-catalog` are the two required upstream flags -
 the Cardmarket catalog mkmcatalog publishes is the only source of the
-stamped promos cmd/pokemon mints, and a build without it would publish a
-datastore quietly missing them; the other upstreams default to their public
+stamped promos cmd/pokemon mints and of the pre-errata printings
+cmd/onepiece mints, and a build without it would publish a datastore
+quietly missing them; the other upstreams default to their public
 URLs. `cmd/pokemon` additionally takes `-tcgdex-sets`, `-tcgdex-cards` and
 `-pokemontcg-sets` to read saved responses instead of querying the live
 APIs, and `-upstream-cache <dir>` to keep the last good responses: each
