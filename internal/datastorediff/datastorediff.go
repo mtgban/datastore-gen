@@ -142,9 +142,7 @@ func Compare(before, after []byte) (Change, error) {
 	if err := json.Unmarshal(after, &b); err != nil {
 		return Change{}, fmt.Errorf("after: %w", err)
 	}
-	// before and after are two builds compared across time, not the same
-	// run twice, so one may already be wrapped in a {"meta":...,"data":...}
-	// envelope while the other still publishes the bare document.
+	// Both sides are envelopes, and the payloads under data are what differ.
 	a, err := emit.UnwrapDocument(a)
 	if err != nil {
 		return Change{}, fmt.Errorf("before: %w", err)

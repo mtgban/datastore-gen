@@ -38,11 +38,8 @@ type Counts struct {
 // whose datastore is shaped otherwise reads its own counts and hands them
 // to Guard through a Reader of its own.
 //
-// data may be bare, or wrapped in a {"meta":...,"data":...} envelope: the
-// baseline a build compares against is the previous run's own output, which
-// predates the envelope until a build publishes one, so both shapes have to
-// read here for as long as any baseline file on disk might still be the
-// older one.
+// data is a {"meta":...,"data":...} envelope, as every datastore and
+// baseline is published, and anything else is refused.
 func Count(data []byte) (Counts, error) {
 	data, err := emit.Unwrap(data)
 	if err != nil {
