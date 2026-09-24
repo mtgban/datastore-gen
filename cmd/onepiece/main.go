@@ -103,6 +103,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
@@ -177,7 +178,7 @@ func cardImage(s single, bandaiID string) string {
 	if bandaiID != "" {
 		return "https://static.dotgg.gg/onepiece/card/" + bandaiID + ".webp"
 	}
-	if len(s.quals) == 0 && s.number != donNumber {
+	if len(s.quals) == 0 && s.number != "" && s.number != donNumber {
 		return "https://static.dotgg.gg/onepiece/card/" + s.number + ".webp"
 	}
 	return emit.ImageURL(s.product.ImageURL)
@@ -791,8 +792,8 @@ func nameLanguage(quals []string) string {
 
 // numberFor is the collector number a product is filed under: the catalog's
 // own Number, or the product's card type where the game numbers nothing.
-// A product carrying neither has nothing to be told apart by and stops the
-// build rather than being dropped from it.
+// A product carrying neither has no number, and is carried on its product id
+// alone, the way every other game carries the cards the catalog files so.
 func numberFor(product tcgplayer.Product) string {
 	num := product.Extended("Number")
 	if num != "" {
@@ -802,11 +803,16 @@ func numberFor(product tcgplayer.Product) string {
 	if strings.EqualFold(cardType, donCardType) {
 		return donNumber
 	}
-	if cardType == "" {
-		log.Fatalf("%q (%d) carries neither a collector number nor a card type",
-			product.Name, product.ProductID)
-	}
 	return strings.ToUpper(cardType)
+}
+
+// idBase is a priced entry's id before its finish suffix: the number and the
+// product, or the product alone where the catalog files no number.
+func idBase(number string, productID int) string {
+	if stem := idStem(number); stem != "" {
+		return stem + "_" + strconv.Itoa(productID)
+	}
+	return strconv.Itoa(productID)
 }
 
 // single is one card product, its name split into the base name, the
@@ -840,12 +846,14 @@ func decompose(p tcgplayer.Product, num string) single {
 	if repaired, hand := rawNames[p.ProductID]; hand {
 		name = repaired
 	}
-	name = strings.ReplaceAll(name, " - "+num, "")
+	if num != "" {
+		name = strings.ReplaceAll(name, " - "+num, "")
+	}
 
 	var quals []string
 	name = parenRe.ReplaceAllStringFunc(name, func(m string) string {
 		q := strings.TrimSpace(strings.Trim(strings.TrimSpace(m), "()"))
-		if bareNumRe.MatchString(q) || strings.EqualFold(q, num) {
+		if bareNumRe.MatchString(q) || (num != "" && strings.EqualFold(q, num)) {
 			return ""
 		}
 		quals = append(quals, respellQual(q))
@@ -1243,6 +1251,7 @@ func main() {
 	var sealedProducts []tcgplayer.Product
 	var unnumbered int
 	var unpriced []string
+	var numberless []string
 	for _, product := range catalog.Products {
 		if !slices.Contains(tcgSingles, product.ProductType) {
 			sealedProducts = append(sealedProducts, product)
@@ -1256,14 +1265,18 @@ func main() {
 		if product.Extended("Number") == "" {
 			unnumbered++
 		}
-		singles = append(singles, decompose(product, numberFor(product)))
+		single := decompose(product, numberFor(product))
+		if single.number == "" {
+			numberless = append(numberless, fmt.Sprintf("%q (%d)", product.Name, product.ProductID))
+		}
+		singles = append(singles, single)
 	}
 	if len(unpriced) > 0 {
 		log.Printf("unpriced: %d card products TCGplayer sells no sku for yet, carried once it does: %s",
 			len(unpriced), strings.Join(unpriced, ", "))
 	}
-	log.Printf("singles: %d kept (%d filed under a card type for want of a number)",
-		len(singles), unnumbered)
+	log.Printf("singles: %d kept (%d filed under a card type for want of a number, %d with neither, carried on the product id: %s)",
+		len(singles), unnumbered, len(numberless), strings.Join(numberless, ", "))
 
 	// Per collector number: a qualifier every product of the number carries
 	// is part of the name (the "(Bentham)" epithets), not a variant. A
@@ -1275,6 +1288,10 @@ func main() {
 	// common there and hands every qualifier to the variant label.
 	byNumber := map[string][]*single{}
 	for i := range singles {
+		// Unnumbered products are unrelated cards, not one card's printings.
+		if singles[i].number == "" {
+			continue
+		}
 		byNumber[singles[i].number] = append(byNumber[singles[i].number], &singles[i])
 	}
 	// Which parentheticals are part of a card's name is the list's to say.
@@ -1729,9 +1746,8 @@ func main() {
 		for _, finish := range printings[productID] {
 			suffix := emit.FinishSuffix(finish)
 			entry := map[string]any{
-				"id":      fmt.Sprintf("%s_%d%s", idStem(s.number), productID, suffix),
+				"id":      idBase(s.number, productID) + suffix,
 				"name":    s.baseName,
-				"number":  s.number,
 				"setCode": codes[group.GroupID],
 				"rarity":  s.product.Extended("Rarity"),
 				"color":   s.product.Extended("Color"),
@@ -1741,6 +1757,9 @@ func main() {
 				"externalLinks": map[string]any{
 					"tcgPlayerId": productID,
 				},
+			}
+			if s.number != "" {
+				entry["number"] = s.number
 			}
 			if len(s.quals) > 0 {
 				entry["variant"] = strings.Join(s.quals, " ")
@@ -2136,8 +2155,11 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// A hand-carried printing has no TCGplayer product to name it -
 		// that is why it is hand-carried - so the product id is required
 		// of everything the catalog does sell and of nothing else.
-		if card.ID == "" || card.Name == "" || card.Number == "" || card.Finish == "" {
+		if card.ID == "" || card.Name == "" || card.Finish == "" {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
+		}
+		if card.Number == "" && card.ExternalLinks.TcgPlayerID == 0 {
+			return out, fmt.Errorf("card %q (%s) is hand-carried with no number to know it by", card.Name, card.ID)
 		}
 		if !idShape.MatchString(card.ID) {
 			return out, fmt.Errorf("card %q has a uuid nothing can carry: %q", card.Name, card.ID)
