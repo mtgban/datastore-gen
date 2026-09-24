@@ -252,6 +252,18 @@ semantics a datastore change must respect. The ones that have bitten:
   both shapes for as long as a file built before the change might still
   arrive. Anything that moves what `data` holds owes the same order, and
   `meta.version` is what tells a reader it has to care.
+- **A published field moves in four steps.**
+  1. Publish the new name beside the old.
+  2. Switch go-mtgban's loader. Its CI reads the published file, so it fails
+     until step 1's publish.
+  3. Release the site on that loader.
+  4. Drop the old name.
+
+  Each step taken early loses data without an error. The loader's
+  `AddSealed` skips a product whose set the file lacks, and a loader reading
+  a dropped id finds none. Riftbound's move to the common names ran #94,
+  go-mtgban#814, the site release and #95 in that order. go-mtgban's
+  `docs/agents/loader-cleanup/README.md` has the proof for each step.
 - **What the datastore can publish is part of the loader's contract.**
   go-mtgban's onepiece loader refused a whole file over one card with no
   number, until go-mtgban#771. Gundam's and palworld's reachability tests
@@ -280,6 +292,11 @@ baseline it was measured against. `rebaseline` on a dispatch ignores the
 baseline for that run. `tag-output-changes.yml` then builds every touched
 game at the commit and its parent on one catalog and tags the commit
 `<game>-vN` with what changed, so the history can be read by output.
+
+The run's last step asks `<game>.mtgban.com` to reload what it uploaded, for
+every game in the repository variable `RELOAD_GAMES`. A published change is
+therefore live on the site at once, and it is read by the go-mtgban the site
+was released with, not by go-mtgban master.
 
 Publishing is not the end of a change: go-mtgban's tests and hook read the
 datastores from datastore-gen's `output/` directory on the developer's
