@@ -532,18 +532,22 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 					} `json:"sets"`
 					Cards struct {
 						Items []struct {
-							ID                 string `json:"id"`
-							Name               string `json:"name"`
-							PublicCode         string `json:"publicCode"`
-							TCGplayerProductID int    `json:"tcgplayerProductId"`
+							ID            string `json:"id"`
+							Name          string `json:"name"`
+							PublicCode    string `json:"publicCode"`
+							ExternalLinks struct {
+								TcgPlayerID int `json:"tcgPlayerId"`
+							} `json:"externalLinks"`
 						} `json:"items"`
 					} `json:"cards"`
 					Sealed struct {
 						Items []struct {
-							ID                 string `json:"id"`
-							Name               string `json:"name"`
-							SetCode            string `json:"setCode"`
-							TCGplayerProductID int    `json:"tcgplayerProductId"`
+							ID            string `json:"id"`
+							Name          string `json:"name"`
+							SetCode       string `json:"setCode"`
+							ExternalLinks struct {
+								TcgPlayerID int `json:"tcgPlayerId"`
+							} `json:"externalLinks"`
 						} `json:"items"`
 					} `json:"sealed"`
 				} `json:"blades"`
@@ -591,20 +595,20 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 				return 0, 0, 0, 0, fmt.Errorf("duplicate id %s", card.ID)
 			}
 			ids[card.ID] = true
-			if card.TCGplayerProductID == 0 {
+			if card.ExternalLinks.TcgPlayerID == 0 {
 				continue
 			}
 			identified++
 			// A product resolves to one printing: two printings claiming
 			// it would split its price history between them.
-			if carried[card.TCGplayerProductID] {
-				return 0, 0, 0, 0, fmt.Errorf("product %d claimed by two printings", card.TCGplayerProductID)
+			if carried[card.ExternalLinks.TcgPlayerID] {
+				return 0, 0, 0, 0, fmt.Errorf("product %d claimed by two printings", card.ExternalLinks.TcgPlayerID)
 			}
-			if !cardProducts[card.TCGplayerProductID] {
+			if !cardProducts[card.ExternalLinks.TcgPlayerID] {
 				return 0, 0, 0, 0, fmt.Errorf("printing %q (%s) names product %d, which the catalog does not type as a card",
-					card.Name, card.ID, card.TCGplayerProductID)
+					card.Name, card.ID, card.ExternalLinks.TcgPlayerID)
 			}
-			carried[card.TCGplayerProductID] = true
+			carried[card.ExternalLinks.TcgPlayerID] = true
 		}
 		var missing []int
 		for productID := range cardProducts {
@@ -618,7 +622,7 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 				len(missing), missing[0])
 		}
 		for _, product := range blade.Sealed.Items {
-			if product.ID == "" || product.Name == "" || product.TCGplayerProductID == 0 {
+			if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
 				return 0, 0, 0, 0, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
 			}
 			if !setIDs[product.SetCode] {
@@ -1007,22 +1011,12 @@ func main() {
 			if slices.Contains(tcgSingles, product.ProductType) {
 				continue
 			}
+			// Named as every other game names a sealed product; the gallery
+			// has none, so there is no vocabulary of its own to keep.
 			sealedItems = append(sealedItems, map[string]any{
-				"id":                 fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
-				"name":               product.Name,
-				"tcgplayerProductId": product.ProductID,
-				"releaseDate":        group.ReleaseDate(),
-				"set": map[string]any{
-					"value": map[string]any{
-						"id":    group.Abbreviation,
-						"label": group.Name,
-					},
-				},
-				"cardImage": map[string]any{
-					"url": emit.ImageURL(product.ImageURL),
-				},
-				// The same facts under the names the other datastores
-				// give a sealed product.
+				"id":            fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
+				"name":          product.Name,
+				"releaseDate":   group.ReleaseDate(),
 				"setCode":       group.Abbreviation,
 				"image":         emit.ImageURL(product.ImageURL),
 				"externalLinks": map[string]any{"tcgPlayerId": product.ProductID},
@@ -1045,15 +1039,8 @@ func main() {
 	}
 	log.Printf("sealed: %d products, %d sets minted for groups sold only sealed", len(sealedItems), sealedOnly)
 
-	// The fields every other datastore here carries, added beside the
-	// gallery's own rather than in place of them. This file is the upstream
-	// payload with our data merged in, which is what lets the loader read it
-	// unchanged - and it is also why a consumer holding it has to know a
-	// second vocabulary for facts every other game states plainly: the set
-	// is an object rather than a code, the picture is "cardImage", the
-	// product id is bare where everyone else wraps it, and the labels have
-	// no joined string beside them at all. Adding the common names costs
-	// the loader nothing and spares every reader the special case.
+	// The names every other datastore here uses, beside the gallery's own,
+	// which stay as upstream wrote them; the loader reads only these.
 	// Before the printings are named: each one's uuid is spelled from its id.
 	if respelled := respellSharedIDs(cardItems); len(respelled) > 0 {
 		log.Printf("ids: the gallery publishes %d printings under an id another already has; each is carried under one of its own: %s",
@@ -1088,6 +1075,9 @@ func main() {
 		} else if id, ok := item["tcgplayerProductId"].(int); ok && id != 0 {
 			item["externalLinks"] = map[string]any{"tcgPlayerId": id}
 		}
+		// The build keys a row on the bare id until here; the file carries
+		// only the wrapped one, as every other game's does.
+		delete(item, "tcgplayerProductId")
 		if _, found := item["variant"]; found {
 			variants++
 		}
