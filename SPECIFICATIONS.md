@@ -315,9 +315,11 @@ peeling it through `emit.Unwrap` first: the output is the envelope now,
 and a check that decoded the top level would validate a shape nothing
 publishes. Refused
 in every game: a card missing its identity fields; an id outside the id
-shape; a number carrying whitespace; a duplicate id; two entries wearing
-one identity under different products (`name|number|setCode|variant|…`, the
-exact tuple per game); a card in an unknown set; a product emitting a
+shape; a number carrying whitespace; a duplicate id; more than
+`emit.SharedIdentityLimit` (5) pairs of products wearing one identity
+(`name|number|setCode|variant|…`, the exact tuple per game) - fewer are a
+card TCGplayer listed twice, published and logged; a card in an unknown
+set; a product emitting a
 finish twice or emitting a set of finishes other than the catalog's skus
 for it (**coverage, the zero-skip invariant**); a sealed entry missing its
 identity or its set. Per game on top: a Pokemon build whose every priced

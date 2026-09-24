@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -297,5 +298,28 @@ func TestUnwrapAgreesWithItself(t *testing.T) {
 		if !reflect.DeepEqual(asBytes, asDocument) {
 			t.Errorf("%s: Unwrap = %v, UnwrapDocument = %v", document, asBytes, asDocument)
 		}
+	}
+}
+
+// TestSharedIdentities holds the double-listing rule: a pair of products is
+// counted once however many of its printings collide, a handful is
+// published, and one past SharedIdentityLimit refuses the build.
+func TestSharedIdentities(t *testing.T) {
+	var s SharedIdentities
+	for _, finish := range []string{"Normal", "Foil", "Normal"} {
+		s.Add("product 1", "product 2", "Hizack|GD03-013|"+finish)
+	}
+	if len(s.pairs) != 1 {
+		t.Errorf("one pair colliding in several printings counted %d times", len(s.pairs))
+	}
+	for i := 2; i <= SharedIdentityLimit; i++ {
+		s.Add(fmt.Sprintf("product %d", 10*i), fmt.Sprintf("product %d", 10*i+1), "card")
+	}
+	if err := s.Check(); err != nil {
+		t.Errorf("%d pairs refused: %v", SharedIdentityLimit, err)
+	}
+	s.Add("product 998", "product 999", "card")
+	if err := s.Check(); err == nil {
+		t.Errorf("%d pairs published", SharedIdentityLimit+1)
 	}
 }

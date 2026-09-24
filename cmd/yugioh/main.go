@@ -1481,6 +1481,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	// wave through exactly the pair this is meant to catch, since most
 	// products carry a single edition.
 	identities := map[string]int{}
+	var shared emit.SharedIdentities
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
 		// The rarity is this game's variant axis and part of the identity,
@@ -1509,10 +1510,10 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		identity := strings.Join([]string{
 			card.Name, card.Number, card.SetCode, card.Rarity, card.Variant}, "|")
 		if other, seen := identities[identity]; seen && other != card.ExternalLinks.TcgPlayerID {
-			return out, fmt.Errorf("products %d and %d wear one identity: %s",
-				other, card.ExternalLinks.TcgPlayerID, identity)
+			shared.Add(fmt.Sprintf("product %d", other), fmt.Sprintf("product %d", card.ExternalLinks.TcgPlayerID), identity)
+		} else {
+			identities[identity] = card.ExternalLinks.TcgPlayerID
 		}
-		identities[identity] = card.ExternalLinks.TcgPlayerID
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
@@ -1521,6 +1522,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 		}
 		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
+	}
+	if err := shared.Check(); err != nil {
+		return out, err
 	}
 	err = coverage(gotFinishes, wantFinishes)
 	if err != nil {

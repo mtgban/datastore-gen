@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"slices"
@@ -207,6 +208,49 @@ func Envelope(date string, data any) any {
 	out.Meta.Version = SchemaVersion
 	out.Data = data
 	return out
+}
+
+// SharedIdentityLimit is how many pairs of products a build publishes while
+// they wear one identity. A query cannot tell such a pair apart, so go-mtgban
+// refuses the listings that reach them as ambiguous: a cost of one card. The
+// usual cause is TCGplayer listing a card twice, which is a pair or two at a
+// time; a builder fold that erases a real difference collides far more, and
+// past this the build is refused rather than published.
+const SharedIdentityLimit = 5
+
+// SharedIdentities collects the pairs of products a build files under one
+// identity and decides, once every card is read, whether it can stand them.
+type SharedIdentities struct {
+	seen  map[string]bool
+	pairs []string
+}
+
+// Add records that first and second wear identity, once per pair of
+// products however many of their printings collide.
+func (s *SharedIdentities) Add(first, second, identity string) {
+	key := first + "|" + second
+	if s.seen == nil {
+		s.seen = map[string]bool{}
+	}
+	if s.seen[key] {
+		return
+	}
+	s.seen[key] = true
+	s.pairs = append(s.pairs, fmt.Sprintf("%s and %s wear one identity: %s", first, second, identity))
+}
+
+// Check refuses a build with more pairs than SharedIdentityLimit, and logs
+// the ones it publishes.
+func (s *SharedIdentities) Check() error {
+	if len(s.pairs) > SharedIdentityLimit {
+		return fmt.Errorf("%d pairs of products wear one identity, more than a double listing explains; first: %s",
+			len(s.pairs), s.pairs[0])
+	}
+	if len(s.pairs) > 0 {
+		log.Printf("identity: %d pairs of products wear one identity, published as they are: %s",
+			len(s.pairs), strings.Join(s.pairs, "; "))
+	}
+	return nil
 }
 
 // ErrUnknownSchema says a document is an envelope whose meta.version this
