@@ -282,7 +282,9 @@ game at the commit and its parent on one catalog and tags the commit
 Publishing is not the end of a change: go-mtgban's tests and hook read the
 datastores from datastore-gen's `output/` directory on the developer's
 machine, so after a publish, refresh `output/<game>.json` (and
-`output/catalogs/`) from the bucket.
+`output/catalogs/`) from the bucket. `.github/scripts/fetch-datastores.sh
+[game ...]` does the former, into this checkout's `output/` unless
+`OUTPUT_DIR` names another.
 
 ## Git
 
