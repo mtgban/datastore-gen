@@ -403,6 +403,86 @@ func printingUUID(id, finish string) string {
 	return id + "_" + canonical
 }
 
+// respellSharedIDs gives every card row an id of its own. The gallery has
+// published two printings under one: from 2026-09-20 to 09-22 Vendetta's
+// Signature #192 wore the Overnumbered row's id and number, and three nightly
+// builds stopped on it. An id is what each printing's price uuid is spelled
+// from, so two rows cannot share one, and neither may be dropped: both are
+// real printings.
+//
+// The id stays with the row a product priced, so that product keeps the uuid
+// it has always had; with none priced, the first row keeps it. Every other
+// row is spelled from its own product, the way an adopted printing is, or
+// numbered after the id where it names none. It returns what it respelled.
+func respellSharedIDs(items []any) []string {
+	rowsByID := map[string][]map[string]any{}
+	taken := map[string]bool{}
+	var order []string
+	for _, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		id := fmt.Sprint(item["id"])
+		if _, seen := rowsByID[id]; !seen {
+			order = append(order, id)
+		}
+		rowsByID[id] = append(rowsByID[id], item)
+		taken[id] = true
+	}
+	var respelled []string
+	for _, id := range order {
+		rows := rowsByID[id]
+		if len(rows) < 2 {
+			continue
+		}
+		keeper := 0
+		for i, row := range rows {
+			if productOf(row) != 0 {
+				keeper = i
+				break
+			}
+		}
+		next := 2
+		for i, row := range rows {
+			if i == keeper {
+				continue
+			}
+			var fresh string
+			if product, set := productOf(row), setOf(row); product != 0 && set != "" {
+				fresh = fmt.Sprintf("%s-%d", strings.ToLower(set), product)
+			}
+			for fresh == "" || taken[fresh] {
+				fresh = fmt.Sprintf("%s-%d", id, next)
+				next++
+			}
+			taken[fresh] = true
+			row["id"] = fresh
+			respelled = append(respelled, id+" as "+fresh)
+		}
+	}
+	return respelled
+}
+
+// productOf is the TCGplayer product a card row is priced by, 0 for none.
+func productOf(row map[string]any) int {
+	switch id := row["tcgplayerProductId"].(type) {
+	case int:
+		return id
+	case float64:
+		return int(id)
+	}
+	return 0
+}
+
+// setOf is the gallery's code for the set a card row is filed in.
+func setOf(row map[string]any) string {
+	set, _ := row["set"].(map[string]any)
+	value, _ := set["value"].(map[string]any)
+	id, _ := value["id"].(string)
+	return id
+}
+
 func splitQualifiers(name string) (string, []string) {
 	base := strings.TrimSpace(name)
 	var qualifiers []string
@@ -949,6 +1029,12 @@ func main() {
 	// product id is bare where everyone else wraps it, and the labels have
 	// no joined string beside them at all. Adding the common names costs
 	// the loader nothing and spares every reader the special case.
+	// Before the printings are named: each one's uuid is spelled from its id.
+	if respelled := respellSharedIDs(cardItems); len(respelled) > 0 {
+		log.Printf("ids: the gallery publishes %d printings under an id another already has; each is carried under one of its own: %s",
+			len(respelled), strings.Join(respelled, ", "))
+	}
+
 	var stamped, variants, printings int
 	for _, raw := range cardItems {
 		item, ok := raw.(map[string]any)
