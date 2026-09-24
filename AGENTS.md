@@ -301,8 +301,9 @@ machine, so after a publish, refresh `output/<game>.json` (and
   another open PR. Rebase onto master before opening and after siblings
   merge; the builders' import blocks are where PRs collide.
 - **Commit as the repository's identity** (the repo's git config). The
-  title is about 50 characters; the body, a few lines of why and the
-  number that proves it, points at a `docs/` file for anything longer.
+  title is as short as the change allows, judged case by case rather than
+  to a character limit; the body, a few lines of why and the number that
+  proves it, points at a `docs/` file for anything longer.
   Never name a person in a comment, a commit or a doc; attribute a
   decision to its date.
 - **Never push without being asked for that push.** Build, test and commit
