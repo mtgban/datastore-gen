@@ -104,7 +104,7 @@ fetch() { curl -sSL --retry 3 --retry-all-errors --max-time 180 -A "datastore-ge
 for g in $NEEDED; do
   case $g in
     riftbound)     "$(dirname "$0")/fetch-riftbound-gallery.sh" "$WORK/riftbound-gallery.json" ;;
-    lorcana)       b2 file download --no-progress b2://mtgban-datastore/lorcana/allCards.json "$WORK/lorcana-allcards.json" >/dev/null ;;
+    lorcana)       fetch https://lorcanajson.org/files/current/en/allCards.json "$WORK/lorcana-allcards.json" ;;
     onepiece)      fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json "$WORK/punk-cards.json"
                    fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/packs.json "$WORK/punk-packs.json" ;;
     yugioh)        fetch https://db.ygoprodeck.com/api/v7/cardsets.php "$WORK/ygo-sets.json"
