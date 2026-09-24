@@ -4679,6 +4679,8 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		} `json:"sealed"`
 	}
 	var out counts
+	var priced int
+	var imageless []string
 	err = json.Unmarshal(data, &doc)
 	if err != nil {
 		return out, err
@@ -4721,11 +4723,13 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			card.Finish == "" {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
 		}
-		// An entry that names a product is one TCGplayer sells, and it
-		// always has the catalog's image. A minted entry has whatever
-		// tcgdex holds, which for some cards is no art at all.
-		if card.Image == "" && card.ExternalLinks.TcgPlayerID != 0 {
-			return out, fmt.Errorf("card %q (%s) carries no image", card.Name, card.ID)
+		// A priced entry takes the catalog's image. One without is a gap,
+		// not a card to refuse; every one without is a broken link (below).
+		if card.ExternalLinks.TcgPlayerID != 0 {
+			priced++
+			if card.Image == "" {
+				imageless = append(imageless, card.ID)
+			}
 		}
 		if !idShape.MatchString(card.ID) {
 			return out, fmt.Errorf("card %q has a uuid nothing can carry: %q", card.Name, card.ID)
@@ -4816,6 +4820,12 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		}
 	}
 	out.sets = len(doc.Sets)
+	if len(imageless) > 0 && len(imageless) == priced {
+		return out, errors.New("no priced card carries an image: the image link is broken")
+	}
+	if len(imageless) > 0 {
+		log.Printf("images: %d priced cards carry no image yet, first is %s", len(imageless), imageless[0])
+	}
 	out.cards = len(doc.Cards)
 	out.sealed = len(doc.Sealed)
 	return out, nil
