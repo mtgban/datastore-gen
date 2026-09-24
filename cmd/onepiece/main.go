@@ -951,10 +951,17 @@ type handCarried struct {
 	// finish overrides the parent printing's, empty where it is the
 	// parent's own. A Revision Pack reissue is the one thing here that is
 	// not the parent in every physical respect: it prints a foil card
-	// without the foil, which is the whole of what distinguishes it.
+	// without the foil, which is the whole of what distinguishes it. It
+	// also settles the one parent TCGplayer sells in both finishes,
+	// OP01-005, whose pre-errata is the booster's foil Rare.
 	finish string
 	// cardmarket is the product Cardmarket sells it as, 0 where it sells
 	// none: with no TCGplayer id, this is the only id it can be priced by.
+	// It is matched off Cardmarket's pre-errata shelf by number and art, as
+	// CardTrader's own link misses ten and names the regular Sanji (690809)
+	// for OP01-013's. A product either of two runs could be, and CardTrader
+	// links to neither, is left off both (Bepo, Officer Agents, OP01-002's
+	// plain Law).
 	cardmarket int
 	// blueprint is CardTrader's own id for the printing, which the entry's
 	// uuid is minted from so it cannot collide with a product id.
@@ -969,15 +976,23 @@ var handCarriedPrintings = []handCarried{
 	{"OP01-003", "", "", "Pre-Errata", "", 768137, 319049},
 	{"OP01-003", "", "", "Pre-Errata Demo Deck", "", 873904, 374952},
 	{"OP01-003", "Parallel", "", "Pre-Errata", "", 755414, 277276},
+	{"OP01-005", "", "", "Pre-Errata", "Foil", 768138, 409172},
 	{"OP01-005", "", "OP-RP", "", "Normal", 719315, 260377},
 	{"OP01-006", "", "", "Pre-Errata", "", 755415, 277513},
+	{"OP01-013", "", "", "Pre-Errata", "", 0, 409174},
+	{"OP01-013", "Parallel", "", "Pre-Errata", "", 858760, 409175},
 	{"OP01-013", "", "OP-RP", "", "Normal", 719316, 260772},
+	{"OP01-015", "", "", "Pre-Errata", "", 768141, 409171},
 	{"OP01-016", "", "", "Alpha Pre-Errata", "", 768142, 277561},
 	{"OP01-016", "Parallel", "", "Alpha Pre-Errata", "", 755416, 277442},
 	{"OP01-016", "Parallel", "", "Beta Pre-Errata", "", 0, 277443},
 	{"OP01-016", "", "OP-RP", "", "Normal", 719314, 260791},
+	{"OP01-017", "", "", "Pre-Errata", "", 768143, 409173},
+	{"OP01-020", "", "", "Pre-Errata", "", 768144, 409170},
 	{"OP01-025", "Parallel", "", "Pre-Errata", "", 865609, 366332},
 	{"OP01-026", "", "", "Pre-Errata", "", 768145, 319050},
+	{"OP01-028", "", "", "Pre-Errata", "", 768147, 409168},
+	{"OP01-030", "", "", "Pre-Errata", "", 768149, 409169},
 	{"OP01-040", "Parallel", "", "Pre-Errata", "", 768200, 319051},
 	{"OP01-047", "", "", "Alpha Pre-Errata", "", 755417, 277454},
 	{"OP01-047", "", "", "Beta Pre-Errata", "", 0, 277455},
@@ -985,25 +1000,25 @@ var handCarriedPrintings = []handCarried{
 	{"OP01-047", "Parallel", "", "Beta Pre-Errata", "", 0, 277451},
 	{"OP01-049", "", "", "Alpha Pre-Errata", "", 0, 277562},
 	{"OP01-049", "", "", "Beta Pre-Errata", "", 0, 277563},
-	{"OP01-051", "", "", "Pre-Errata", "", 0, 244690},
-	{"OP01-051", "Parallel", "", "Pre-Errata", "", 0, 244691},
-	{"OP01-061", "", "", "Pre-Errata", "", 0, 277515},
+	{"OP01-051", "", "", "Pre-Errata", "", 768163, 244690},
+	{"OP01-051", "Parallel", "", "Pre-Errata", "", 768164, 244691},
+	{"OP01-061", "", "", "Pre-Errata", "", 768170, 277515},
 	{"OP01-061", "Parallel", "", "Pre-Errata", "", 755419, 277514},
-	{"OP01-064", "", "", "Pre-Errata", "", 0, 244443},
+	{"OP01-064", "", "", "Pre-Errata", "", 768172, 244443},
 	{"OP01-064", "Box Topper", "", "Pre-Errata", "", 755420, 244685},
-	{"OP01-069", "", "", "Pre-Errata", "", 0, 244686},
+	{"OP01-069", "", "", "Pre-Errata", "", 768173, 244686},
 	{"OP01-070", "", "", "Pre-Errata", "", 755421, 244687},
 	{"OP01-070", "Parallel", "", "Pre-Errata", "", 755422, 244688},
-	{"OP01-071", "", "", "Pre-Errata", "", 0, 244689},
+	{"OP01-071", "", "", "Pre-Errata", "", 768174, 244689},
 	{"OP01-087", "", "", "Alpha Pre-Errata", "", 0, 277564},
 	{"OP01-087", "", "", "Beta Pre-Errata", "", 0, 277565},
 	{"OP01-093", "", "", "Pre-Errata", "", 768185, 277566},
 	{"OP01-093", "Parallel", "", "Pre-Errata", "", 755423, 277545},
-	{"OP01-096", "", "", "Pre-Errata", "", 0, 277558},
+	{"OP01-096", "", "", "Pre-Errata", "", 768186, 277558},
 	{"OP01-096", "Parallel", "", "Pre-Errata", "", 755424, 277557},
-	{"OP01-097", "", "", "Pre-Errata", "", 0, 277560},
+	{"OP01-097", "", "", "Pre-Errata", "", 768187, 277560},
 	{"OP01-097", "Parallel", "", "Pre-Errata", "", 755425, 277559},
-	{"OP01-112", "", "", "Pre-Errata", "", 0, 255423},
+	{"OP01-112", "", "", "Pre-Errata", "", 768192, 255423},
 	{"OP01-119", "", "", "Pre-Errata", "", 768197, 323775},
 	{"OP03-047", "", "", "Pre-Errata", "", 898777, 272148},
 	{"OP03-054", "", "", "Pre-Errata", "", 0, 272147},
