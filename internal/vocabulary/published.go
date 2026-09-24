@@ -30,7 +30,7 @@ var ErrNotDatastore = errors.New("no cards: this is not a built datastore")
 // apart.
 var aside = map[string]bool{
 	"id": true, "image": true, "images": true, "externalLinks": true,
-	"printings": true, "fabId": true, "bandaiId": true, "code": true,
+	"printings": true, "code": true,
 	"fullIdentifier": true, "variant": true,
 }
 

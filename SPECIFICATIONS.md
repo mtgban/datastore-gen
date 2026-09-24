@@ -150,10 +150,10 @@ Common to every game:
 | `externalLinks` | `tcgPlayerId` on every priced entry; the upstream id beside it or instead of it: `fabId`, `tcgdexId`, `cardmarketId`, `bandaiId`, `konamiId`, `cardTraderId` |
 | `color`, `type`, `attribute`, `artist` | game facts where the source carries them: Flesh and Blood pitch colour, Gundam and Palworld colour and card type, Yu-Gi-Oh attribute, One Piece colour and type |
 
-Per game, on top of the common keys: `fabId` (fleshandblood), `tcgdexId`
-(pokemon), `bandaiId` (onepiece), `konamiId` under `externalLinks`
+Per game, on top of the common keys: under `externalLinks`, `fabId`
+(fleshandblood), `tcgdexId` (pokemon), `bandaiId` (onepiece) and `konamiId`
 (yugioh, only where the passcode join is unambiguous and not contradicted
-by the name), `printings[]` and `tcgPrintings` (lorcana, §2.5).
+by the name); `printings[]` and `tcgPrintings` (lorcana, §2.5).
 
 ### 2.3 Sealed
 
