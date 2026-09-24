@@ -199,7 +199,9 @@ the gallery's own fields (`id`, `name`, `publicCode`,
 `tcgplayerProductId`) and gains `setCode`, `number`, `image` and
 `externalLinks.tcgPlayerId` for consumers that read every game alike. A
 catalog product the gallery has no row for is adopted as a printing with
-the same shape. There is no `cards` key at any level;
+the same shape. The sealed products at `blades[].sealed.items[]` carry
+`setCode`, `image` and `externalLinks.tcgPlayerId` the same way, beside
+their gallery-shaped `set`, `cardImage` and `tcgplayerProductId`. There is no `cards` key at any level;
 `internal/vocabulary`, `internal/datastorediff` and `internal/baseline`
 (through a reader the builder supplies) walk the path.
 
@@ -391,8 +393,8 @@ Per-game notes an agent needs:
   read a set name as provenance; `variantOnlyQuals` is the hand list of
   marks; 22-character tokens split at a set or Pokemon head when the tail
   is a label the catalog writes on its own.
-- **riftbound**: a group the gallery has no set for becomes its own set so
-  its sealed is not orphaned; a two-faced token product keeps both faces in
+- **riftbound**: a group the gallery has no set for becomes its own set,
+  including a group sold only sealed, so its sealed is not orphaned; a two-faced token product keeps both faces in
   its number; minted sets publish no size.
 - **yugioh**: editions (`1st Edition`, `Unlimited`, `Limited`) are the
   finish; a rarity written into a name is the rarity; Speed Duel deck

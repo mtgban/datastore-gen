@@ -542,6 +542,7 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 						Items []struct {
 							ID                 string `json:"id"`
 							Name               string `json:"name"`
+							SetCode            string `json:"setCode"`
 							TCGplayerProductID int    `json:"tcgplayerProductId"`
 						} `json:"items"`
 					} `json:"sealed"`
@@ -619,6 +620,9 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 		for _, product := range blade.Sealed.Items {
 			if product.ID == "" || product.Name == "" || product.TCGplayerProductID == 0 {
 				return 0, 0, 0, 0, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
+			}
+			if !setIDs[product.SetCode] {
+				return 0, 0, 0, 0, fmt.Errorf("sealed %q (%s) names set %q, which the file does not carry", product.Name, product.ID, product.SetCode)
 			}
 			if ids[product.ID] {
 				return 0, 0, 0, 0, fmt.Errorf("duplicate id %s", product.ID)
@@ -990,6 +994,14 @@ func main() {
 	// type, from every group whether the gallery knows it or not - the
 	// gallery carries no product entity of any kind, so it has no say.
 	var sealedItems []any
+	knownSets := map[string]bool{}
+	for _, raw := range setItems {
+		if set, ok := raw.(map[string]any); ok {
+			id, _ := set["id"].(string)
+			knownSets[id] = true
+		}
+	}
+	var sealedOnly int
 	for _, group := range groups {
 		for _, product := range productsByGroup[group.GroupID] {
 			if slices.Contains(tcgSingles, product.ProductType) {
@@ -1009,13 +1021,29 @@ func main() {
 				"cardImage": map[string]any{
 					"url": emit.ImageURL(product.ImageURL),
 				},
+				// The same facts under the names the other datastores
+				// give a sealed product.
+				"setCode":       group.Abbreviation,
+				"image":         emit.ImageURL(product.ImageURL),
+				"externalLinks": map[string]any{"tcgPlayerId": product.ProductID},
 			})
+			// A group sold only sealed - accessories, a set before its
+			// cards - gets a set of its own, as the other builders mint.
+			if !knownSets[group.Abbreviation] {
+				setItems = append(setItems, map[string]any{
+					"id":          group.Abbreviation,
+					"name":        group.Name,
+					"releaseDate": group.ReleaseDate(),
+				})
+				knownSets[group.Abbreviation] = true
+				sealedOnly++
+			}
 		}
 	}
 	if len(sealedItems) > 0 {
 		gallery["sealed"] = map[string]any{"items": sealedItems}
 	}
-	log.Printf("sealed: %d products", len(sealedItems))
+	log.Printf("sealed: %d products, %d sets minted for groups sold only sealed", len(sealedItems), sealedOnly)
 
 	// The fields every other datastore here carries, added beside the
 	// gallery's own rather than in place of them. This file is the upstream
