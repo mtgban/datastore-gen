@@ -219,36 +219,29 @@ func TestStringsOfReadsBothShapes(t *testing.T) {
 	}
 }
 
-// TestUnwrapPeelsOnlyAnEnvelope holds the discriminator to "meta and data,
-// both objects". The case that matters is the decoy: a bare document free
-// to publish a field of its own called "data" must come back whole, because
-// peeling on that key alone would silently re-root the reader into it.
-func TestUnwrapPeelsOnlyAnEnvelope(t *testing.T) {
-	envelope := `{"meta":{"date":"2026-09-14","version":"1"},"data":{"game":"pokemon"}}`
-	for _, tc := range []struct {
-		name     string
-		document string
-		want     string
-	}{
-		{"an envelope is peeled", envelope, `{"game":"pokemon"}`},
-		{"a bare document is whole", `{"game":"pokemon","sets":{}}`, `{"game":"pokemon","sets":{}}`},
-		{"a decoy data key is not an envelope", `{"game":"pokemon","data":{"x":1}}`, `{"game":"pokemon","data":{"x":1}}`},
-		{"meta alone is not an envelope", `{"meta":{"version":"1"},"game":"x"}`, `{"meta":{"version":"1"},"game":"x"}`},
-		{"null data is not a payload", `{"meta":{"version":"1"},"data":null}`, `{"meta":{"version":"1"},"data":null}`},
-		{"a data string is not a payload", `{"meta":{"version":"1"},"data":"nope"}`, `{"meta":{"version":"1"},"data":"nope"}`},
-		{"a data list is not a payload", `{"meta":{"version":"1"},"data":[1]}`, `{"meta":{"version":"1"},"data":[1]}`},
-		{"riftbound's bare shape is whole", `{"__N_SSG":true,"pageProps":{"page":{}}}`, `{"__N_SSG":true,"pageProps":{"page":{}}}`},
-		{"lorcana's metadata is not meta", `{"metadata":{"formatVersion":"2"},"cards":[]}`, `{"metadata":{"formatVersion":"2"},"cards":[]}`},
+// TestUnwrapRefusesAnythingButAnEnvelope holds the discriminator to "meta
+// and data, both objects", and refuses every other document now that no
+// datastore is published bare: a decoy "data" key, a null or a list under
+// it, meta alone, and the bare shapes the games published before the
+// envelope, Riftbound's and Lorcana's among them.
+func TestUnwrapRefusesAnythingButAnEnvelope(t *testing.T) {
+	got, err := Unwrap([]byte(`{"meta":{"date":"2026-09-14","version":"1"},"data":{"game":"pokemon"}}`))
+	if err != nil || string(got) != `{"game":"pokemon"}` {
+		t.Errorf("an envelope: Unwrap = %s, %v", got, err)
+	}
+	for _, document := range []string{
+		`{"game":"pokemon","sets":{}}`,
+		`{"game":"pokemon","data":{"x":1}}`,
+		`{"meta":{"version":"1"},"game":"x"}`,
+		`{"meta":{"version":"1"},"data":null}`,
+		`{"meta":{"version":"1"},"data":"nope"}`,
+		`{"meta":{"version":"1"},"data":[1]}`,
+		`{"__N_SSG":true,"pageProps":{"page":{}}}`,
+		`{"metadata":{"formatVersion":"2"},"cards":[]}`,
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := Unwrap([]byte(tc.document))
-			if err != nil {
-				t.Fatalf("Unwrap: %v", err)
-			}
-			if string(got) != tc.want {
-				t.Errorf("Unwrap = %s, want %s", got, tc.want)
-			}
-		})
+		if _, err := Unwrap([]byte(document)); !errors.Is(err, ErrNotEnvelope) {
+			t.Errorf("%s: Unwrap error = %v, want ErrNotEnvelope", document, err)
+		}
 	}
 }
 
@@ -270,8 +263,8 @@ func TestUnwrapRefusesAnotherSchema(t *testing.T) {
 }
 
 // TestUnwrapAgreesWithItself holds the two spellings to one rule, since a
-// bytes reader and a decoded reader that disagreed would peel one file two
-// ways.
+// bytes reader and a decoded reader that disagreed would read one file two
+// ways: both peel an envelope alike and both refuse anything else.
 func TestUnwrapAgreesWithItself(t *testing.T) {
 	for _, document := range []string{
 		`{"meta":{"date":"d","version":"1"},"data":{"game":"pokemon"}}`,
@@ -279,24 +272,24 @@ func TestUnwrapAgreesWithItself(t *testing.T) {
 		`{"game":"pokemon","data":{"x":1}}`,
 		`{"meta":{"version":"1"},"data":null}`,
 	} {
-		peeled, err := Unwrap([]byte(document))
-		if err != nil {
-			t.Fatalf("Unwrap %s: %v", document, err)
-		}
-		var asBytes map[string]any
-		if err := json.Unmarshal(peeled, &asBytes); err != nil {
-			t.Fatalf("decode %s: %v", peeled, err)
-		}
 		var whole map[string]any
 		if err := json.Unmarshal([]byte(document), &whole); err != nil {
 			t.Fatalf("decode %s: %v", document, err)
 		}
-		asDocument, err := UnwrapDocument(whole)
-		if err != nil {
-			t.Fatalf("UnwrapDocument %s: %v", document, err)
-		}
-		if !reflect.DeepEqual(asBytes, asDocument) {
-			t.Errorf("%s: Unwrap = %v, UnwrapDocument = %v", document, asBytes, asDocument)
+		peeled, errBytes := Unwrap([]byte(document))
+		asDocument, errDocument := UnwrapDocument(whole)
+		if !errors.Is(errBytes, ErrNotEnvelope) || !errors.Is(errDocument, ErrNotEnvelope) {
+			if errBytes != nil || errDocument != nil {
+				t.Errorf("%s: Unwrap error %v, UnwrapDocument error %v", document, errBytes, errDocument)
+				continue
+			}
+			var asBytes map[string]any
+			if err := json.Unmarshal(peeled, &asBytes); err != nil {
+				t.Fatalf("decode %s: %v", peeled, err)
+			}
+			if !reflect.DeepEqual(asBytes, asDocument) {
+				t.Errorf("%s: Unwrap = %v, UnwrapDocument = %v", document, asBytes, asDocument)
+			}
 		}
 	}
 }

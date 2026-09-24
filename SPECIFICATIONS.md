@@ -3,7 +3,7 @@
 What the builders read, what they publish, and what every build is held
 to. `AGENTS.md` says how to work here; this document says what "here" is.
 Facts below were read off the code on 2026-09-14, and §2's envelope on
-2026-09-21 (master at `80f77b7`, plus this branch); where a number is
+2026-09-24 (master at `7bdb114`, plus this branch); where a number is
 quoted it is the earlier day's.
 
 Module `github.com/mtgban/datastore-gen`, Go 1.25. Direct dependencies:
@@ -83,11 +83,11 @@ payload to its ASCII form, so the check that re-reads the file sees what is
 published and a query spells names the way the file does; the envelope goes
 around it afterwards, and `meta` carries no prose to rewrite.
 
-Both shapes have to read on the way *in*. A previous datastore — what
-`-against` measures a build against, and what `datastorediff` reads as the
-old side — stays bare until it is itself rebuilt, so every reader here
-peels through `emit.Unwrap`, or `emit.UnwrapDocument` where it holds the
-document already decoded. Neither spells the peel again.
+Every reader here peels through `emit.Unwrap`, or `emit.UnwrapDocument`
+where it holds the document already decoded, and none spells the peel
+again. A file that is not an envelope is refused (`emit.ErrNotEnvelope`):
+it is an upstream payload or a build from before the envelope, and reading
+it as the document would measure a build against the wrong thing.
 
 A document is an envelope when it carries **both** `meta` and `data`, both
 objects. `data` alone is not the test: a document is free to publish a
@@ -99,12 +99,12 @@ true should one ever start. A `meta.version` this build does not know is
 refused (`emit.ErrUnknownSchema`), not decoded on the chance that `data`
 still reads: that refusal is what writing the version first is for.
 
-Reading both shapes is a migration cost, not a feature, and it ends on a
-condition rather than a date: once every game has published once under the
-envelope, no bare file can still arrive — the published datastores and the
-baselines beside them are enveloped alike — and `Unwrap` can refuse a
-document that is not one instead of handing it back whole. Until then a
-new reader takes the helper rather than spelling a peel of its own.
+Reading both shapes was a migration cost, and it ended on the condition
+this section set for it rather than on a date: every game has published
+under the envelope since 2026-09-21, and the last bare baseline, pokemon's,
+was rebuilt on 2026-09-24. Nothing bare can arrive any more, so `Unwrap`
+refuses a document that is not an envelope instead of handing it back
+whole.
 
 ### 2.1 Sets
 
@@ -415,8 +415,8 @@ a discriminator that has to be fixed in eleven places is fixed in none.
 **`internal/baseline`** — `Counts`, `Count`, `Reader`, `Regression`,
 `Options{Against, Tolerance, FitPath, Unit}`, `Guard`. Riftbound hands
 `Guard` a reader of its own for its shape. `Count` peels through
-`emit.Unwrap`: the baseline on disk is a previous build's output, and
-stays bare until a build publishes over it.
+`emit.Unwrap`, so a baseline that is not an envelope stops the build at
+`-against`: "not a datastore envelope".
 
 **`internal/vocabulary`** — `TokenLimit`, `Slug`, `Printing`, `Problems`,
 `Check`, `SetNames`, `ReadDatastore`, `ErrNotDatastore`; `SetNames` and
@@ -425,14 +425,15 @@ than an answer this package re-derives. `Slug` is kept
 separate from `emit.PromoSlug` on purpose: a check that spelled its tokens
 with the builders' own function would pass a builder whose spelling had
 gone wrong. `TestPublishedVocabulary` reads `STORE_DIR/<game>.json` for the
-eight games, skipping a file that is absent or still the raw upstream.
+eight games, skipping a file that is absent or is not an envelope: the raw
+upstream, or a build from before the envelope.
 
 **`internal/datastorediff`** — `Compare(before, after) (Change, error)`,
 `Change.String()`: ids added and removed, fields published and dropped
 (by name), values reworded, sets and sealed counted, with a leaf-by-leaf
-fallback for the Riftbound shape. Either side may be enveloped or bare, a
-build being routinely compared against an older published file, and both
-are peeled by `emit.UnwrapDocument`. Only meaningful when both files were
+fallback for the Riftbound shape. Both sides are peeled by
+`emit.UnwrapDocument`, and a bare side is refused, so a range tagged again
+now has to start after the envelope. Only meaningful when both files were
 built from one catalog.
 
 ## 7. Workflows
@@ -474,10 +475,9 @@ every game.
 go-mtgban loads each file through `mtgmatcher/<game>` and locates it by
 environment variable: `FLESHANDBLOOD_PATH`, `GUNDAM_PATH`, `LORCANA_PATH`,
 `ONEPIECE_PATH`, `PALWORLD_PATH`, `POKEMON_PATH`, `RIFTBOUND_PATH`,
-`YUGIOH_PATH`, absolute paths. All eight loaders take §2's envelope or a
-bare document (go-mtgban#604), so a datastore rebuilt into the new shape
-and one not yet rebuilt both load. What it reads, and therefore what a
-change here must keep true:
+`YUGIOH_PATH`, absolute paths. All eight loaders read §2's envelope and,
+since go-mtgban's `710af946d`, nothing else. What it reads, and therefore
+what a change here must keep true:
 
 - **Identity** is `name` + `number` (+ `rarity` where the game sells one
   number at several rarities; + `total` in Pokemon), narrowed by the

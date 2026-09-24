@@ -108,45 +108,33 @@ func TestNotADatastoreSaysSo(t *testing.T) {
 	}
 }
 
-// TestReadDatastoreAndSetNamesAcceptTheEnvelope pins that both readers see
-// through the {"meta":...,"data":...} envelope the same way a published
-// datastore is read bare: a file on disk may already be wrapped, or may not
-// be yet.
-func TestReadDatastoreAndSetNamesAcceptTheEnvelope(t *testing.T) {
+// TestReadDatastoreAndSetNamesReadTheEnvelope pins that both readers see
+// through the envelope alike, and report a bare file as not a built
+// datastore, which the publish gate skips rather than fails on.
+func TestReadDatastoreAndSetNamesReadTheEnvelope(t *testing.T) {
 	body := `{"sets":{"AAA":{"name":"A Set"}},"cards":[{"id":"a","name":"A","setCode":"AAA"}]}`
-	wrapped := `{"meta":{"date":"2026-09-14","version":"1","game":"test"},"data":` + body + `}`
-
+	env := filepath.Join(t.TempDir(), "wrapped.json")
+	if err := os.WriteFile(env, envelope(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	bare := filepath.Join(t.TempDir(), "bare.json")
 	if err := os.WriteFile(bare, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	env := filepath.Join(t.TempDir(), "wrapped.json")
-	if err := os.WriteFile(env, []byte(wrapped), 0o600); err != nil {
-		t.Fatal(err)
-	}
 
-	barePrintings, err := ReadDatastore(bare)
-	if err != nil {
-		t.Fatal(err)
+	printings, err := ReadDatastore(env)
+	if err != nil || len(printings) != 1 || printings[0].ID != "a" {
+		t.Errorf("ReadDatastore(wrapped) = %+v, %v", printings, err)
 	}
-	wrappedPrintings, err := ReadDatastore(env)
-	if err != nil {
-		t.Fatal(err)
+	sets, err := SetNames(env)
+	if err != nil || len(sets) != 1 || sets[0] != "A Set" {
+		t.Errorf("SetNames(wrapped) = %v, %v", sets, err)
 	}
-	if len(barePrintings) != 1 || len(wrappedPrintings) != 1 || barePrintings[0].ID != wrappedPrintings[0].ID {
-		t.Errorf("ReadDatastore: bare = %+v, wrapped = %+v", barePrintings, wrappedPrintings)
+	if _, err := ReadDatastore(bare); !errors.Is(err, ErrNotDatastore) {
+		t.Errorf("ReadDatastore(bare) error = %v, want ErrNotDatastore", err)
 	}
-
-	bareSets, err := SetNames(bare)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wrappedSets, err := SetNames(env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(bareSets) != 1 || len(wrappedSets) != 1 || bareSets[0] != wrappedSets[0] {
-		t.Errorf("SetNames: bare = %v, wrapped = %v", bareSets, wrappedSets)
+	if _, err := SetNames(bare); !errors.Is(err, ErrNotDatastore) {
+		t.Errorf("SetNames(bare) error = %v, want ErrNotDatastore", err)
 	}
 }
 
@@ -158,7 +146,7 @@ func TestFinishesAreReadFromEitherShape(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "game.json")
 	body := `{"cards":[{"id":1,"name":"Dalmatian Puppy","number":4,"setCode":3,
 		"printings":[{"finish":"Normal","id":"1"},{"finish":"Cold Foil","id":"1_foil"}]}]}`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(path, envelope(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	printings, err := ReadDatastore(path)
@@ -185,7 +173,7 @@ func TestPrintingTokensAreHeldToTheRules(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "game.json")
 	body := `{"cards":[{"id":1,"name":"Simba","number":4,"setCode":3,
 		"printings":[{"finish":"Cold Foil","id":"1_foil","promoTypes":["free form"]},{"finish":"Holofoil","id":"1_holofoil","promoTypes":["rainbowpillars"]}]}]}`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+	if err := os.WriteFile(path, envelope(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	printings, err := ReadDatastore(path)
@@ -199,4 +187,9 @@ func TestPrintingTokensAreHeldToTheRules(t *testing.T) {
 	if len(found.Alike) != 0 {
 		t.Errorf("two treatments of one card read as alike: %v", found.Lines())
 	}
+}
+
+// envelope wraps a test datastore the way every builder publishes one.
+func envelope(payload string) []byte {
+	return []byte(`{"meta":{"date":"2026-09-24","version":"1"},"data":` + payload + `}`)
 }

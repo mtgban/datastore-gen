@@ -259,19 +259,21 @@ func (s *SharedIdentities) Check() error {
 // check meta.version is written first for.
 var ErrUnknownSchema = errors.New("unknown datastore schema version")
 
-// Unwrap returns the document a datastore file holds: the payload of a
-// {"meta":...,"data":...} envelope, or the file itself where it is not one.
-//
-// Every reader in this repository takes a file that may be either shape - a
-// baseline on disk, the old side of a diff, a published datastore not yet
-// rebuilt - so the peel is spelled here once rather than in each of them.
+// ErrNotEnvelope says a document is not a datastore envelope. Every datastore
+// has been published in one since 2026-09-21 and every baseline since
+// 2026-09-24, so a file without one is not a built datastore: an upstream
+// payload, or a build from before the envelope. It is refused rather than
+// read as the document, which is what reading it bare would have meant.
+var ErrNotEnvelope = errors.New("not a datastore envelope")
+
+// Unwrap returns the document a datastore file holds, the payload of its
+// {"meta":...,"data":...} envelope, and refuses a file that is not one.
+// Every reader in this repository peels through here rather than by hand.
 //
 // An envelope is meta AND data, both objects. Data alone is not enough: a
 // document is free to publish a field of its own called "data", and peeling
 // on that key alone would re-root a reader into it and lose the real
-// document without saying so. None of the eight games publishes either key
-// bare today (Lorcana's upstream carries "metadata", which is a different
-// name), and requiring both keeps it that way should one ever start.
+// document without saying so.
 func Unwrap(document []byte) ([]byte, error) {
 	// Pointers, so an absent key and a null one are alike nil: "data": null
 	// decodes into a non-nil json.RawMessage holding the four bytes "null",
@@ -283,14 +285,10 @@ func Unwrap(document []byte) ([]byte, error) {
 	if err := json.Unmarshal(document, &envelope); err != nil {
 		return nil, err
 	}
-	if envelope.Meta == nil || envelope.Data == nil {
-		return document, nil
+	if envelope.Meta == nil || envelope.Data == nil ||
+		!holdsObject(*envelope.Meta) || !holdsObject(*envelope.Data) {
+		return nil, ErrNotEnvelope
 	}
-	if !holdsObject(*envelope.Meta) || !holdsObject(*envelope.Data) {
-		return document, nil
-	}
-	// Past here the document is an envelope, so a meta that will not read
-	// is a broken envelope rather than a document to fall back on.
 	var meta struct {
 		Version string `json:"version"`
 	}
@@ -310,7 +308,7 @@ func UnwrapDocument(document map[string]any) (map[string]any, error) {
 	meta, wrapped := document["meta"].(map[string]any)
 	data, holds := document["data"].(map[string]any)
 	if !wrapped || !holds {
-		return document, nil
+		return nil, ErrNotEnvelope
 	}
 	version, _ := meta["version"].(string)
 	if version != SchemaVersion {
