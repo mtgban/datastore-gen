@@ -79,6 +79,9 @@ func SetNames(path string) ([]string, error) {
 		return nil, err
 	}
 	raw, err = emit.Unwrap(raw)
+	if errors.Is(err, emit.ErrNotEnvelope) {
+		return nil, fmt.Errorf("%s: %w", path, ErrNotDatastore)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +118,9 @@ func ReadDatastore(path string) ([]Printing, error) {
 		return nil, err
 	}
 	document, err := emit.UnwrapDocument(payload)
+	if errors.Is(err, emit.ErrNotEnvelope) {
+		return nil, fmt.Errorf("%s: %w", path, ErrNotDatastore)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}

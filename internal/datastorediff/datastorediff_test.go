@@ -1,6 +1,11 @@
 package datastorediff
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/mtgban/datastore-gen/internal/emit"
+)
 
 func doc(cards, sets, sealed string) []byte {
 	return []byte(`{"game":"test","cards":` + cards + `,"sets":` + sets + `,"sealed":` + sealed + `}`)
@@ -10,7 +15,7 @@ const noSets, noSealed = `{}`, `[]`
 
 func compare(t *testing.T, before, after []byte) Change {
 	t.Helper()
-	c, err := Compare(before, after)
+	c, err := Compare(wrap("2026-09-24", before), wrap("2026-09-24", after))
 	if err != nil {
 		t.Fatalf("Compare: %v", err)
 	}
@@ -34,32 +39,27 @@ func TestUnchangedIsEmpty(t *testing.T) {
 // wrap puts payload under the {"meta":...,"data":...} envelope, meta.date
 // set to date so a test can vary the one field every build changes.
 func wrap(date string, payload []byte) []byte {
-	return []byte(`{"meta":{"date":"` + date + `","version":"1","game":"test"},"data":` + string(payload) + `}`)
+	return []byte(`{"meta":{"date":"` + date + `","version":"1"},"data":` + string(payload) + `}`)
 }
 
-// TestEnvelopeShapeComparesLikeBare pins the transition this migration
-// causes: one build publishes the bare document and the next publishes the
-// same content wrapped in the envelope. Compare must see that as no change,
-// not as every card arriving and the old ones leaving - and meta.date,
-// which is different on every build, must not register as a leaf changing
-// either.
-func TestEnvelopeShapeComparesLikeBare(t *testing.T) {
-	bare := doc(`[{"id":"a","name":"A"}]`, `{"AAA":{"name":"A"}}`, noSealed)
-
-	c := compare(t, bare, wrap("2026-09-14", bare))
-	if !c.Empty() {
-		t.Errorf("Empty() = false comparing bare against the same content wrapped: %s", c)
+// TestComparePeelsTheEnvelope pins what a comparison reads: the payload of
+// each side, never meta, whose date differs on every build, and never a bare
+// document, which no build publishes any more.
+func TestComparePeelsTheEnvelope(t *testing.T) {
+	body := doc(`[{"id":"a","name":"A"}]`, `{"AAA":{"name":"A"}}`, noSealed)
+	if _, err := Compare(body, wrap("2026-09-14", body)); !errors.Is(err, emit.ErrNotEnvelope) {
+		t.Errorf("a bare side: Compare error = %v, want ErrNotEnvelope", err)
 	}
 
-	c = compare(t, wrap("2026-09-14", bare), wrap("2026-09-15", bare))
-	if !c.Empty() {
-		t.Errorf("Empty() = false comparing two wrapped builds that differ only in meta.date: %s", c)
+	c, err := Compare(wrap("2026-09-14", body), wrap("2026-09-15", body))
+	if err != nil || !c.Empty() {
+		t.Errorf("two builds differing only in meta.date: %s, %v", c, err)
 	}
 
 	changed := doc(`[{"id":"a","name":"A","language":"en"}]`, `{"AAA":{"name":"A"}}`, noSealed)
-	c = compare(t, wrap("2026-09-14", bare), wrap("2026-09-15", changed))
-	if c.FieldsAdded["language"] != 1 {
-		t.Errorf("wrapped vs wrapped: FieldsAdded[language] = %d, want 1", c.FieldsAdded["language"])
+	c, err = Compare(wrap("2026-09-14", body), wrap("2026-09-15", changed))
+	if err != nil || c.FieldsAdded["language"] != 1 {
+		t.Errorf("FieldsAdded[language] = %d, %v, want 1", c.FieldsAdded["language"], err)
 	}
 }
 

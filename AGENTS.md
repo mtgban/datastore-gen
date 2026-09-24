@@ -323,10 +323,8 @@ subagent's report is evidence to check against the file, not a finding.
   binary in `internal/vocabulary`, and `STORE_DIR=.` reads nothing (that
   shipped once and broke every publish until #65).
 - Every datastore is a `{"meta":…,"data":…}` envelope (SPECIFICATIONS
-  §2), but a file on disk may still be the bare pre-envelope shape: a
-  baseline, a published datastore not yet rebuilt, the old side of a diff.
-  That stays true until every game has published once under the envelope,
-  which is when the bare half goes.
+  §2), and since 2026-09-24 every reader here refuses anything else: a
+  bare file is an upstream payload or a build from before the envelope.
   Read one through `emit.Unwrap` (or `emit.UnwrapDocument`) and never by
   hand: an envelope is `meta` *and* `data`, and a peel that keys on `data`
   alone silently re-roots into any document that happens to publish a

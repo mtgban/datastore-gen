@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mtgban/datastore-gen/internal/emit"
 )
 
 func counts(cards, sealed int, bySet map[string]int) Counts {
@@ -50,36 +52,27 @@ func TestRegressionWithoutABaseline(t *testing.T) {
 	}
 }
 
-// TestCountReadsTheTopLevelShape pins the reader every game but Riftbound
-// uses: cards by set code, sealed by count.
-func TestCountReadsTheTopLevelShape(t *testing.T) {
-	got, err := Count([]byte(`{"cards":[{"setCode":"A"},{"setCode":"A"},{"setCode":"B"}],"sealed":[{},{}]}`))
+// TestCountRefusesABareDocument pins that a baseline is read only in the
+// envelope: every one on the bucket has been enveloped since 2026-09-24, and
+// a bare one read as the document would be measured against as if nothing
+// had changed about what a datastore is.
+func TestCountRefusesABareDocument(t *testing.T) {
+	_, err := Count([]byte(`{"cards":[{"setCode":"A"}],"sealed":[]}`))
+	if !errors.Is(err, emit.ErrNotEnvelope) {
+		t.Errorf("Count(bare) error = %v, want ErrNotEnvelope", err)
+	}
+}
+
+// TestCountReadsTheEnvelopeShape pins the reader every game but Riftbound
+// uses: cards by set code and sealed by count, off the payload of the
+// envelope a baseline and a build's own output both come in.
+func TestCountReadsTheEnvelopeShape(t *testing.T) {
+	got, err := Count(envelope(`{"cards":[{"setCode":"A"},{"setCode":"A"},{"setCode":"B"}],"sealed":[{},{}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Cards != 3 || got.Sealed != 2 || got.BySet["A"] != 2 || got.BySet["B"] != 1 {
 		t.Errorf("Count = %+v", got)
-	}
-}
-
-// TestCountReadsTheEnvelopeShape pins that Count reads the same counts off
-// a datastore wrapped in the {"meta":...,"data":...} envelope as off the
-// bare document: the baseline a build compares against may already be one,
-// or may not be yet, and Guard hands this build's own encoded output - now
-// always wrapped - to Count the same way.
-func TestCountReadsTheEnvelopeShape(t *testing.T) {
-	bare, err := Count([]byte(`{"cards":[{"setCode":"A"},{"setCode":"A"},{"setCode":"B"}],"sealed":[{},{}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wrapped, err := Count([]byte(`{"meta":{"date":"2026-09-14","version":"1","game":"pokemon"},` +
-		`"data":{"cards":[{"setCode":"A"},{"setCode":"A"},{"setCode":"B"}],"sealed":[{},{}]}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if wrapped.Cards != bare.Cards || wrapped.Sealed != bare.Sealed ||
-		wrapped.BySet["A"] != bare.BySet["A"] || wrapped.BySet["B"] != bare.BySet["B"] {
-		t.Errorf("Count(wrapped) = %+v, want %+v", wrapped, bare)
 	}
 }
 
@@ -89,7 +82,7 @@ func TestCountReadsTheEnvelopeShape(t *testing.T) {
 func TestGuardOnlyMovesTheBaselineForward(t *testing.T) {
 	dir := t.TempDir()
 	baseline := filepath.Join(dir, "previous.json")
-	if err := os.WriteFile(baseline, []byte(`{"cards":[{"setCode":"A"},{"setCode":"A"}],"sealed":[{}]}`), 0o600); err != nil {
+	if err := os.WriteFile(baseline, envelope(`{"cards":[{"setCode":"A"},{"setCode":"A"}],"sealed":[{}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
@@ -107,7 +100,7 @@ func TestGuardOnlyMovesTheBaselineForward(t *testing.T) {
 		}
 		// A tolerance wide enough that nothing here is refused: fitness
 		// is what is being read, not the refusal.
-		err := Guard([]byte(test.data), Count, Options{Against: baseline, Tolerance: 1, FitPath: fitPath})
+		err := Guard(envelope(test.data), Count, Options{Against: baseline, Tolerance: 1, FitPath: fitPath})
 		if err != nil {
 			t.Fatalf("%s: %v", test.desc, err)
 		}
@@ -122,14 +115,19 @@ func TestGuardOnlyMovesTheBaselineForward(t *testing.T) {
 func TestGuardRefusesWithTheCheckNamed(t *testing.T) {
 	dir := t.TempDir()
 	baseline := filepath.Join(dir, "previous.json")
-	if err := os.WriteFile(baseline, []byte(`{"cards":[{"setCode":"A"},{"setCode":"B"}],"sealed":[]}`), 0o600); err != nil {
+	if err := os.WriteFile(baseline, envelope(`{"cards":[{"setCode":"A"},{"setCode":"B"}],"sealed":[]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := Guard([]byte(`{"cards":[{"setCode":"A"},{"setCode":"A"}],"sealed":[]}`), Count, Options{Against: baseline, Tolerance: 0.01})
+	err := Guard(envelope(`{"cards":[{"setCode":"A"},{"setCode":"A"}],"sealed":[]}`), Count, Options{Against: baseline, Tolerance: 0.01})
 	if err == nil || !strings.HasPrefix(err.Error(), "against: refusing to publish:") {
 		t.Errorf("Guard = %v, want a refusal prefixed with the check", err)
 	}
 	if err := Guard([]byte(`{}`), Count, Options{}); err != nil {
 		t.Errorf("Guard with nothing asked = %v, want nil", err)
 	}
+}
+
+// envelope wraps a test datastore the way every builder publishes one.
+func envelope(payload string) []byte {
+	return []byte(`{"meta":{"date":"2026-09-24","version":"1"},"data":` + payload + `}`)
 }

@@ -94,7 +94,7 @@ func TestMintedNumber(t *testing.T) {
 // nowhere.
 func TestValidateNumber(t *testing.T) {
 	document := func(card string) []byte {
-		return []byte(`{"sets":{"1":{"name":"The First Chapter"}},"cards":[` + card + `],"sealed":[]}`)
+		return []byte(`{"meta":{"date":"2026-09-24","version":"1"},"data":{"sets":{"1":{"name":"The First Chapter"}},"cards":[` + card + `],"sealed":[]}}`)
 	}
 	for _, tt := range []struct {
 		desc    string
