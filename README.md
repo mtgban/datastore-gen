@@ -97,7 +97,7 @@ and the cards the catalog has no product for, which are minted from it.
 A minted entry names no TCGplayer product, because none exists; nothing
 prices it, and the loaders group its printings by the upstream id it was
 minted from - `tcgdexId` for pokemon, `fabId` for fleshandblood - which is
-published on the entry like any other identifier. Ids are opaque: a
+published under `externalLinks` like any other identifier. Ids are opaque: a
 consumer reads the fields, never the shape of an id, and the builders are
 free to respell one. Where the upstream set has no catalog
 group at all, the set is minted too, from upstream's own code, name and

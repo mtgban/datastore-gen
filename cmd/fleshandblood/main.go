@@ -1319,13 +1319,8 @@ func main() {
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
-	// The id upstream knows this printing by, in the place every other
-	// identifier lives. It has been written flat on the entry beside an
-	// externalLinks holding only the TCGplayer id, so "which id spaces is
-	// this card in" has been two questions rather than one - and three
-	// across the eight games, because Riftbound writes the TCGplayer id
-	// flat as well. It is written in both places for now: the loader reads
-	// the flat one, and the flat one goes when it reads this one instead.
+	// The id upstream knows this printing by moves off the entry into
+	// externalLinks, where every other identifier lives.
 	var linked int
 	for _, entry := range cards {
 		item, ok := entry.(map[string]any)
@@ -1342,9 +1337,10 @@ func main() {
 			item["externalLinks"] = links
 		}
 		links["fabId"] = id
+		delete(item, "fabId")
 		linked++
 	}
-	log.Printf("external links: %d cards carry their fabId under externalLinks as well", linked)
+	log.Printf("external links: %d cards carry their fabId under externalLinks", linked)
 
 	doc := map[string]any{
 		"game":   "fleshandblood",
@@ -1484,9 +1480,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Variant       string `json:"variant"`
 			Language      string `json:"language"`
 			Finish        string `json:"finish"`
-			FabID         string `json:"fabId"`
 			ExternalLinks struct {
-				TcgPlayerID int `json:"tcgPlayerId"`
+				TcgPlayerID int    `json:"tcgPlayerId"`
+				FabID       string `json:"fabId"`
 			} `json:"externalLinks"`
 		} `json:"cards"`
 		Sealed []struct {
@@ -1545,8 +1541,8 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	pricedCards := map[string]int{}
 	for _, card := range doc.Cards {
 		if card.ExternalLinks.TcgPlayerID != 0 {
-			if card.FabID != "" {
-				pricedFabIDs[card.FabID] = card.ExternalLinks.TcgPlayerID
+			if card.ExternalLinks.FabID != "" {
+				pricedFabIDs[card.ExternalLinks.FabID] = card.ExternalLinks.TcgPlayerID
 			}
 			pricedCards[card.SetCode+"|"+foldPadding(card.Number)+"|"+strings.ToLower(card.Name)] = card.ExternalLinks.TcgPlayerID
 		}
@@ -1577,9 +1573,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		discriminator := fmt.Sprint(productID)
 		if productID == 0 {
 			discriminator = "minted:" + card.SetCode + "|" + card.Number
-			if priced, sold := pricedFabIDs[card.FabID]; sold {
+			if priced, sold := pricedFabIDs[card.ExternalLinks.FabID]; sold {
 				return out, fmt.Errorf("minted %s is %s a second time: product %d already sells it",
-					card.ID, card.FabID, priced)
+					card.ID, card.ExternalLinks.FabID, priced)
 			}
 			if priced, sold := pricedCards[card.SetCode+"|"+foldPadding(card.Number)+"|"+strings.ToLower(card.Name)]; sold {
 				return out, fmt.Errorf("minted %s is %q at %s a second time: product %d already sells it",
