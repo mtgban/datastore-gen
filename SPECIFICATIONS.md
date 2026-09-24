@@ -191,16 +191,16 @@ entry stand beside a priced one without a check.
 ### 2.5 The two other shapes
 
 **Riftbound** publishes the card-gallery payload itself with the catalog
-merged in, under `data`, so `mtgmatcher/riftbound` reads it unchanged. The
-cards are at `data.pageProps.page.blades[].cards.items[]`; each item keeps
-the gallery's own fields (`id`, `name`, `publicCode`,
-`set.value.{id,label}`, `rarity.value.id`, `finishes`, `cardImage.url`,
-`tcgplayerProductId`) and gains `setCode`, `number`, `image` and
-`externalLinks.tcgPlayerId` for consumers that read every game alike. A
-catalog product the gallery has no row for is adopted as a printing with
-the same shape. The sealed products at `blades[].sealed.items[]` carry
-`setCode`, `image` and `externalLinks.tcgPlayerId` the same way, beside
-their gallery-shaped `set`, `cardImage` and `tcgplayerProductId`. There is no `cards` key at any level;
+merged in, under `data`. The cards are at
+`data.pageProps.page.blades[].cards.items[]`; each item keeps the gallery's
+own fields (`id`, `name`, `publicCode`, `set.value.{id,label}`,
+`rarity.value.id`, `finishes`, `cardImage.url`) and gains `setCode`,
+`number`, `image` and `externalLinks.tcgPlayerId`, the names every game
+shares and the ones `mtgmatcher/riftbound` reads. A catalog product the
+gallery has no row for is adopted as a printing with the same shape. The
+sealed products at `blades[].sealed.items[]` are ours alone and carry only
+the shared names: `id`, `name`, `setCode`, `releaseDate`, `image` and
+`externalLinks.tcgPlayerId`. There is no `cards` key at any level;
 `internal/vocabulary`, `internal/datastorediff` and `internal/baseline`
 (through a reader the builder supplies) walk the path.
 
