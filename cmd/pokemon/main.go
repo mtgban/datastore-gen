@@ -1945,6 +1945,9 @@ var qualSplits = map[string][]string{
 	"non-holo dvd promo":          {"Non-Holo", "DVD Promo"},
 	"non-holo gamestop exclusive": {"Non-Holo", "GameStop Exclusive"},
 	"non-holo movie exclusive":    {"Non-Holo", "Movie Exclusive"},
+	// A store and what it sold: folding this to the store alone dropped the
+	// metalcard token the five other metal cards carry.
+	"gamestop metal card": {"GameStop Exclusive", "Metal Card"},
 }
 
 var qualSpellings = map[string]string{
@@ -2014,7 +2017,6 @@ var qualSpellings = map[string]string{
 	"black bolt":                  "Black Bolt Stamped",
 	"black star":                  "Black Star Promos",
 	"gamestop":                    "GameStop Exclusive",
-	"gamestop metal card":         "GameStop Exclusive",
 	"gamestop promo":              "GameStop Exclusive",
 	"movie exclusive":             "Movie",
 	"movie promo":                 "Movie",
