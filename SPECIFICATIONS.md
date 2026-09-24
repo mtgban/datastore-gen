@@ -38,7 +38,8 @@ minted from (`fabId`, `tcgdexId`, `cardmarketId`, the gallery id). Minted
 counts today: lorcana 212 products, fleshandblood 203 numbers, pokemon 257
 entries over 867 tcgdex cards plus the Cardmarket-only stamped promos,
 onepiece 58 pre-errata printings hand-carried from CardTrader and 39
-minted from Cardmarket's pre-errata shelf, gundam 8 tokens.
+minted from Cardmarket's pre-errata shelf, gundam 7 tokens and 8
+hand-carried promotional reprints.
 
 ## 2. The document
 
@@ -175,13 +176,13 @@ the printing name (`""` for the plain printing, else `_` plus the slug:
 | game | priced entry | minted entry |
 |---|---|---|
 | fleshandblood | `<number>_<productId><suffix>` (`her156_664534_rainbowfoil`) | `<number><suffix>` (`her156_rainbowfoil`) |
-| gundam | `<number>_<productId><suffix>` (`gd03-057_673481`) | `<number>` alone; hand-carried reprints `<number>-<label>` |
+| gundam | `<number>_<productId><suffix>` (`gd03-057_673481`) | `<number>` alone; hand-carried reprints `<number>-<label><suffix>` (`gd01-073-premium-card-collection-02_holofoil`) |
 | onepiece | `<number>_<productId><suffix>` | hand-carried: `<number>_ct<blueprint><suffix>`; Cardmarket: `<number>_mkm<cardmarketId><suffix>` |
 | palworld | `<number>_<productId><suffix>` | `<number>` alone |
 | pokemon | `<number>-<total>_<productId><suffix>` (`226-164_268081`, `sm04_147224`) | tcgdex: `<tcgdexId><suffix>`; Cardmarket: `<number>-<total>_mkm<cardmarketId><suffix>` |
 | yugioh | `<number>_<productId><suffix>` (`blgg-en116_695673_1stedition`); nothing minted | — |
 | riftbound | `<abbrev>-<productId>` for every printing and sealed item | same, keyed by the product |
-| lorcana | integer: LorcanaJSON's card id; uuids per printing `1951`, `1951_foil`, `1951_holofoil` | `-<productId>`, uuids `m-714954`, `m-714954_holofoil` |
+| lorcana | integer: LorcanaJSON's card id; uuids per printing `1951`, `1951_coldfoil`, `1951_holofoil` | `-<productId>`, uuids `m-714954`, `m-714954_holofoil` |
 
 A product with no collector number takes the bare product id as its stem.
 The number in an id is lower-cased and its separators folded to dashes;

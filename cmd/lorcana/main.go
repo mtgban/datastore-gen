@@ -582,29 +582,15 @@ func cardID(value any) (int, bool) {
 	return 0, false
 }
 
-// printingUUID is the uuid a printing prices: the card's for the plain
-// printing, and the card's with the finish on the end for a foil. The finish
-// is the matcher's spelling of it rather than TCGplayer's - a uuid that
-// moves resolves to nothing rather than erroring, so the name the datastore
-// publishes for a finish and the name a uuid carries are kept apart. It has
-// to agree with the loader exactly - a uuid spelled differently is a
-// printing nothing resolves - so the two helpers below duplicate
-// go-mtgban's, the way this repository duplicates every helper it shares
-// rather than depending on it.
+// printingUUID is the uuid a printing prices: the card's own, with the name
+// TCGplayer prices the printing under on the end, as every builder spells it.
 func printingUUID(id int, finish string) string {
-	base := cardUUID(id)
-	if finish != finishNonfoil {
-		return base + "_" + finish
-	}
-	return base
+	return cardUUID(id) + emit.FinishSuffix(finish)
 }
 
-// The finishes as the matcher spells them, which is what a uuid carries.
-// There is no coldFoil here on purpose: every Lorcana foil is a cold foil,
-// so the name TCGplayer prices the standard one under is the shared foil
-// slot rather than a finish of its own - which is what lets a bare foil
-// flag, all most storefronts send, reach it. mtgmatcher/lorcana folds
-// "coldfoil" onto the same slot at the other end.
+// The three kinds of printing the build tells apart: plain, the standard foil
+// every card is foiled in ("Cold Foil" in the catalog), and the Holofoil a
+// treatment is sold under. They classify; a uuid carries the printing's name.
 const (
 	finishNonfoil  = "nonfoil"
 	finishFoil     = "foil"
@@ -625,10 +611,10 @@ func cardUUID(id int) string {
 	return strconv.Itoa(id)
 }
 
-// canonicalFinish folds a foil type name to the spelling the matcher keys a
-// uuid by: no case and no separators, upstream's "None" placeholder as the
-// plain printing, and the cold foil almost every card is foiled in as the
-// standard foil.
+// canonicalFinish folds a finish or foil type name to the kind of printing it
+// is: no case and no separators, upstream's "None" placeholder as the plain
+// printing, and the cold foil almost every card is foiled in as the standard
+// foil.
 func canonicalFinish(name string) string {
 	var normalized strings.Builder
 	for _, r := range strings.ToLower(name) {
@@ -1310,14 +1296,11 @@ func main() {
 		// structures this replaces - printingIds, finishAliases and
 		// upstream's foilTypes - said the same things about a card and left
 		// a reader to join them by finish name.
-		//
-		// The uuid keeps the matcher's spelling, which is the one already in
-		// circulation, so nothing a consumer has stored moves.
 		printings := make([]any, 0, len(sold))
 		for _, finish := range sold {
 			printing := map[string]any{
 				"finish": finish,
-				"id":     printingUUID(id, canonicalFinish(finish)),
+				"id":     printingUUID(id, finish),
 			}
 			// The treatment past the plain foil, which is a fact about this
 			// printing rather than about the card: a card sold plain and in

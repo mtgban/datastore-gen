@@ -1086,7 +1086,7 @@ func main() {
 			continue
 		}
 		entry := map[string]any{
-			"id":      id,
+			"id":      id + emit.FinishSuffix(printing.finish),
 			"name":    base["name"],
 			"number":  printing.number,
 			"setCode": promoSetCode,
