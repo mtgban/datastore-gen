@@ -359,7 +359,7 @@ subagent's report is evidence to check against the file, not a finding.
   `internal/datastorediff` know the path.
 - Lorcana's card ids are integers (LorcanaJSON's own; a minted product is
   the negated product id), and each card carries a `printings[]` array with
-  a uuid per finish (`1951`, `1951_foil`, `m-714954_holofoil`).
+  a uuid per finish (`1951`, `1951_coldfoil`, `m-714954_holofoil`).
 - In zsh an unquoted variable is not word-split: `env $FLAGS cmd` passes
   one argument. Spell the flags out or use `${=FLAGS}`. The symptom is a
   replay whose every answer is "unknown card name" because another game's

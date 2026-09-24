@@ -7,17 +7,9 @@ import (
 	"github.com/mtgban/go-tcgplayer"
 )
 
-// The uuids this build publishes are spelled from a finish name, and
-// go-mtgban's mtgmatcher spells the same names for the datastores that carry
-// none. Neither repository imports the other - this one is standalone by
-// design - so the agreement is held by these tables rather than by the
-// compiler. A change here that is not matched there moves identity that
-// lives outside this repository, silently, since a uuid nobody stored
-// resolves to nothing rather than erroring.
-
-// TestCanonicalFinish pins the crossing between TCGplayer's vocabulary and
-// the matcher's. The names on the left are what the catalog prices a sku
-// under; the names on the right are what a uuid carries.
+// TestCanonicalFinish pins how the build classifies a printing or foil type
+// name: plain, the standard foil, the Holofoil, or a foil type handed back
+// as itself.
 func TestCanonicalFinish(t *testing.T) {
 	for _, test := range []struct{ in, want string }{
 		// LorcanaJSON's placeholder for a plain printing
@@ -43,21 +35,20 @@ func TestCanonicalFinish(t *testing.T) {
 	}
 }
 
-// TestPrintingUUID pins the uuid a printing prices. mtgmatcher/lorcana
-// spells these itself for a datastore published before printingIds existed,
-// so the two spellings have to agree exactly.
+// TestPrintingUUID pins the uuid a printing prices: the card's own, ending in
+// the name TCGplayer prices the printing under, the way every builder ends one.
 func TestPrintingUUID(t *testing.T) {
 	for _, test := range []struct {
 		id     int
 		finish string
 		want   string
 	}{
-		{1951, finishNonfoil, "1951"},
-		{1951, finishFoil, "1951_foil"},
-		{1951, finishHolofoil, "1951_holofoil"},
+		{1951, "Normal", "1951"},
+		{1951, "Cold Foil", "1951_coldfoil"},
+		{1951, "Holofoil", "1951_holofoil"},
 		// A minted card is filed under the negated product id
-		{-714954, finishNonfoil, "m-714954"},
-		{-714954, finishHolofoil, "m-714954_holofoil"},
+		{-714954, "Normal", "m-714954"},
+		{-714954, "Holofoil", "m-714954_holofoil"},
 	} {
 		if got := printingUUID(test.id, test.finish); got != test.want {
 			t.Errorf("printingUUID(%d, %q) = %q, want %q", test.id, test.finish, got, test.want)
