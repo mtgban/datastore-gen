@@ -676,23 +676,26 @@ func main() {
 	var singles []single
 	var sealedProducts []tcgplayer.Product
 	var unnumbered int
+	var unpriced []string
 	for _, product := range catalog.Products {
 		if !slices.Contains(tcgSingles, product.ProductType) {
 			sealedProducts = append(sealedProducts, product)
 			continue
 		}
 		if len(printings[product.ProductID]) == 0 {
-			// Every card product the catalog carries prices at least one
-			// sku, and a product with none has no printing to file an
-			// entry under: stop rather than drop it.
-			log.Fatalf("no sku printing: %q (%d) has no entry to carry it",
-				product.Name, product.ProductID)
+			// Nothing is sold for it yet: no printing to carry until there is.
+			unpriced = append(unpriced, fmt.Sprintf("%q (%d)", product.Name, product.ProductID))
+			continue
 		}
 		num := numberFor(product)
 		if num == "" {
 			unnumbered++
 		}
 		singles = append(singles, decompose(product, num))
+	}
+	if len(unpriced) > 0 {
+		log.Printf("unpriced: %d card products TCGplayer sells no sku for yet, carried once it does: %s",
+			len(unpriced), strings.Join(unpriced, ", "))
 	}
 	if len(singles) == 0 {
 		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
@@ -908,6 +911,9 @@ func main() {
 	catalogFinishes := map[int][]string{}
 	for _, product := range catalog.Products {
 		if !slices.Contains(tcgSingles, product.ProductType) {
+			continue
+		}
+		if len(printings[product.ProductID]) == 0 {
 			continue
 		}
 		catalogFinishes[product.ProductID] = printings[product.ProductID]
@@ -1167,7 +1173,7 @@ func main() {
 	// what to do with it - the card side's whole failure mode. What it can
 	// lose a product to is an edit: one `continue` on the sealed path and
 	// the products would leave the datastore with nothing to say so.
-	wantSealed := len(catalog.Products) - len(singles)
+	wantSealed := len(catalog.Products) - len(singles) - len(unpriced)
 	if counted.sealed != wantSealed {
 		log.Fatalf("%d sealed products emitted but the catalog types %d as something other than a card; refusing to publish",
 			counted.sealed, wantSealed)

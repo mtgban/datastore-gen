@@ -532,7 +532,9 @@ storefront that derives `number/size` from its shelf writes it.
 - **shelf** — a catalog group that pools cards from many sets (Deck
   Exclusives, Jumbo Cards, the promo buckets).
 - **zero-skip invariant** — the emitted entries carry exactly the products
-  the catalog types as a card.
+  the catalog types as a card and prices a sku for. One it prices nothing
+  for yet has no printing to carry; it is logged as unpriced, and a builder
+  with an upstream list mints the card from it in the meantime.
 - **baseline** — the high-water mark a build is measured against;
   `<game>.baseline.json.xz` in the bucket.
 - **replay** — go-mtgban's matching of every catalog product name against
