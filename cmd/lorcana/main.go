@@ -74,6 +74,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -650,6 +651,13 @@ func canonicalFinish(name string) string {
 	}
 }
 
+// languageTags spells TCGplayer's language names the way go-mtgban's
+// matcher tags a printing, where the two differ.
+var languageTags = map[string]string{
+	"Chinese (S)": "Chinese Simplified",
+	"Chinese (T)": "Chinese Traditional",
+}
+
 // productLanguage names the language a product is printed in, empty for the
 // English program: a product TCGplayer prices in no English sku is sold in
 // another language, and the catalog's own language list spells out which.
@@ -1057,7 +1065,7 @@ func main() {
 	}
 	languageNames := map[int]string{}
 	for _, language := range catalog.Languages {
-		languageNames[language.LanguageID] = language.Name
+		languageNames[language.LanguageID] = cmp.Or(languageTags[language.Name], language.Name)
 	}
 	var mintable []tcgplayer.Product
 	for _, product := range catalog.Products {
