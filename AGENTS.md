@@ -12,10 +12,21 @@ the invariants; read `README.md` for the human-facing overview.
 **A datastore is the catalog's products and the upstream's cards, joined,
 and nothing is ever dropped silently.** Every builder re-reads its own
 encoded output before writing and refuses to publish when the products the
-entries carry are not exactly the products the catalog types as a card (the
-zero-skip invariant), when two entries wear one identity, when a set code is
-claimed twice, or when the build shrank past the baseline. A product no rule
-understands stops the publish; it does not quietly leave.
+entries carry are not exactly the products the catalog prices (the
+zero-skip invariant), when a set code is claimed twice, when more than a
+handful of product pairs wear one identity, or when the build shrank past
+the baseline.
+
+**One product never stops a game.** A refusal takes every card in the game
+off the nightly, so it has to be about all of them: an upstream that will
+not read, coverage, the baseline, a pile of collisions, every image gone. A
+product or upstream row that no rule expected is carried by the general
+rule, or set aside when there is nothing to carry, and logged either way.
+So a card filed with no number goes on its bare product id, a second card
+under a taken upstream id goes on an id of its own, a card listed twice is
+published as the pair it is, and a product priced for nothing yet waits
+until it is. Before this was the rule, riftbound stopped for three nights
+in 2026-09 on one gallery row, and onepiece on one trophy card.
 
 Two corollaries shape every change:
 
@@ -146,6 +157,13 @@ which every PR body in the history reports:
 6. **Report the numbers in the PR body** and the commit message, and only
    numbers measured on the final code against the current master. A number
    measured before a rebase or before compaction is re-measured.
+7. **A change to what a build refuses is measured by breaking one
+   product.** Put the one anomaly into a real catalog or upstream file:
+   strip a product's number, its skus or its image, list it a second time
+   under a new id, repeat an upstream row. Build master and the branch on
+   it. Master refusing and the branch publishing is the finding. The
+   unmodified catalog must still come out byte-identical to master's, and
+   go-mtgban has to read the new output.
 
 The catalog replay is what finds things; the unit tests pin what it found.
 Every real defect in the 2026-09 review came out of the replay and none out
@@ -213,11 +231,13 @@ semantics a datastore change must respect. The ones that have bitten:
   beside the name, and for Yu-Gi-Oh keeps the catalog's qualifier per
   printing: a listing that says nothing means the product sold under the
   bare name.
-- **Every multi-word token needs a row in the loader's word table**
-  (`mtgmatcher/<game>/promolabels.go`), or go-mtgban's
-  `TestLoadersReadWhatIsPublished` fails on the published file. Publishing
-  a new token and adding its words are one change in two repositories; list
-  the rows in the PR body and open the go-mtgban PR alongside.
+- **A multi-word token wants a row in the loader's word table**
+  (`mtgmatcher/<game>/promolabels.go`), or a reader sees it run together.
+  A token published before its row is reported by go-mtgban's
+  `TestLoadersReadWhatIsPublished` as a label that is due, without
+  failing. Since go-mtgban#779, a row for a token no datastore declares
+  fails nothing either, so the row can land before the publish or after
+  it. List it in the PR body either way.
 - **Names carrying their own parenthetical** ("Delta Plus (Waverider
   Mode)") need the loader to rejoin what a storefront splits; Gundam got
   that in go-mtgban#540. Check the replay before publishing a name shape a
@@ -230,12 +250,21 @@ semantics a datastore change must respect. The ones that have bitten:
   both shapes for as long as a file built before the change might still
   arrive. Anything that moves what `data` holds owes the same order, and
   `meta.version` is what tells a reader it has to care.
+- **What the datastore can publish is part of the loader's contract.**
+  go-mtgban's onepiece loader refused a whole file over one card with no
+  number, until go-mtgban#771. Gundam's and palworld's reachability tests
+  failed on a card listed twice, until go-mtgban#780. Before a build
+  publishes a shape its game has not published before, run go-mtgban
+  against a build that carries it, and land the loader side first.
 
-The go-mtgban pre-push hook sources its `.env` and runs the loader word test
-against the datastores in the local `output/` directory. A vocabulary
-change here that is published before its word rows land blocks every
-go-mtgban push until the rows are in or the datastore is republished; land
-the rows first, or at the same time.
+The go-mtgban pre-push hook sources `.env` (the worktree's own, else the
+main checkout's) and runs the whole `go test ./...` against the datastores
+it names, which are the ones in this repository's `output/`. go-mtgban
+reads only the envelope since `710af946d`, so a bare file left there fails
+every loader, and with it every push, until `output/` is refreshed (below).
+A session that has to push before then can give its worktree an `.env`
+that sources the main one and points the `*_PATH` variables at datastores
+downloaded from the bucket. `.env` is gitignored.
 
 ## Publishing
 
