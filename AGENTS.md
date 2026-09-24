@@ -64,10 +64,11 @@ catalog reader (`github.com/mtgban/go-tcgplayer`) and the Cardmarket reader
 `internal/`, which is inside this module and drags nothing. Do not add a
 dependency to move a helper.
 
-The files carry long comments that state *why* a rule exists and what it
-measured when it was written ("111 of the 116 that name a set we carry").
-Keep that style: a rule without its evidence gets deleted by the next reader
-who cannot see what it protects.
+A rule keeps its evidence, or the next reader deletes what they cannot see
+the point of. Keep it short: a comment is two or three lines carrying the
+one number that justifies the rule ("111 of the 116 that name a set we
+carry"). Evidence that runs longer goes in a file under `docs/`, committed
+with the change, and the comment points at it.
 
 ## Build, test, format
 
@@ -154,9 +155,10 @@ which every PR body in the history reports:
    the edition column is rewritten by the matcher, so lines move. A change
    that turns a resolved answer into an error or another printing is a
    regression unless the old answer was wrong, and the PR says which.
-6. **Report the numbers in the PR body** and the commit message, and only
-   numbers measured on the final code against the current master. A number
-   measured before a rebase or before compaction is re-measured.
+6. **Report the numbers in the PR body.** The commit message carries the
+   one that proves the change; a long classification or table goes in a
+   file under `docs/`. Only numbers measured on the final code against the
+   current master count; one measured before a rebase is re-measured.
 7. **A change to what a build refuses is measured by breaking one
    product.** Put the one anomaly into a real catalog or upstream file:
    strip a product's number, its skus or its image, list it a second time
@@ -298,9 +300,11 @@ machine, so after a publish, refresh `output/<game>.json` (and
 - **One PR per concern, every PR based on `master`, never stacked** on
   another open PR. Rebase onto master before opening and after siblings
   merge; the builders' import blocks are where PRs collide.
-- **Commit as the repository's identity** (the repo's git config), with
-  a message that says why and what it measured. Never name a person in a
-  comment, a commit or a doc; attribute a decision to its date.
+- **Commit as the repository's identity** (the repo's git config). The
+  title is about 50 characters; the body, a few lines of why and the
+  number that proves it, points at a `docs/` file for anything longer.
+  Never name a person in a comment, a commit or a doc; attribute a
+  decision to its date.
 - **Never push without being asked for that push.** Build, test and commit
   locally, then stop and say what is ready. A push agreed earlier in the
   same task covers that branch; a new branch, repo or force-push needs its
@@ -344,7 +348,7 @@ subagent's report is evidence to check against the file, not a finding.
 - TCGplayer's catalog contradicts itself in places: a Number field padded
   to four digits under a name that says three, a name whose number
   disagrees with the field, a rarity in the name the field does not carry.
-  The builders resolve each by a stated rule with the evidence in a comment;
-  add to those rather than special-casing a product id.
+  The builders resolve each by a stated rule with its evidence in a short
+  comment; add to those rather than special-casing a product id.
 - `go-mtgban` has its own `AGENTS.md`; read it before touching the loader
   side of a paired change.
