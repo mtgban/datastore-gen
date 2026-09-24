@@ -306,10 +306,10 @@ machine, so after a publish, refresh `output/<game>.json` (and
   proves it, points at a `docs/` file for anything longer.
   Never name a person in a comment, a commit or a doc; attribute a
   decision to its date.
-- **Never push without being asked for that push.** Build, test and commit
-  locally, then stop and say what is ready. A push agreed earlier in the
-  same task covers that branch; a new branch, repo or force-push needs its
-  own yes. Never `--no-verify` around a hook without being told to.
+- **Push feature branches and open PRs freely**, force-pushes to your own
+  branch included: nothing on master moves until it is merged. A push to
+  master is the one that needs its own yes, every time. Never
+  `--no-verify` around a hook without being told to.
 
 ## Working with subagents
 
