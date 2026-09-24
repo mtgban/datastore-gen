@@ -37,7 +37,8 @@ prices it, and the loader groups its printings by the upstream id it was
 minted from (`fabId`, `tcgdexId`, `cardmarketId`, the gallery id). Minted
 counts today: lorcana 212 products, fleshandblood 203 numbers, pokemon 257
 entries over 867 tcgdex cards plus the Cardmarket-only stamped promos,
-onepiece 49 hand-carried pre-errata printings, gundam 8 tokens.
+onepiece 58 pre-errata printings hand-carried from CardTrader and 39
+minted from Cardmarket's pre-errata shelf, gundam 8 tokens.
 
 ## 2. The document
 
@@ -175,7 +176,7 @@ the printing name (`""` for the plain printing, else `_` plus the slug:
 |---|---|---|
 | fleshandblood | `<number>_<productId><suffix>` (`her156_664534_rainbowfoil`) | `<number><suffix>` (`her156_rainbowfoil`) |
 | gundam | `<number>_<productId><suffix>` (`gd03-057_673481`) | `<number>` alone; hand-carried reprints `<number>-<label>` |
-| onepiece | `<number>_<productId><suffix>` | hand-carried: `<number>_ct<blueprint><suffix>` |
+| onepiece | `<number>_<productId><suffix>` | hand-carried: `<number>_ct<blueprint><suffix>`; Cardmarket: `<number>_mkm<cardmarketId><suffix>` |
 | palworld | `<number>_<productId><suffix>` | `<number>` alone |
 | pokemon | `<number>-<total>_<productId><suffix>` (`226-164_268081`, `sm04_147224`) | tcgdex: `<tcgdexId><suffix>`; Cardmarket: `<number>-<total>_mkm<cardmarketId><suffix>` |
 | yugioh | `<number>_<productId><suffix>` (`blgg-en116_695673_1stedition`); nothing minted | — |
@@ -353,7 +354,7 @@ default), `-against <baseline.json>`, `-against-tolerance <fraction>`
 | fleshandblood | 62 | the-fab-cube `flesh-and-blood-cards` (`card-flattened.json`, `set.json`) | `-fab-cards`, `-fab-sets` | `fabId`, pitch colour, artist; mints tokens and cards with no product, joined by dataset product id, then number (padding folded), then numberless same-name product |
 | gundam | 86 | yzRobo `gcg-api` `data/cards.json` | `-gcg-cards` | the witness for names; mints the EX Base, EX Resource and Resource tokens; no image or text taken (licence unclear) |
 | lorcana | 71 | LorcanaJSON `allCards.json` | `-lorcana` (required) | is the datastore; catalog adds product ids and the finishes sold |
-| onepiece | 68 | punk-records `cards_by_id.json`, `packs.json` | `-punk-cards`, `-punk-packs` | the witness for names; `bandaiId` where the pack agrees with the group; 49 pre-errata printings hand-carried from CardTrader blueprints |
+| onepiece | 68 | punk-records `cards_by_id.json`, `packs.json`, the Cardmarket catalog | `-punk-cards`, `-punk-packs`, `-cardmarket-catalog` (required) | the witness for names; `bandaiId` where the pack agrees with the group; 58 pre-errata printings hand-carried from CardTrader blueprints, and the ones Cardmarket's pre-errata shelf sells beyond them minted from their product, read off the printing their number names |
 | palworld | 91 | palworldtcg.gg `api/v1/cards` | `-palworld-cards` | numbers the one numberless product; English (`EBP01-001`) and Japanese (`BP01-001`) numbering reconciled to the printed form |
 | pokemon | 3 | tcgdex GraphQL, pokemontcg.io sets, the Cardmarket catalog | `-tcgdex-sets`, `-tcgdex-cards`, `-pokemontcg-sets`, `-upstream-cache <dir>`, `-cardmarket-catalog` (required) | `tcgdexId`, symbols, set dates; mints tcgdex cards and sets the catalog lacks and the Cardmarket-only stamped promos (SEA, Professor Program) from the printing their number names |
 | riftbound | 89 | the official card gallery (Next.js data URL resolved from the page) | `-gallery` | is the datastore; catalog decides finishes and adds the products the gallery lacks |
@@ -449,11 +450,11 @@ and `rebaseline`): per game, one at a time,
 2. the baseline, `<game>/<game>.baseline.json.xz`, else the published
    `<game>/<game>.json.xz` to seed one, else nothing;
 3. Pokemon only: the upstream caches (`pokemon/tcgdex-sets.json.xz`,
-   `tcgdex-cards.json.xz`, `pokemontcg-sets.json.xz`) and the required
-   `pokemon/cardmarket_catalog.json.xz`, plus a DNS pin for
-   `api.tcgdex.net`;
+   `tcgdex-cards.json.xz`, `pokemontcg-sets.json.xz`), plus a DNS pin for
+   `api.tcgdex.net`; Pokemon and One Piece: the required
+   `<game>/cardmarket_catalog.json.xz`;
 4. `go run ./cmd/<game> -tcg-catalog tcgplayer-catalog.json [-against
-   previous.json] [-lorcana …] [-upstream-cache . -cardmarket-catalog …]
+   previous.json] [-lorcana …] [-upstream-cache .] [-cardmarket-catalog …]
    -baseline-fit baseline.fit -o <game>.json`;
 5. `STORE_DIR="$PWD" go test ./internal/vocabulary -run TestPublishedVocabulary -count=1`;
 6. `xz -9`, upload `<game>/<game>.json.xz`, and the same bytes as

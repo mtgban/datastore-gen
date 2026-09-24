@@ -47,7 +47,7 @@ upstream_flags() {
   case "$1" in
     riftbound)     echo "gallery=$WORK/riftbound-gallery.json" ;;
     lorcana)       echo "lorcana=$WORK/lorcana-allcards.json" ;;
-    onepiece)      echo "punk-cards=$WORK/punk-cards.json punk-packs=$WORK/punk-packs.json" ;;
+    onepiece)      echo "punk-cards=$WORK/punk-cards.json punk-packs=$WORK/punk-packs.json cardmarket-catalog=$WORK/onepiece-cardmarket.json" ;;
     yugioh)        echo "ygoprodeck-sets=$WORK/ygo-sets.json ygoprodeck-cards=$WORK/ygo-cards.json" ;;
     fleshandblood) echo "fab-cards=$WORK/fab-cards.json fab-sets=$WORK/fab-sets.json" ;;
     pokemon)       echo "tcgdex-sets=$WORK/tcgdex-sets.json tcgdex-cards=$WORK/tcgdex-cards.json pokemontcg-sets=$WORK/pokemontcg-sets.json cardmarket-catalog=$WORK/pokemon-cardmarket.json" ;;
@@ -106,7 +106,8 @@ for g in $NEEDED; do
     riftbound)     "$(dirname "$0")/fetch-riftbound-gallery.sh" "$WORK/riftbound-gallery.json" ;;
     lorcana)       fetch https://lorcanajson.org/files/current/en/allCards.json "$WORK/lorcana-allcards.json" ;;
     onepiece)      fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json "$WORK/punk-cards.json"
-                   fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/packs.json "$WORK/punk-packs.json" ;;
+                   fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/packs.json "$WORK/punk-packs.json"
+                   b2 file download --no-progress b2://mtgban-datastore/onepiece/cardmarket_catalog.json.xz "$WORK/onepiece-cardmarket.json.xz" >/dev/null && xz -d "$WORK/onepiece-cardmarket.json.xz" ;;
     yugioh)        fetch https://db.ygoprodeck.com/api/v7/cardsets.php "$WORK/ygo-sets.json"
                    fetch https://db.ygoprodeck.com/api/v7/cardinfo.php "$WORK/ygo-cards.json" ;;
     fleshandblood) fetch https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card-flattened.json "$WORK/fab-cards.json"
