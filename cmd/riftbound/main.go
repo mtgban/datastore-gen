@@ -49,8 +49,8 @@ import (
 )
 
 const (
-	galleryPageURL = "https://riftbound.leagueoflegends.com/en-us/card-gallery/"
-	galleryDataURL = "https://riftbound.leagueoflegends.com/_next/data/%s/en-us/card-gallery.json"
+	galleryPageURL = "https://playriftbound.com/en-us/card-gallery/"
+	galleryDataURL = "https://playriftbound.com/_next/data/%s/en-us/card-gallery.json"
 
 	// riftboundCategory is Riftbound's TCGplayer category, the one the
 	// catalog dump is expected to carry.

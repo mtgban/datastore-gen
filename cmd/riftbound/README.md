@@ -7,7 +7,7 @@ are run and published.
 
 The tool merges two sources:
 
-- the official card gallery payload from riftbound.leagueoflegends.com
+- the official card gallery payload from playriftbound.com
   (resolving the current site build id automatically), which provides the
   main sets;
 - our own TCGplayer catalog dump for category 89, written by tcgdumper and
