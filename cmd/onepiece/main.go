@@ -2130,6 +2130,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	// holds the DON!! cards' constant number up: the day a set labels two
 	// of them alike, the build says so instead of publishing the pair.
 	identities := map[string]string{}
+	var shared emit.SharedIdentities
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
 		// A hand-carried printing has no TCGplayer product to name it -
@@ -2167,10 +2168,10 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			bearer = "card " + card.ID
 		}
 		if other, seen := identities[identity]; seen && other != bearer {
-			return out, fmt.Errorf("%s and %s wear one identity: %s",
-				other, bearer, identity)
+			shared.Add(other, bearer, identity)
+		} else {
+			identities[identity] = bearer
 		}
-		identities[identity] = bearer
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
@@ -2184,6 +2185,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			}
 			gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 		}
+	}
+	if err := shared.Check(); err != nil {
+		return out, err
 	}
 	err = coverage(gotFinishes, wantFinishes)
 	if err != nil {

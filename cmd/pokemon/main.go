@@ -4717,6 +4717,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	// card's own finishes share that key and pass, exactly as a product's
 	// sibling printings do.
 	identities := map[string]string{}
+	var shared emit.SharedIdentities
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
 		// The rarity is part of the identity, but its presence is
@@ -4766,10 +4767,10 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		}
 		other, seen := identities[identity]
 		if seen && other != discriminator {
-			return out, fmt.Errorf("%s and %s wear one identity: %s",
-				other, discriminator, identity)
+			shared.Add(other, discriminator, identity)
+		} else {
+			identities[identity] = discriminator
 		}
-		identities[identity] = discriminator
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
@@ -4783,6 +4784,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 		}
 		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
+	}
+	if err := shared.Check(); err != nil {
+		return out, err
 	}
 	err = coverage(gotFinishes, wantFinishes)
 	if err != nil {

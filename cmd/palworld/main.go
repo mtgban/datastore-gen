@@ -970,6 +970,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	// a flag so a product's own Normal and Foil entries pass while two
 	// different products never do.
 	identities := map[string]string{}
+	var shared emit.SharedIdentities
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
 		// The number is not required: the game hands out cards it gives no
@@ -1003,9 +1004,10 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			bearer = "card " + card.ID
 		}
 		if other, seen := identities[identity]; seen && other != bearer {
-			return out, fmt.Errorf("%s and %s wear one identity: %s", other, bearer, identity)
+			shared.Add(other, bearer, identity)
+		} else {
+			identities[identity] = bearer
 		}
-		identities[identity] = bearer
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
@@ -1019,6 +1021,9 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			}
 			gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 		}
+	}
+	if err := shared.Check(); err != nil {
+		return out, err
 	}
 	if err := coverage(gotFinishes, wantFinishes); err != nil {
 		return out, err
