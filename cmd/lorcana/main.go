@@ -816,6 +816,73 @@ func decodeCard(item any) (card, bool) {
 	}, true
 }
 
+// handExternalLinks corrects externalLinks LorcanaJSON copies from a
+// different card onto this one, keyed by its own upstream id. Vaiana -
+// Adventurer of Land and Sea (1663) is Moana - Adventurer of Land and Sea
+// (1433, same number, same "Moana 2" promo) under Disney's regional title;
+// upstream copies Moana's own cardmarketId and cardTraderId onto it rather
+// than naming a card of its own. Cardmarket sells it as a separate product
+// (804164, expansion 5844 "Promos Year 2" - verified against the
+// 2026-09-24 Cardmarket catalog); CardTrader has no blueprint for it at
+// all, so the shared cardTraderId (Moana's own 311906) is dropped rather
+// than guessed. A census of all 3,266 cards for a shared cardmarketId or
+// cardTraderId found no other pair like it.
+var handExternalLinks = map[int]struct {
+	sharedCardmarketID int // the id upstream wrongly copies today
+	cardmarketID       int // the card's own Cardmarket product
+	sharedCardTraderID int // the id upstream wrongly copies today; dropped, not replaced
+}{
+	1663: {sharedCardmarketID: 801862, cardmarketID: 804164, sharedCardTraderID: 311906},
+}
+
+// fixExternalLinks applies handExternalLinks to the cards it names and
+// reports what it did to each one, the way oneCardPerID reports its
+// repeats. A row stands down instead of applying where it is no longer
+// doing anything: its card is gone from upstream, or upstream has stopped
+// copying the id the row corrects - by fixing it, or by giving the card
+// some other id neither the row's stored "shared" value nor its correction
+// names, which is left alone rather than guessed at.
+func fixExternalLinks(cards []card) []string {
+	byID := map[int]map[string]any{}
+	for _, c := range cards {
+		if id, ok := cardID(c.raw["id"]); ok {
+			byID[id] = c.links
+		}
+	}
+	// Stable order, so unchanged data keeps producing byte-identical output.
+	ids := make([]int, 0, len(handExternalLinks))
+	for id := range handExternalLinks {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+
+	var reports []string
+	for _, id := range ids {
+		fix := handExternalLinks[id]
+		links, found := byID[id]
+		if !found {
+			reports = append(reports, fmt.Sprintf("%d is gone from the source; the row correcting its external links does nothing", id))
+			continue
+		}
+		if have, _ := links["cardmarketId"].(float64); int(have) == fix.sharedCardmarketID {
+			links["cardmarketId"] = float64(fix.cardmarketID)
+			reports = append(reports, fmt.Sprintf("%d cardmarketId corrected from %d to %d", id, fix.sharedCardmarketID, fix.cardmarketID))
+		} else {
+			reports = append(reports, fmt.Sprintf("%d no longer carries cardmarketId %d; the row correcting it to %d does nothing",
+				id, fix.sharedCardmarketID, fix.cardmarketID))
+		}
+		if have, _ := links["cardTraderId"].(float64); int(have) == fix.sharedCardTraderID {
+			delete(links, "cardTraderId")
+			delete(links, "cardTraderUrl")
+			reports = append(reports, fmt.Sprintf("%d cardTraderId %d dropped, shared with another card", id, fix.sharedCardTraderID))
+		} else {
+			reports = append(reports, fmt.Sprintf("%d no longer carries cardTraderId %d; the row dropping it does nothing",
+				id, fix.sharedCardTraderID))
+		}
+	}
+	return reports
+}
+
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 71 (required)")
@@ -900,6 +967,9 @@ func main() {
 			claimed[c.tcgID] = true
 			claimants[c.tcgID] = append(claimants[c.tcgID], len(cards)-1)
 		}
+	}
+	if reports := fixExternalLinks(cards); len(reports) > 0 {
+		log.Printf("hand-carried external links: %s", strings.Join(reports, "; "))
 	}
 	log.Printf("lorcana: %d cards, %d already carrying a product id", len(cards), len(claimed))
 
