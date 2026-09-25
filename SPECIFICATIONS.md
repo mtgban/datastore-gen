@@ -215,7 +215,9 @@ catalog's printing names sold), and a `printings[]` array of
 upstream's `foilTypes` is folded into it and removed. The catalog decides
 which finishes exist (a card upstream calls foil-only still gets a nonfoil
 uuid when TCGplayer sells one); upstream still names the foil sub-type as a
-`promoTypes` label. `baseSetSize` comes from upstream's `cardCounts.base`.
+`promoTypes` label. A promo on a TCGplayer promo shelf also carries the label
+its product name qualifies it with ("(Puzzle Promo)", "(Store Championship
+Participant)"), as a minted card always has. `baseSetSize` comes from upstream's `cardCounts.base`.
 A card sits in the set of the catalog group that sells it: a promo on
 TCGplayer's promo shelf (D23, DLPC, D100), not in the set upstream says it
 is legal in, and a card the catalog sells nowhere in upstream's own set.
