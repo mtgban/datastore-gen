@@ -21,6 +21,7 @@
 !/.github/
 !/cmd/
 !/internal/
+!/docs/
 !/.gitignore
 !/.revive.toml
 !/LICENSE

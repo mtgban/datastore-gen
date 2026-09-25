@@ -833,13 +833,43 @@ type single struct {
 // suffix ("Yamato - OP16-098") and the parenthetical forms ("(003)",
 // "(OP01-003)").
 // rawNames repair a product name the catalog wrote in a shape nothing can
-// read, keyed by the product id it never reuses. One name in 7,100 carries
-// a bare number that is not the card's: 788 write the number as three
-// digits and this one writes four.
+// read, keyed by the product id it never reuses.
 var rawNames = map[int]string{
-	// "Tony Tony.Chopper (0070) (Parallel)" is OP08-007, and the extra
-	// zero is the only thing keeping the number from being read as one.
+	// "Tony Tony.Chopper (0070) (Parallel)" is OP08-007: 788 products write
+	// the number as three digits and this one writes four.
 	558030: "Tony Tony.Chopper (007) (Parallel)",
+	// "Monkey.D.Luffy - OP14-34" writes OP14-034 one digit short, so the
+	// tail-strip below can't match it by text.
+	671375: "Monkey.D.Luffy",
+}
+
+// stripNumberTail removes a decorative number tail from name: a run of
+// spaces, a dash, an optional run of spaces, then num, wherever it sits.
+// The catalog writes that tail as "-PRB02-004" and " -  P-088 (Reprint)"
+// - no space, or a wider one, on either side of the dash - so the match
+// tolerates any amount of either. At least one space must precede the
+// dash, or a name's own hyphen ("Neo-Marine") would strip.
+func stripNumberTail(name, num string) string {
+	idx := strings.LastIndex(name, num)
+	if idx < 0 {
+		return name
+	}
+	dash := idx
+	for dash > 0 && name[dash-1] == ' ' {
+		dash--
+	}
+	dash--
+	if dash < 0 || name[dash] != '-' {
+		return name
+	}
+	start := dash
+	for start > 0 && name[start-1] == ' ' {
+		start--
+	}
+	if start == dash {
+		return name
+	}
+	return name[:start] + name[idx+len(num):]
 }
 
 func decompose(p tcgplayer.Product, num string) single {
@@ -848,7 +878,7 @@ func decompose(p tcgplayer.Product, num string) single {
 		name = repaired
 	}
 	if num != "" {
-		name = strings.ReplaceAll(name, " - "+num, "")
+		name = stripNumberTail(name, num)
 	}
 
 	var quals []string
