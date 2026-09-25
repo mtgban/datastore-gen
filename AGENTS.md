@@ -84,7 +84,8 @@ go test -race ./...
 That is what `ci.yml` runs on every push and pull request; run all of it
 before committing. Unit tests live in `internal/*` and in the builders that
 have them (`cmd/pokemon`, `cmd/fleshandblood`, `cmd/lorcana`,
-`cmd/riftbound`); most builder behaviour is verified by building, below.
+`cmd/riftbound`, `cmd/gundam`, `cmd/onepiece`); most builder behaviour is
+verified by building, below.
 
 ## Inputs, and where they come from
 
