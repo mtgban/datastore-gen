@@ -29,17 +29,30 @@ The join runs one of three ways, and it decides what an entry is:
 | the catalog carries the identity | gundam, palworld | one priced sku printing; upstream supplies only the cards TCGplayer sells no single of |
 | upstream is the datastore | riftbound, lorcana | the upstream payload itself with the catalog merged in; catalog products upstream lacks are minted beside it |
 
-Yu-Gi-Oh mints nothing: YGOPRODeck lends passcodes and release dates and no
-card the catalog does not sell.
+Yu-Gi-Oh mints one thing: the European first-print run of a set the catalog
+sells only the North American run of - LOB, MRD, MRL, PSV, LON, SDY, SDK,
+DOR, PCY, TP1 and DL1's own run, joined to the catalog's North American
+printing of the same card by Konami's passcode, and by nothing for three
+cards (Time Wizard, Barrel Dragon, Beaver Warrior) the North American set
+never printed at all. It mints no other card: YGOPRODeck otherwise lends
+only passcodes and release dates for printings the catalog already sells.
+See `docs/yugioh-european-prints.md` for why, and for the replay evidence
+that a plain listing still lands on the North American card.
 
 A **minted** entry names no TCGplayer product, because none exists; nothing
 prices it, and the loader groups its printings by the upstream id it was
-minted from (`fabId`, `tcgdexId`, `cardmarketId`, the gallery id). Minted
-counts today: lorcana 212 products, fleshandblood 203 numbers, pokemon 257
-entries over 867 tcgdex cards plus the Cardmarket-only stamped promos,
-onepiece 58 pre-errata printings hand-carried from CardTrader and 39
-minted from Cardmarket's pre-errata shelf, gundam 7 tokens and 8
-hand-carried promotional reprints.
+minted from (`fabId`, `tcgdexId`, `cardmarketId`, the gallery id) - except
+Yu-Gi-Oh's, where a minted entry is a product of one printing and stands
+for itself; Konami's passcode travels in `Identifiers` for the matcher's
+own use, never as a join key. Minted counts today: lorcana 212 products,
+fleshandblood 203 numbers, pokemon 257 entries over 867 tcgdex cards plus
+the Cardmarket-only stamped promos, onepiece 58 pre-errata printings
+hand-carried from CardTrader and 39 minted from Cardmarket's pre-errata
+shelf, gundam 7 tokens and 8 hand-carried promotional reprints, yugioh 691
+European first prints (688 joined to their North American sibling by
+passcode, 3 minted from YGOPRODeck's own name for cards the North American
+set never printed; a code whose sibling is not itself a plain row stands
+down instead of minting).
 
 ## 2. The document
 
@@ -180,7 +193,7 @@ the printing name (`""` for the plain printing, else `_` plus the slug:
 | onepiece | `<number>_<productId><suffix>` | hand-carried: `<number>_ct<blueprint><suffix>`; Cardmarket: `<number>_mkm<cardmarketId><suffix>` |
 | palworld | `<number>_<productId><suffix>` | `<number>` alone |
 | pokemon | `<number>-<total>_<productId><suffix>` (`226-164_268081`, `sm04_147224`) | tcgdex: `<tcgdexId><suffix>`; Cardmarket: `<number>-<total>_mkm<cardmarketId><suffix>` |
-| yugioh | `<number>_<productId><suffix>` (`blgg-en116_695673_1stedition`); nothing minted | — |
+| yugioh | `<number>_<productId><suffix>` (`blgg-en116_695673_1stedition`) | `<number><suffix>`, lower-cased (`lob-e003_unlimited`, `dl1-e001_limited`) |
 | riftbound | `<abbrev>-<productId>` for every printing and sealed item | same, keyed by the product |
 | lorcana | integer: LorcanaJSON's card id; uuids per printing `1951`, `1951_coldfoil`, `1951_holofoil` | `-<productId>`, uuids `m-714954`, `m-714954_holofoil` |
 
@@ -334,8 +347,9 @@ finish twice or emitting a set of finishes other than the catalog's skus
 for it (**coverage, the zero-skip invariant**); a sealed entry missing its
 identity or its set. Per game on top: a Pokemon build whose every priced
 card has no image (one card without is logged, not refused),
-a Pokemon set holding nothing, a Yu-Gi-Oh card with no product id (it
-mints nothing), a Flesh and Blood minted entry wearing a priced entry's
+a Pokemon set holding nothing, a Yu-Gi-Oh card with no product id that is
+not a European first print (`konamiId` set, number shaped `<PREFIX>-E###`),
+a Flesh and Blood minted entry wearing a priced entry's
 `fabId` or its set, number and name, a Lorcana product claimed by two cards
 or carried by none, a Riftbound printing naming a product the catalog does
 not type as a card.
@@ -366,7 +380,7 @@ default), `-against <baseline.json>`, `-against-tolerance <fraction>`
 | palworld | 91 | palworldtcg.gg `api/v1/cards` | `-palworld-cards` | numbers the one numberless product; English (`EBP01-001`) and Japanese (`BP01-001`) numbering reconciled to the printed form |
 | pokemon | 3 | tcgdex GraphQL, pokemontcg.io sets, the Cardmarket catalog | `-tcgdex-sets`, `-tcgdex-cards`, `-pokemontcg-sets`, `-upstream-cache <dir>`, `-cardmarket-catalog` (required) | `tcgdexId`, symbols, set dates; mints tcgdex cards and sets the catalog lacks and the Cardmarket-only stamped promos (SEA, Professor Program) from the printing their number names |
 | riftbound | 89 | the official card gallery (Next.js data URL resolved from the page) | `-gallery` | is the datastore; catalog decides finishes and adds the products the gallery lacks |
-| yugioh | 2 | YGOPRODeck `cardsets.php`, `cardinfo.php` | `-ygoprodeck-sets`, `-ygoprodeck-cards` | release dates, passcodes (`konamiId`), the witness for names; no image (hotlinking forbidden) |
+| yugioh | 2 | YGOPRODeck `cardsets.php`, `cardinfo.php` | `-ygoprodeck-sets`, `-ygoprodeck-cards` | release dates, passcodes (`konamiId`), the witness for names; mints the European first-print run of a set the catalog sells only the North American run of; no image (hotlinking forbidden) |
 
 Every upstream flag accepts a path or a URL (`emit.Fetch`: a local file, or
 an http(s) GET named `datastore-gen/1.0` and bounded at three minutes).
@@ -408,7 +422,29 @@ Per-game notes an agent needs:
   finish; a rarity written into a name is the rarity; Speed Duel deck
   letters `(A)`…`(G)` stay in the name because the loader pins them
   (paired change outstanding); passcodes are checked against the name and
-  withheld on contradiction.
+  withheld on contradiction. `mintEuropeanPrints` runs after `foldPromoTypes`
+  (so the fold cannot rewrite its own label) and mints a `card_sets` code
+  shaped `<PREFIX>-E###` for a set this build publishes, when no priced
+  product already carries that exact number and the joined North American
+  sibling is itself a plain row - a labelled sibling (a qualifier like
+  Dark Hole's "Magic") would leave every candidate a variant and no plain
+  listing able to choose between them, so that code stands down instead:
+  one entry, the set's own default run (`europeanFinishOrder` searched in
+  order - Unlimited, 1st Edition, Limited - for the first the set actually
+  prices, which is a search order, not a claim about which run is
+  historically earliest), carrying the "European" variant and `european`
+  promo type and the North American sibling's name, type, attribute and
+  rarity - never YGOPRODeck's own name or `set_rarity`, so the label
+  stays the only difference between the two rows (a sibling's modern
+  Konami rename, or YGOPRODeck's own rarity reading where it differs from
+  the catalog's, would otherwise let a listing that names one leave the
+  North American row for the European one). The 3 cards with no sibling
+  mint YGOPRODeck's own name, type, attribute and `set_rarity` instead,
+  the rarity spelled through this build's own rarity table (Short Print
+  and Super Short Print folded to Common). A bad upstream rarity on an
+  unjoined candidate, a set pricing no card, or an unverifiable unjoined
+  name each stand their own candidate down and are logged, rather than
+  stopping the build. See `docs/yugioh-european-prints.md`.
 
 ## 6. Internal packages
 
