@@ -906,6 +906,55 @@ func fixExternalLinks(cards []card) []string {
 	return reports
 }
 
+// mintedCardmarketIDs gives a minted card the Cardmarket product it is sold
+// as, keyed by the TCGplayer product it is minted from, since no upstream card
+// carries one for it. Bucky's errata (597095) is Cardmarket's V.2 of Rise of
+// the Floodborn #73 (800381), and CardTrader's Errata Cards blueprint 311912
+// links the two. TCGplayer sells one other errata, Elsa - Gloves Off (618771),
+// and neither Cardmarket nor CardTrader sells it apart from the card.
+var mintedCardmarketIDs = map[int]int{
+	597095: 800381, // Bucky - Squirrel Squeak Tutor (Errata Version)
+}
+
+// mintedCardmarket answers the Cardmarket id each minted product carries
+// from mintedCardmarketIDs, and reports every row: applied, or standing down
+// because its product is not minted or an upstream card already carries its
+// id, which that card then keeps alone.
+func mintedCardmarket(mintable []tcgplayer.Product, cards []card) (map[int]int, []string) {
+	minted := map[int]bool{}
+	for _, product := range mintable {
+		minted[product.ProductID] = true
+	}
+	upstream := map[int]string{}
+	for _, c := range cards {
+		if id, _ := c.links["cardmarketId"].(float64); id != 0 {
+			upstream[int(id)] = c.fullName
+		}
+	}
+	// Stable order, so unchanged data keeps producing byte-identical output.
+	products := make([]int, 0, len(mintedCardmarketIDs))
+	for product := range mintedCardmarketIDs {
+		products = append(products, product)
+	}
+	sort.Ints(products)
+
+	linked := map[int]int{}
+	var reports []string
+	for _, product := range products {
+		cardmarketID := mintedCardmarketIDs[product]
+		switch owner, owned := upstream[cardmarketID]; {
+		case !minted[product]:
+			reports = append(reports, fmt.Sprintf("%d is not minted; the row giving it cardmarketId %d does nothing", product, cardmarketID))
+		case owned:
+			reports = append(reports, fmt.Sprintf("%d stands down: upstream gives cardmarketId %d to %s", product, cardmarketID, owner))
+		default:
+			linked[product] = cardmarketID
+			reports = append(reports, fmt.Sprintf("%d given cardmarketId %d", product, cardmarketID))
+		}
+	}
+	return linked, reports
+}
+
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 71 (required)")
@@ -1174,12 +1223,17 @@ func main() {
 		return mintable[i].ProductID < mintable[j].ProductID
 	})
 	codes := setCodes(catalog.Groups)
+	cardmarketIDs, reports := mintedCardmarket(mintable, cards)
+	log.Printf("hand-carried Cardmarket ids for minted cards: %s", strings.Join(reports, "; "))
 	mintedByGroup := map[string]int{}
 	for _, product := range mintable {
 		group := groupByID[product.GroupID]
 		catalogNumber := product.Extended("Number")
 		num, variant := mintedNumber(catalogNumber)
 		links := map[string]any{"tcgPlayerId": product.ProductID}
+		if id, found := cardmarketIDs[product.ProductID]; found {
+			links["cardmarketId"] = id
+		}
 		if names := printings[product.ProductID]; len(names) > 0 {
 			links["tcgPrintings"] = names
 		}

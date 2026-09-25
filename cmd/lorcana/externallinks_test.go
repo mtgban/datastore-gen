@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/mtgban/go-tcgplayer"
 )
 
 // linksCard is one upstream card as decodeCard would receive it, carrying
@@ -112,5 +114,36 @@ func TestFixExternalLinksReportsAMissingCard(t *testing.T) {
 	stale := fixExternalLinks(cards)
 	if len(stale) != 1 || !strings.Contains(stale[0], "1663") {
 		t.Errorf("fixExternalLinks reported %v, want one report naming 1663", stale)
+	}
+}
+
+// TestMintedCardmarketLinksBucky pins the row mintedCardmarketIDs exists
+// for: Bucky's errata (597095) is minted, no upstream card carries 800381,
+// so the minted card is given it.
+func TestMintedCardmarketLinksBucky(t *testing.T) {
+	cards := decodeCards(t, linksCard(289, "Bucky - Squirrel Squeak Tutor", 737800, 268366))
+	linked, reports := mintedCardmarket([]tcgplayer.Product{{ProductID: 597095}}, cards)
+	if linked[597095] != 800381 || len(linked) != 1 {
+		t.Errorf("mintedCardmarket linked %v, want only 597095 -> 800381", linked)
+	}
+	if len(reports) != 1 || !strings.Contains(reports[0], "given cardmarketId 800381") {
+		t.Errorf("mintedCardmarket reported %v, want the one row applied", reports)
+	}
+}
+
+// TestMintedCardmarketStandsDown pins the two ways the row goes stale: the
+// product is no longer minted (upstream publishes the card, which carries
+// its own id), or an upstream card already carries the id, which a second
+// claim would keep the loader from indexing for either.
+func TestMintedCardmarketStandsDown(t *testing.T) {
+	linked, reports := mintedCardmarket(nil, nil)
+	if len(linked) != 0 || len(reports) != 1 || !strings.Contains(reports[0], "not minted") {
+		t.Errorf("with 597095 not minted: linked %v, reported %v", linked, reports)
+	}
+
+	cards := decodeCards(t, linksCard(3500, "Bucky - Squirrel Squeak Tutor", 800381, 0))
+	linked, reports = mintedCardmarket([]tcgplayer.Product{{ProductID: 597095}}, cards)
+	if len(linked) != 0 || len(reports) != 1 || !strings.Contains(reports[0], "stands down") {
+		t.Errorf("with 800381 carried upstream: linked %v, reported %v", linked, reports)
 	}
 }
