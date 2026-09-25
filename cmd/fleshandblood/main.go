@@ -349,6 +349,71 @@ func restatesNumber(tail, num string) bool {
 	return true
 }
 
+// pitchIndex is where the dataset prints each pitch of a card: the pitch of
+// every number, per card name, and the one number each pitch of a card is
+// printed at in a set, empty where the set prints that pitch more than once.
+type pitchIndex struct {
+	pitchAt  map[string]string
+	numberAt map[string]string
+}
+
+// setPrefix is the set a collector number names, its leading letters.
+var setPrefix = regexp.MustCompile(`^[A-Z]+`)
+
+func pitchAtKey(number, name string) string {
+	return foldPadding(strings.ToUpper(numberOf(number))) + "|" + strings.ToLower(name)
+}
+
+func numberAtKey(number, name, color string) string {
+	return setPrefix.FindString(strings.ToUpper(number)) + "|" + strings.ToLower(name) + "|" + color
+}
+
+func newPitchIndex(rows []fabRow) pitchIndex {
+	idx := pitchIndex{pitchAt: map[string]string{}, numberAt: map[string]string{}}
+	for _, row := range rows {
+		color := pitchColors[strings.TrimSpace(row.Pitch)]
+		number := strings.ToUpper(numberOf(row.ID))
+		if color == "" || number == "" {
+			continue
+		}
+		key := pitchAtKey(number, row.Name)
+		if held, seen := idx.pitchAt[key]; seen && held != color {
+			color = ""
+		}
+		idx.pitchAt[key] = color
+		if color == "" {
+			continue
+		}
+		at := numberAtKey(number, row.Name, color)
+		if held, seen := idx.numberAt[at]; !seen {
+			idx.numberAt[at] = number
+		} else if foldPadding(held) != foldPadding(number) {
+			idx.numberAt[at] = ""
+		}
+	}
+	return idx
+}
+
+// ownNumber is the number a pitched product is printed at, where the catalog
+// files it at another pitch's number of the same card: TCGplayer gives the
+// Yellow and Blue Staunch Response (Marvel) the Red's TNP019, and the Yellow
+// Dig In the Red's FAB384, where the dataset prints each pitch at its own.
+// The catalog's number stands wherever the dataset agrees or cannot say.
+func (idx pitchIndex) ownNumber(p tcgplayer.Product, num string) (string, bool) {
+	color := pitchColor(p)
+	if match := pitchInName.FindStringSubmatch(p.Name); match != nil {
+		color = match[1]
+	}
+	head, _, _ := strings.Cut(p.Name, " - ")
+	name := strings.TrimSpace(parenRe.ReplaceAllString(head, ""))
+	at := idx.pitchAt[pitchAtKey(num, name)]
+	if num == "" || color == "" || at == "" || at == color {
+		return num, false
+	}
+	own := idx.numberAt[numberAtKey(num, name, color)]
+	return cmp.Or(own, num), own != ""
+}
+
 // single is one card product, its name split into the base name, the
 // parenthetical qualifiers, and the collector number.
 type single struct {
@@ -364,8 +429,9 @@ type single struct {
 }
 
 // decompose strips the collector number worn as decoration and pulls the
-// parenthetical qualifiers out of the name.
-func decompose(p tcgplayer.Product, num string) single {
+// parenthetical qualifiers out of the name. witnessed says the number is the
+// dataset's rather than the catalog's own, which settles a disagreeing tail.
+func decompose(p tcgplayer.Product, num string, witnessed bool) single {
 	name := p.Name
 	name = strings.ReplaceAll(name, " - "+num, "")
 
@@ -387,7 +453,8 @@ func decompose(p tcgplayer.Product, num string) single {
 	// "Banneret of Protection - FAB 163"), so what is left of the tail is
 	// weighed against the number once more. A number-shaped tail that
 	// disagrees with the Number field is an upstream typo on one side or
-	// the other, and which side is wrong is not knowable here. Dropping it
+	// the other, and which side is wrong is not knowable here unless the
+	// dataset witnessed the number (see ownNumber). Dropping it
 	// merges two products whose tails were the only thing telling them
 	// apart, so the tail is kept - but as a qualifier rather than in the
 	// name, because the variant label is part of the identity a query
@@ -398,6 +465,11 @@ func decompose(p tcgplayer.Product, num string) single {
 		tail := strings.TrimSpace(name[idx+3:])
 		if restatesNumber(tail, num) {
 			name = strings.TrimSpace(name[:idx])
+		} else if witnessed && numTailRe.MatchString(tail) {
+			// The dataset printed the card at num, so a tail naming another
+			// number is the catalog's slip, not the printing's identity.
+			name = strings.TrimSpace(name[:idx])
+			log.Printf("dash number: %q names %s where the dataset prints it at %s; dropped", p.Name, tail, num)
 		} else if numTailRe.MatchString(tail) {
 			name = strings.TrimSpace(name[:idx])
 			if !sliceContains(quals, tail) {
@@ -637,7 +709,8 @@ func main() {
 	var singles []single
 	var sealedProducts []tcgplayer.Product
 	var unnumbered int
-	var unpriced []string
+	var unpriced, renumbered []string
+	pitches := newPitchIndex(fabRows)
 	for _, product := range catalog.Products {
 		if !slices.Contains(tcgSingles, product.ProductType) {
 			sealedProducts = append(sealedProducts, product)
@@ -654,7 +727,15 @@ func main() {
 			// the whole id, as it is for the numberless Pokemon singles.
 			unnumbered++
 		}
-		singles = append(singles, decompose(product, num))
+		own, witnessed := pitches.ownNumber(product, num)
+		if witnessed {
+			renumbered = append(renumbered, fmt.Sprintf("%q (%d) %s -> %s", product.Name, product.ProductID, num, own))
+		}
+		singles = append(singles, decompose(product, own, witnessed))
+	}
+	if len(renumbered) > 0 {
+		log.Printf("number: %d products filed at another pitch's number take the dataset's own: %s",
+			len(renumbered), strings.Join(renumbered, ", "))
 	}
 	if len(unpriced) > 0 {
 		log.Printf("unpriced: %d card products TCGplayer sells no sku for yet, carried once it does: %s",
