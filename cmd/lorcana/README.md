@@ -23,7 +23,11 @@ does not:
   resolves against;
 - every sealed product the catalog carries, in a top-level `sealed` array a
   stock LorcanaJSON reader ignores, with a set entry minted for the groups
-  LorcanaJSON has no set for.
+  LorcanaJSON has no set for;
+- a handful of cardmarketId/cardTraderId corrections LorcanaJSON is known to
+  get wrong, carried by hand in `handExternalLinks` (a card given a
+  regional-market name copies another card's ids rather than naming its
+  own) and reported once upstream stops needing the correction.
 
 The promotional printings TCGplayer files in their own groups (DLPC, D23,
 D100) are matched onto upstream's own cards wherever the id fill can do it
