@@ -1328,6 +1328,91 @@ var productCardmarketIDs = map[int]int{
 	// Monkey.D.Luffy P-135: both products landed on the plain row by wording.
 	697483: 888110, // OP16 Release Event
 	697484: 888111, // OP16 Release Event Winner
+	// Event prints CardTrader links to Cardmarket with no TCGplayer id, whose
+	// wording Cardmarket refuses or aliases. Each row's label is the one at
+	// its number holding every word of CardTrader's event name.
+	// CS 26-27 Celebration Pack
+	710223: 904364, // Because the Side of Justice Will Be Whichever Side Wins!! OP05-037
+	710232: 904365, // Tsuru OP06-051
+	710233: 904366, // Bartholomew Kuma OP09-108
+	710234: 904367, // Kouzuki Hiyori OP12-028
+	710235: 904368, // Vinsmoke Sora OP12-062
+	710236: 904369, // Morley OP12-093
+	710239: 904392, // Tony Tony.Chopper P-101
+	710240: 904393, // Nami P-102
+	710241: 904394, // Portgas.D.Ace P-103
+	710242: 904395, // Shanks P-104
+	710243: 904396, // Sabo P-105
+	710244: 904397, // Monkey.D.Luffy P-106
+	// Round 1 Promo
+	707242: 901261, // Nami ST29-008
+	707246: 901266, // Sanji OP15-047
+	707248: 901265, // Monkey.D.Luffy OP16-095
+	707249: 901270, // Nico Robin EB03-054
+	707251: 901267, // Brook OP11-056
+	707252: 901264, // Roronoa Zoro PRB02-006
+	707254: 901269, // Tony Tony.Chopper OP09-068
+	707256: 901268, // Usopp OP11-003
+	707257: 901262, // Jinbe ST29-005
+	707258: 901263, // Franky ST21-011
+	// CS 26-27 Event Pack Finalist Ver.
+	710255: 904379, // Charlotte Smoothie P-090
+	710257: 904383, // Koby P-092
+	710258: 904391, // Marshall.D.Teach P-100
+	710259: 904389, // Monkey.D.Luffy P-099
+	710260: 904385, // Shanks P-097
+	710261: 904381, // Shirahoshi P-091
+	710262: 904377, // Trafalgar Law P-088
+	// English Version 3rd Anniversary Set
+	710694: 902563, // Portgas.D.Ace OP13-002
+	710696: 902565, // Monkey.D.Luffy OP13-001
+	710697: 902561, // Sabo OP13-004
+	710698: 902555, // Portgas.D.Ace OP13-119
+	710700: 902556, // Monkey.D.Luffy OP13-118
+	710701: 902554, // Sabo OP13-120
+	710702: 902558, // Ace & Sabo & Luffy OP13-007
+	// Flame-Flame Fruit Coliseum
+	719662: 906845, // Trafalgar Law OP10-022
+	719663: 906846, // Usopp OP10-042
+	719664: 906847, // Sabo OP13-004
+	719665: 906848, // Donquixote Doflamingo OP14-060
+	719666: 906849, // Rebecca OP15-039
+	719667: 906850, // Lucy OP15-002
+	// 4th Anniversary Treasure Campaign Pack
+	714349: 902495, // Kaido EB04-030
+	714350: 902494, // Buggy OP12-049
+	714351: 902493, // Shanks OP14-027
+	714353: 902491, // Marshall.D.Teach P-100
+	714354: 902489, // Edward.Newgate ST15-002
+	// Regionals Champion Card Set 26-27 Vol. 2
+	710736: 904423, // Kouzuki Oden OP14-026
+	710737: 904426, // Shakuyaku OP14-107
+	710738: 904417, // Monkey.D.Dragon OP07-015
+	710739: 904420, // Jozu OP08-047
+	// Regionals Finalist Card Set 26-27 Vol. 2
+	710732: 904425, // Shakuyaku OP14-107
+	710733: 904416, // Monkey.D.Dragon OP07-015
+	710734: 904419, // Jozu OP08-047
+	710735: 904422, // Kouzuki Oden OP14-026
+	// Dash Pack 2025
+	712035: 874423, // Boa Hancock ST17-004
+	712036: 874424, // Yamato ST13-016
+	712037: 874422, // Black Maria OP08-074
+	// Illustration Box Vol. 2 Textured Foil
+	623068: 821358, // Black Maria OP08-074
+	623071: 821360, // Yamato ST13-016
+	// 2026 PSA Magazine
+	710762: 896419, // Dracule Mihawk OP14-020
+	// Event Pack Vol. 9
+	709539: 904375, // Kaido P-040
+	// Illustration Box Vol. 1 Textured Foil
+	623069: 821361, // Boa Hancock ST17-004
+	// Official Playmat - Flame-Flame Fruit Coliseum Edition
+	717035: 906852, // Portgas.D.Ace OP16-001
+	// One Piece Card Game Illustration Box Vol. 8
+	709093: 900586, // Eustass"Captain"Kid OP14-014
+	// Sound Loader Vol. 1
+	594591: 814902, // Monkey.D.Luffy OP05-060
 }
 
 // linkCardmarketProducts writes productCardmarketIDs onto the entries built
