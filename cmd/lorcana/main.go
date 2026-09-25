@@ -335,6 +335,43 @@ func universalVarnishes(items []any) map[string]bool {
 }
 
 // keptQual is the label a parenthetical holds, empty where it holds none.
+// keptQuals are the labels one parenthetical carries: keptQual's, less a
+// number the card already prints ("1/C1"), with the game's own name off the
+// front and a prize's placement a label of its own ("Store Championship
+// Participant" is the event and which of its prizes).
+func keptQuals(qual string) []string {
+	qual = strings.TrimPrefix(keptQual(qual), "Disney Lorcana ")
+	if qual == "" || numberQualRe.MatchString(qual) {
+		return nil
+	}
+	labels := []string{qual}
+	if m := placementRe.FindStringSubmatch(qual); m != nil {
+		labels = []string{m[1], m[2]}
+	}
+	for i, label := range labels {
+		if respelled, found := qualSpellings[label]; found {
+			qualSpellingsUsed[label] = true
+			labels[i] = respelled
+		}
+	}
+	return labels
+}
+
+// numberQualRe is a parenthetical that is the card's number, with or
+// without the run it is numbered in.
+var numberQualRe = regexp.MustCompile(`^\d+[a-z]?(?:/[A-Za-z0-9]+)?$`)
+
+// placementRe splits a prize's placement off the event that handed it out.
+var placementRe = regexp.MustCompile(`^(.+?) (Participant|Top \d+)$`)
+
+// qualSpellings fold TCGplayer's odd spelling of a label into the one its
+// other products use: 1 of 8 Store Championship prizes on 2026-09-25.
+var qualSpellings = map[string]string{"Store Champion": "Store Championship"}
+
+// qualSpellingsUsed records the rows a build used, so one nothing needs
+// any more says so.
+var qualSpellingsUsed = map[string]bool{}
+
 func keptQual(qual string) string {
 	qual = strings.TrimSpace(qual)
 	if qual == "" || piecePlaceRe.MatchString(qual) ||
@@ -357,7 +394,7 @@ func keptQual(qual string) string {
 // promoTypesOf reads a card's labels off the three fields that carry one,
 // lowercased the way every other datastore here spells a promo type, and
 // with no label written twice.
-func promoTypesOf(item map[string]any, universal map[string]bool) []string {
+func promoTypesOf(item map[string]any, universal map[string]bool, shelfName string) []string {
 	var tags []string
 	set, _ := item["setCode"].(string)
 	rarity, _ := item["rarity"].(string)
@@ -372,15 +409,15 @@ func promoTypesOf(item map[string]any, universal map[string]bool) []string {
 		tags = append(tags, source)
 	}
 	name, _ := item["fullName"].(string)
-	for _, m := range nameQualRe.FindAllStringSubmatch(name, -1) {
-		if qual := keptQual(m[1]); qual != "" {
-			tags = append(tags, qual)
+	for _, source := range []string{name, shelfName} {
+		for _, m := range nameQualRe.FindAllStringSubmatch(source, -1) {
+			tags = append(tags, keptQuals(m[1])...)
 		}
 	}
 	out := make([]string, 0, len(tags))
 	for _, tag := range tags {
 		tag = emit.PromoSlug(tag)
-		if tag == "" || slices.Contains(out, tag) {
+		if tag == "" || tag == emit.PromoSlug(rarity) || slices.Contains(out, tag) {
 			continue
 		}
 		out = append(out, tag)
@@ -1227,6 +1264,19 @@ func main() {
 	// The labels, over both kinds of card at once: what upstream publishes
 	// and what only a product name says are the same kind of fact, and a
 	// rule written where the two meet cannot reach one and miss the other.
+	// Upstream names a promo without the qualifier TCGplayer's shelf gives
+	// it ("(Puzzle Promo)"), and the qualifier is the promotion: read it
+	// off the shelf for every card sold on one, as for a minted card.
+	shelfNames := map[int]string{}
+	for _, c := range cards {
+		product, sold := productByID[c.tcgID]
+		if !sold || !strings.Contains(strings.ToLower(groupByID[product.GroupID].Name), "promo") {
+			continue
+		}
+		if id, known := cardID(c.raw["id"]); known {
+			shelfNames[id] = product.Name
+		}
+	}
 	universal := universalVarnishes(items)
 	vocabulary := map[string]int{}
 	var labelled, imaged int
@@ -1248,7 +1298,8 @@ func main() {
 				}
 			}
 		}
-		types := promoTypesOf(item, universal)
+		id, _ := cardID(item["id"])
+		types := promoTypesOf(item, universal, shelfNames[id])
 		if len(types) == 0 {
 			continue
 		}
@@ -1259,6 +1310,11 @@ func main() {
 		}
 	}
 	log.Printf("image: %d cards given the common field beside upstream's images object", imaged)
+	for spelling, respelled := range qualSpellings {
+		if !qualSpellingsUsed[spelling] {
+			log.Printf("qualifier respelling %q -> %q: no product spells it that way any more", spelling, respelled)
+		}
+	}
 
 	// The finish each printing is sold under, in TCGplayer's own words,
 	// and the uuid each of those prices.
