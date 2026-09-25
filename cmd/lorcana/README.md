@@ -15,8 +15,8 @@ does not:
   not identify, since two cards sharing an id merge their price histories;
 - the extra product ids TCGplayer uses for a card's foil, which it sells as
   a separate product (`tcgPlayerExtraIds`);
-- the TCGplayer printing names each card is sold under
-  (`tcgPrintings`: Normal, Holofoil, Cold Foil), beside LorcanaJSON's own
+- the TCGplayer printing names each card is sold under, as each
+  printing's `finish` (Normal, Holofoil, Cold Foil), beside LorcanaJSON's own
   richer foil sub-types — and the catalog settles which of them exist, a
   printing TCGplayer prices a sku for being one that exists, while upstream
   keeps naming the foils, since its sub-types are what storefront wording
