@@ -1385,8 +1385,12 @@ func main() {
 
 		// Upstream's own list of finishes, which this has just said better:
 		// it names them in TCGplayer's words, beside the uuid each is quoted
-		// by. Leaving it would be the same card twice in two vocabularies.
+		// by. Leaving it would be the same card twice in two vocabularies,
+		// and the catalog's own list, tcgPrintings, the same one twice.
 		delete(item, "foilTypes")
+		if links, ok := item["externalLinks"].(map[string]any); ok {
+			delete(links, "tcgPrintings")
+		}
 	}
 	log.Printf("printings: %d named over %d cards, so the loader spells no uuid and joins no finish by name", named, withIDs)
 	log.Printf("finishes: named in TCGplayer's words, %d foil treatments carried by the printing that has them", treatments)

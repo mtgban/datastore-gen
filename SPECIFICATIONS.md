@@ -154,7 +154,7 @@ Common to every game:
 Per game, on top of the common keys: under `externalLinks`, `fabId`
 (fleshandblood), `tcgdexId` (pokemon), `bandaiId` (onepiece) and `konamiId`
 (yugioh, only where the passcode join is unambiguous and not contradicted
-by the name); `printings[]` and `tcgPrintings` (lorcana, §2.5).
+by the name); `printings[]` (lorcana, §2.5).
 
 ### 2.3 Sealed
 
@@ -209,9 +209,8 @@ the shared names: `id`, `name`, `setCode`, `releaseDate`, `image` and
 **Lorcana** publishes LorcanaJSON's card objects with the catalog merged in,
 likewise whole under `data` — upstream's own `metadata` key travels with
 them untouched, and is not the envelope's `meta`:
-`externalLinks.tcgPlayerId` and `tcgPlayerExtraIds`, `tcgPrintings` (the
-catalog's printing names sold), and a `printings[]` array of
-`{finish, id, promoTypes}` with one uuid per finish the catalog sells;
+`externalLinks.tcgPlayerId` and `tcgPlayerExtraIds`, and a `printings[]`
+array of `{finish, id, promoTypes}` with one uuid per finish the catalog sells;
 upstream's `foilTypes` is folded into it and removed. The catalog decides
 which finishes exist (a card upstream calls foil-only still gets a nonfoil
 uuid when TCGplayer sells one); upstream still names the foil sub-type as a
