@@ -46,7 +46,7 @@ GAMES="riftbound lorcana onepiece yugioh fleshandblood pokemon gundam palworld"
 upstream_flags() {
   case "$1" in
     riftbound)     echo "gallery=$WORK/riftbound-gallery.json" ;;
-    lorcana)       echo "lorcana=$WORK/lorcana-allcards.json" ;;
+    lorcana)       echo "lorcana=$WORK/lorcana-allcards.json cardmarket-catalog=$WORK/lorcana-cardmarket.json" ;;
     onepiece)      echo "punk-cards=$WORK/punk-cards.json punk-packs=$WORK/punk-packs.json cardmarket-catalog=$WORK/onepiece-cardmarket.json" ;;
     yugioh)        echo "ygoprodeck-sets=$WORK/ygo-sets.json ygoprodeck-cards=$WORK/ygo-cards.json" ;;
     fleshandblood) echo "fab-cards=$WORK/fab-cards.json fab-sets=$WORK/fab-sets.json" ;;
@@ -104,7 +104,8 @@ fetch() { curl -sSL --retry 3 --retry-all-errors --max-time 180 -A "datastore-ge
 for g in $NEEDED; do
   case $g in
     riftbound)     "$(dirname "$0")/fetch-riftbound-gallery.sh" "$WORK/riftbound-gallery.json" ;;
-    lorcana)       fetch https://lorcanajson.org/files/current/en/allCards.json "$WORK/lorcana-allcards.json" ;;
+    lorcana)       fetch https://lorcanajson.org/files/current/en/allCards.json "$WORK/lorcana-allcards.json"
+                   b2 file download --no-progress b2://mtgban-datastore/lorcana/cardmarket_catalog.json.xz "$WORK/lorcana-cardmarket.json.xz" >/dev/null && xz -d "$WORK/lorcana-cardmarket.json.xz" ;;
     onepiece)      fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json "$WORK/punk-cards.json"
                    fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/packs.json "$WORK/punk-packs.json"
                    b2 file download --no-progress b2://mtgban-datastore/onepiece/cardmarket_catalog.json.xz "$WORK/onepiece-cardmarket.json.xz" >/dev/null && xz -d "$WORK/onepiece-cardmarket.json.xz" ;;
