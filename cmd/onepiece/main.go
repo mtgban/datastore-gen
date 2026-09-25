@@ -297,6 +297,7 @@ var donSubjects = map[string]bool{
 	"gear 5":                    true,
 	"gear5 luffy":               true,
 	"green":                     true,
+	"green compass":             true,
 	"iceberg":                   true,
 	"ivankov":                   true,
 	"ivankov & sanji":           true,
@@ -656,8 +657,9 @@ func noteWhen(entry map[string]any, year, month, instalment, mark string) {
 
 // promoSpellings write a promotion's name where the label the catalog hands
 // over is not one: a plural of a name spelled singular everywhere else, a
-// placing named as the act rather than the holder, and the game's own name
-// in front of its own product. An abbreviation is not one of them - "CS" is
+// placing named as the act rather than the holder, the game's own name in
+// front of its own product, and a "Promo" the same promotion's other
+// labels leave off. An abbreviation is not one of them - "CS" is
 // what a listing says, and folding it left such a listing with one word of
 // two to answer on. Only the
 // token folds - the variant keeps the catalog's wording, because that is
@@ -666,6 +668,7 @@ func noteWhen(entry map[string]any, year, month, instalment, mark string) {
 var promoSpellings = map[string]string{
 	"offline regionals":         "offline regional",
 	"one piece anniversary set": "anniversary set",
+	"one piece film red promo":  "one piece film red",
 	"participation":             "participant",
 	"regionals":                 "regional",
 }
@@ -880,6 +883,9 @@ func decompose(p tcgplayer.Product, num string) single {
 	if num != "" {
 		name = stripNumberTail(name, num)
 	}
+	// Two DON!! products join their label with " // " rather than the
+	// parentheses every other label wears ("DON!! Card // Green Compass").
+	name, joined, _ := strings.Cut(name, " // ")
 
 	var quals []string
 	name = parenRe.ReplaceAllStringFunc(name, func(m string) string {
@@ -905,6 +911,9 @@ func decompose(p tcgplayer.Product, num string) single {
 		quals = append(quals, respellQual(q))
 		return ""
 	})
+	if joined != "" {
+		quals = append(quals, respellQual(joined))
+	}
 	// A name never ends in the character that joined it to what has just
 	// been peeled off. The catalog writes one that does - "Dracule Mihawk
 	// - (CS 26-27 Regionals Season 1)" - and the dash outlived the
