@@ -1314,6 +1314,71 @@ func mintFromCardmarket(path string, cards []any, printed map[string][]map[strin
 	return cards, minted
 }
 
+// productCardmarketIDs names the Cardmarket product a TCGplayer product is
+// sold as, keyed by the TCGplayer product, where nothing else links the two:
+// CardTrader's blueprint carries no TCGplayer id or the wrong one, and the
+// product's wording lands on another event printing of the same number.
+// docs/onepiece-cardmarket-ids.md has the evidence for each row.
+var productCardmarketIDs = map[int]int{
+	// O-Nami OP05-062. CardTrader's "Dash Pack 2025" blueprint (326797)
+	// carries the Illustration Box's product id, so the Illustration Box
+	// was priced with the Dash Pack's trend (€20 against its own €130).
+	712033: 874419, // Dash Pack 2025
+	623070: 821356, // Illustration Box Vol. 1 Textured Foil
+	// Monkey.D.Luffy P-135: both products landed on the plain row by wording.
+	697483: 888110, // OP16 Release Event
+	697484: 888111, // OP16 Release Event Winner
+}
+
+// linkCardmarketProducts writes productCardmarketIDs onto the entries built
+// from those products, and reports every row that does nothing: a product
+// no entry carries, one carried in several finishes (the Cardmarket product
+// would name none of them alone), or an id another entry already carries.
+func linkCardmarketProducts(cards []any) (int, []string) {
+	byProduct := map[int][]map[string]any{}
+	carriedBy := map[int]any{}
+	for _, entry := range cards {
+		e, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		links, _ := e["externalLinks"].(map[string]any)
+		if id, ok := links["tcgPlayerId"].(int); ok {
+			byProduct[id] = append(byProduct[id], e)
+		}
+		if id, ok := links["cardmarketId"].(int); ok {
+			carriedBy[id] = e["id"]
+		}
+	}
+	// Stable order, so unchanged data keeps producing byte-identical output.
+	products := make([]int, 0, len(productCardmarketIDs))
+	for product := range productCardmarketIDs {
+		products = append(products, product)
+	}
+	sort.Ints(products)
+
+	var linked int
+	var reports []string
+	for _, product := range products {
+		cardmarketID := productCardmarketIDs[product]
+		entries := byProduct[product]
+		owner, owned := carriedBy[cardmarketID]
+		switch {
+		case len(entries) == 0:
+			reports = append(reports, fmt.Sprintf("%d carries no entry; the row giving it Cardmarket %d does nothing", product, cardmarketID))
+		case len(entries) > 1:
+			reports = append(reports, fmt.Sprintf("%d is carried in %d finishes; Cardmarket %d names none of them alone", product, len(entries), cardmarketID))
+		case owned:
+			reports = append(reports, fmt.Sprintf("%d stands down: %v already carries Cardmarket %d", product, owner, cardmarketID))
+		default:
+			entries[0]["externalLinks"].(map[string]any)["cardmarketId"] = cardmarketID
+			carriedBy[cardmarketID] = entries[0]["id"]
+			linked++
+		}
+	}
+	return linked, reports
+}
+
 // nonCodeRe matches the runs a set code cannot carry.
 var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
@@ -2203,6 +2268,11 @@ func main() {
 	var mkmMinted int
 	cards, mkmMinted = mintFromCardmarket(*cardmarketCatalogPath, cards, printed, carried, carriedArt, byRarity, cardNames)
 	log.Printf("cardmarket: minted %d pre-errata printings only Cardmarket sells", mkmMinted)
+	linkedCardmarket, reports := linkCardmarketProducts(cards)
+	log.Printf("cardmarket: %d catalog printings given the Cardmarket product nothing else links them to", linkedCardmarket)
+	if len(reports) > 0 {
+		log.Printf("cardmarket: product rows that do nothing (%d): %s", len(reports), strings.Join(reports, "; "))
+	}
 
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
