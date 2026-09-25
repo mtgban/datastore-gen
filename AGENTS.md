@@ -100,7 +100,8 @@ xz -d <game>.json.xz
 
 Upstream sources default to their public URLs and every one can be pinned
 to a saved file, which is how a comparison is held still: `-fab-cards` and
-`-fab-sets`, `-gcg-cards`, `-lorcana` (required, no default),
+`-fab-sets`, `-gcg-cards`, `-lorcana` (required, no default) and
+`-cardmarket-catalog` (required),
 `-punk-cards`, `-punk-packs` and `-cardmarket-catalog` (required),
 `-palworld-cards`, `-tcgdex-sets`,
 `-tcgdex-cards`, `-pokemontcg-sets` and `-cardmarket-catalog` (required),

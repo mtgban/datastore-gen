@@ -14,7 +14,8 @@
 //     unclaimed catalog product matches by name and collector number;
 //   - it records the extra product ids TCGplayer uses for a card's foil,
 //     which it sells as a separate product, so a feed keyed on those ids
-//     resolves to the card instead of being dropped;
+//     resolves to the card instead of being dropped, and the Cardmarket
+//     product selling the same foil, read off the Cardmarket catalog;
 //   - it exports the TCGplayer printing names each card is sold under
 //     (Normal, Holofoil, Cold Foil), beside LorcanaJSON's own richer foil
 //     sub-types, and lets the catalog settle which of them exist.
@@ -89,6 +90,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/go-cardmarket"
 	"github.com/mtgban/go-tcgplayer"
 )
 
@@ -955,10 +957,73 @@ func mintedCardmarket(mintable []tcgplayer.Product, cards []card) (map[int]int, 
 	return linked, reports
 }
 
+// cardmarketVersionRe is the index Cardmarket writes into a product's name
+// ("Snow White - Merry as the Morning (V.2)"), which the card's name is not.
+var cardmarketVersionRe = regexp.MustCompile(` \(V\.\d+[^)]*\)$`)
+
+// foilCardmarketIDs names the Cardmarket product selling a card's foil where
+// TCGplayer sells that foil as a product of its own, the one tcgPlayerExtraIds
+// records: the Panorama foils, from The Reign of Jafar on. Cardmarket files the
+// card's two printings as versions of one product at one expansion and number,
+// and upstream's cardmarketId is the first, so the foil is the one later
+// version under the same name there. That agreed with CardTrader's Panorama
+// blueprints on all 30 such cards in 2026-09. The answer is keyed by the
+// card's index in cards, and every card it cannot answer is reported.
+func foilCardmarketIDs(catalog *cardmarket.Catalog, cards []card) (map[int]int, []string) {
+	type shelf struct {
+		expansion    int
+		number, name string
+	}
+	shelfOf := func(product cardmarket.CatalogProduct) shelf {
+		return shelf{product.ExpansionID, product.Number, cardmarketVersionRe.ReplaceAllString(product.Name, "")}
+	}
+	byShelf := map[shelf][]int{}
+	for id, product := range catalog.Data.Products {
+		byShelf[shelfOf(product)] = append(byShelf[shelfOf(product)], id)
+	}
+	claimed := map[int]bool{}
+	for _, c := range cards {
+		if id, _ := c.links["cardmarketId"].(float64); id != 0 {
+			claimed[int(id)] = true
+		}
+	}
+
+	found := map[int]int{}
+	var reports []string
+	for i, c := range cards {
+		if extras, _ := c.links["tcgPlayerExtraIds"].([]int); len(extras) != 1 {
+			continue
+		}
+		id, _ := c.links["cardmarketId"].(float64)
+		product, listed := catalog.Data.Products[int(id)]
+		if !listed {
+			reports = append(reports, fmt.Sprintf("%s (%s %s): cardmarketId %d is not in the catalog", c.fullName, c.setCode, c.number, int(id)))
+			continue
+		}
+		var later []int
+		for _, other := range byShelf[shelfOf(product)] {
+			if catalog.Data.Products[other].Version > product.Version {
+				later = append(later, other)
+			}
+		}
+		sort.Ints(later)
+		switch {
+		case len(later) != 1:
+			reports = append(reports, fmt.Sprintf("%s (%s %s): %d later versions of Cardmarket %d, want one: %v", c.fullName, c.setCode, c.number, len(later), int(id), later))
+		case claimed[later[0]]:
+			reports = append(reports, fmt.Sprintf("%s (%s %s): Cardmarket %d is another card's cardmarketId", c.fullName, c.setCode, c.number, later[0]))
+		default:
+			found[i] = later[0]
+		}
+	}
+	return found, reports
+}
+
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 71 (required)")
 	source := flag.String("lorcana", "", "LorcanaJSON allCards file, path or URL (required)")
+	cardmarketCatalogPath := flag.String("cardmarket-catalog", "", "published Cardmarket catalog, read for the product selling each foil TCGplayer sells apart (required)")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -969,6 +1034,18 @@ func main() {
 	}
 	if *source == "" {
 		log.Fatalln("-lorcana is required: the LorcanaJSON allCards file this enriches")
+	}
+	if *cardmarketCatalogPath == "" {
+		log.Fatalln("-cardmarket-catalog is required: nothing else names the Cardmarket product of a foil TCGplayer sells apart, and their loss is too small for the baseline guard to catch")
+	}
+	cardmarketFile, err := os.Open(*cardmarketCatalogPath)
+	if err != nil {
+		log.Fatalln("cardmarket catalog:", err)
+	}
+	cardmarketCatalog, err := cardmarket.LoadCatalog(cardmarketFile)
+	cardmarketFile.Close()
+	if err != nil {
+		log.Fatalln("cardmarket catalog:", err)
 	}
 
 	catalogData, err := os.ReadFile(*catalogPath)
@@ -1164,6 +1241,28 @@ func main() {
 		}
 	}
 	log.Printf("merged: %d product ids filled in, %d extra product ids recorded", filled, extras)
+
+	// The same foils on Cardmarket's side, beside the card's own product.
+	// A file naming none of upstream's Cardmarket ids is another game's.
+	var listed int
+	for _, c := range cards {
+		if id, _ := c.links["cardmarketId"].(float64); id != 0 {
+			if _, found := cardmarketCatalog.Data.Products[int(id)]; found {
+				listed++
+			}
+		}
+	}
+	if listed == 0 {
+		log.Fatalln("cardmarket catalog: it lists none of upstream's cardmarketIds, so it is not the Lorcana one")
+	}
+	foils, reports := foilCardmarketIDs(cardmarketCatalog, cards)
+	for i, id := range foils {
+		cards[i].links["cardmarketExtraIds"] = []int{id}
+	}
+	log.Printf("cardmarket: %d foils sold apart given the product selling them", len(foils))
+	if len(reports) > 0 {
+		log.Printf("cardmarket: foils sold apart with no product found (%d): %s", len(reports), strings.Join(reports, "; "))
+	}
 
 	// Export the TCGplayer printing names each card is sold under, the
 	// union over its claimed and extra products. This is what says which

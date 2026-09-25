@@ -172,11 +172,12 @@ jobs:
             done
           fi
           # The Cardmarket catalog mkmcatalog publishes, read for what no
-          # other catalog lists: Pokemon's stamped promo shelves and One
-          # Piece's pre-errata one. The builder refuses without it rather
-          # than publish a datastore quietly missing them, so the download
-          # failing has to fail the run.
-          if [ "${{ matrix.game }}" = pokemon ] || [ "${{ matrix.game }}" = onepiece ]; then
+          # other catalog lists: Pokemon's stamped promo shelves, One
+          # Piece's pre-errata one, and the Cardmarket product of each
+          # Lorcana foil TCGplayer sells apart. The builder refuses without
+          # it rather than publish a datastore quietly missing them, so the
+          # download failing has to fail the run.
+          if [ "${{ matrix.game }}" = pokemon ] || [ "${{ matrix.game }}" = onepiece ] || [ "${{ matrix.game }}" = lorcana ]; then
             b2 file download --no-progress \
               b2://mtgban-datastore/${{ matrix.game }}/cardmarket_catalog.json.xz \
               cardmarket_catalog.json.xz
@@ -203,7 +204,7 @@ jobs:
           if [ "${{ matrix.game }}" = pokemon ]; then
             args="$args -upstream-cache ."
           fi
-          if [ "${{ matrix.game }}" = pokemon ] || [ "${{ matrix.game }}" = onepiece ]; then
+          if [ "${{ matrix.game }}" = pokemon ] || [ "${{ matrix.game }}" = onepiece ] || [ "${{ matrix.game }}" = lorcana ]; then
             args="$args -cardmarket-catalog cardmarket_catalog.json"
           fi
           go run ./cmd/${{ matrix.game }} -tcg-catalog tcgplayer-catalog.json \

@@ -209,7 +209,10 @@ the shared names: `id`, `name`, `setCode`, `releaseDate`, `image` and
 **Lorcana** publishes LorcanaJSON's card objects with the catalog merged in,
 likewise whole under `data` — upstream's own `metadata` key travels with
 them untouched, and is not the envelope's `meta`:
-`externalLinks.tcgPlayerId` and `tcgPlayerExtraIds`, and a `printings[]`
+`externalLinks.tcgPlayerId` and `tcgPlayerExtraIds` (a foil TCGplayer sells
+as a product of its own, the Panorama foils), `cardmarketExtraIds` (the
+Cardmarket product selling that same foil, the later version of the card's own
+`cardmarketId` at its number), and a `printings[]`
 array of `{finish, id, promoTypes}` with one uuid per finish the catalog sells;
 upstream's `foilTypes` is folded into it and removed. The catalog decides
 which finishes exist (a card upstream calls foil-only still gets a nonfoil
@@ -358,7 +361,7 @@ default), `-against <baseline.json>`, `-against-tolerance <fraction>`
 |---|---|---|---|---|
 | fleshandblood | 62 | the-fab-cube `flesh-and-blood-cards` (`card-flattened.json`, `set.json`) | `-fab-cards`, `-fab-sets` | `fabId`, pitch colour, artist; mints tokens and cards with no product, joined by dataset product id, then number (padding folded), then numberless same-name product |
 | gundam | 86 | yzRobo `gcg-api` `data/cards.json` | `-gcg-cards` | the witness for names; mints the EX Base, EX Resource and Resource tokens; no image or text taken (licence unclear) |
-| lorcana | 71 | LorcanaJSON `allCards.json` | `-lorcana` (required) | is the datastore; catalog adds product ids and the finishes sold |
+| lorcana | 71 | LorcanaJSON `allCards.json`, the Cardmarket catalog | `-lorcana` (required), `-cardmarket-catalog` (required) | is the datastore; catalog adds product ids and the finishes sold; the Cardmarket catalog names the product of each foil TCGplayer sells apart |
 | onepiece | 68 | punk-records `cards_by_id.json`, `packs.json`, the Cardmarket catalog | `-punk-cards`, `-punk-packs`, `-cardmarket-catalog` (required) | the witness for names; `bandaiId` where the pack agrees with the group; 58 pre-errata printings hand-carried from CardTrader blueprints, and the ones Cardmarket's pre-errata shelf sells beyond them minted from their product, read off the printing their number names |
 | palworld | 91 | palworldtcg.gg `api/v1/cards` | `-palworld-cards` | numbers the one numberless product; English (`EBP01-001`) and Japanese (`BP01-001`) numbering reconciled to the printed form |
 | pokemon | 3 | tcgdex GraphQL, pokemontcg.io sets, the Cardmarket catalog | `-tcgdex-sets`, `-tcgdex-cards`, `-pokemontcg-sets`, `-upstream-cache <dir>`, `-cardmarket-catalog` (required) | `tcgdexId`, symbols, set dates; mints tcgdex cards and sets the catalog lacks and the Cardmarket-only stamped promos (SEA, Professor Program) from the printing their number names |
