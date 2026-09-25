@@ -1337,6 +1337,30 @@ func main() {
 	log.Printf("promo types: %d labels over %d cards, and %d varnishes left off as their rarity's own",
 		len(vocabulary), labelled, len(universal))
 
+	// A card is filed where TCGplayer sells it, not where upstream does:
+	// upstream files a promo under the set it is legal in ("10/D23 • EN •
+	// 11"), and 205 of them sit on TCGplayer's promo shelves instead.
+	groupOf := map[int]int{}
+	for _, product := range catalog.Products {
+		groupOf[product.ProductID] = product.GroupID
+	}
+	filedByGroup := map[string]int{}
+	var refiled int
+	for i := range cards {
+		c := &cards[i]
+		group, found := groupOf[c.tcgID]
+		if c.tcgID == 0 || !found {
+			continue
+		}
+		if code := codes[group]; code != c.setCode {
+			c.raw["setCode"] = code
+			c.setCode = code
+			refiled++
+		}
+		filedByGroup[c.setCode]++
+	}
+	log.Printf("sets: %d cards filed under the group TCGplayer sells them in rather than upstream's set", refiled)
+
 	doc["cards"] = items
 
 	// Sealed products: everything the catalog files outside the singles
@@ -1405,7 +1429,7 @@ func main() {
 			count++
 		}
 		code := codes[group.GroupID]
-		count += mintedByGroup[code]
+		count += mintedByGroup[code] + filedByGroup[code]
 		if count == 0 {
 			continue
 		}
