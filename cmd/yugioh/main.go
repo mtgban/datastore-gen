@@ -108,10 +108,17 @@ type ygoSet struct {
 // passcode, and the printings it names by collector number. No image is
 // read or stored - YGOPRODeck's terms forbid hotlinking theirs, and the
 // catalog's own are what the datastore carries.
+//
+// Type and Attribute are read only for the European first prints that mint
+// with no priced sibling to take them from (see mintEuropeanPrints); every
+// other entry's type and attribute come from the catalog, as they always
+// have.
 type ygoCard struct {
-	ID   int    `json:"id"`
-	Name string `json:"name"`
-	Sets []struct {
+	ID        int    `json:"id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Attribute string `json:"attribute"`
+	Sets      []struct {
 		Code   string `json:"set_code"`
 		Rarity string `json:"set_rarity"`
 	} `json:"card_sets"`
@@ -548,6 +555,288 @@ func setCodeOf(abbreviation string) string {
 	return strings.ToUpper(strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-"))
 }
 
+// europeanNumberRe matches a YGOPRODeck card_sets code naming a European
+// first print - the set's own prefix, a literal "E", Konami's three-digit
+// number (LOB-E003, DL1-E001) - and nothing else card_sets happens to
+// spell the same way: PSV-004 is not PSV-E004, and neither is a rarity's
+// own initial. It stays this narrow on purpose; widening it would mint
+// whatever else YGOPRODeck's own vocabulary happens to write with an E.
+var europeanNumberRe = regexp.MustCompile(`^([A-Z0-9]+)-E(\d{3})$`)
+
+// europeanFinishOrder is the order a set's own priced entries are searched
+// in for the run a European first print mints under. card_sets carries no
+// edition, so the set decides once for all of its European first prints -
+// the earliest run in this order that any priced entry of the set sells.
+var europeanFinishOrder = []string{"Unlimited", "1st Edition", "Limited"}
+
+// europeanRarityFolds folds the two set_rarity words upstream spells that
+// this category's own rarity table has no entry for, down to Common. Only
+// an unjoined candidate (no North American sibling to copy a rarity from)
+// reads it.
+var europeanRarityFolds = map[string]string{
+	"short print":       "common",
+	"super short print": "common",
+}
+
+// europeanSibling is the North American printing of the same card. Its
+// name, type, attribute and rarity are copied onto the mint, so the
+// "European" label stays the only difference between the two rows; a
+// name or rarity minted from YGOPRODeck instead would let a listing that
+// names one leave the North American row for the European one (a card
+// whose modern Konami spelling differs from what the catalog carries -
+// "Red-Eyes Black Dragon" against "Red-Eyes B. Dragon" - would do the
+// same for a plain listing). variant is read but never copied, only to
+// decide whether to mint at all.
+type europeanSibling struct {
+	name, cardType, attribute, rarity, variant string
+}
+
+// mintEuropeanPrints adds one entry per European first print YGOPRODeck's
+// card_sets names for a set this build already publishes: joined to its
+// North American sibling by Konami's passcode, falling back to a name
+// join when the passcode does not resolve one, and taking the sibling's
+// own name, type, attribute and rarity so the "European" label stays the
+// only difference between the two rows. The three cards neither join
+// reaches (Time Wizard, Barrel Dragon, Beaver Warrior - never printed in
+// the North American set) mint from YGOPRODeck's own name, type,
+// attribute and rarity instead, the name checked against the names this
+// build already publishes.
+//
+// A code stands down, unminted, rather than mints, when: a priced
+// product already carries that exact number; the joined sibling is not
+// itself a plain row (a labelled sibling would leave every candidate a
+// variant and no plain row left for an unlabelled listing to land on);
+// the set has no priced entry to read a default run from; an unjoined
+// candidate's own rarity is not one this build's own cards carry; or an
+// unjoined name is not itself a published one. Each case is logged and
+// skipped, not fatal - one bad upstream row must not take Yu-Gi-Oh off
+// the build.
+//
+// Every minted row carries the "European" variant and "european" promo
+// type, appended after foldPromoTypes runs so the fold cannot rewrite it.
+// See docs/yugioh-european-prints.md for the label's purpose and the
+// replay evidence.
+func mintEuropeanPrints(cards []any, sets map[string]any, ygoCards []ygoCard) []any {
+	if len(ygoCards) == 0 {
+		log.Print("european first prints: no ygoprodeck cards to mint from")
+		return cards
+	}
+
+	numbered := map[string]bool{}
+	finishesOf := map[string]map[string]bool{}
+	bySetKonami := map[string]europeanSibling{}
+	bySetName := map[string]europeanSibling{}
+	// recordSibling keeps a set's first-seen row for a key, but a plain row
+	// displaces a variant one, so the answer does not depend on card order.
+	recordSibling := func(m map[string]europeanSibling, key string, sib europeanSibling) {
+		if existing, seen := m[key]; !seen || (existing.variant != "" && sib.variant == "") {
+			m[key] = sib
+		}
+	}
+	cardNames := map[string]bool{}
+	// What this build's own cards spell each rarity as - the category's
+	// Rarities table has no plain "Common", only "Common" combined with
+	// "Short Print", and would refuse most of what upstream calls Common.
+	cardRarities := map[string]string{}
+	for _, raw := range cards {
+		e, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		setCode := fmt.Sprint(e["setCode"])
+		if number, _ := e["number"].(string); number != "" {
+			numbered[strings.ToUpper(number)] = true
+		}
+		if finishesOf[setCode] == nil {
+			finishesOf[setCode] = map[string]bool{}
+		}
+		finishesOf[setCode][fmt.Sprint(e["finish"])] = true
+		name := fmt.Sprint(e["name"])
+		cardNames[normalizeName(name)] = true
+		rarity, _ := e["rarity"].(string)
+		if rarity != "" {
+			cardRarities[normRarity(rarity)] = rarity
+		}
+		cardType, _ := e["type"].(string)
+		attribute, _ := e["attribute"].(string)
+		variant, _ := e["variant"].(string)
+		sib := europeanSibling{name: name, cardType: cardType, attribute: attribute, rarity: rarity, variant: variant}
+		if links, ok := e["externalLinks"].(map[string]any); ok {
+			if id, ok := links["konamiId"].(int); ok && id != 0 {
+				recordSibling(bySetKonami, setCode+"|"+strconv.Itoa(id), sib)
+			}
+		}
+		recordSibling(bySetName, setCode+"|"+normalizeName(name), sib)
+	}
+	// finishFor is a set's default run, cached and logged once per prefix:
+	// a set pricing no card at all cannot choose one, and every European
+	// first print of it stands down rather than stopping the build.
+	finishCache := map[string]string{}
+	finishFor := func(setCode string) string {
+		if finish, cached := finishCache[setCode]; cached {
+			return finish
+		}
+		var finish string
+		for _, f := range europeanFinishOrder {
+			if finishesOf[setCode][f] {
+				finish = f
+				break
+			}
+		}
+		finishCache[setCode] = finish
+		if finish == "" {
+			log.Printf("european first prints: %s: prices no card at all; its European first prints stand down", setCode)
+		}
+		return finish
+	}
+
+	type candidate struct {
+		code, prefix string
+		card         ygoCard
+		rarity       string
+	}
+	var candidates []candidate
+	seen := map[string]bool{}
+	for _, card := range ygoCards {
+		for _, set := range card.Sets {
+			code := strings.ToUpper(strings.TrimSpace(set.Code))
+			m := europeanNumberRe.FindStringSubmatch(code)
+			if m == nil || seen[code] {
+				continue
+			}
+			prefix := m[1]
+			if _, published := sets[prefix]; !published {
+				continue
+			}
+			seen[code] = true
+			candidates = append(candidates, candidate{code: code, prefix: prefix, card: card, rarity: set.Rarity})
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].code < candidates[j].code })
+
+	type tally struct {
+		minted, stood, byID, byName, unjoined, rarityFolds int
+		notPlain, noFinish, badRarity, unverifiable        int
+	}
+	stats := map[string]*tally{}
+	statOf := func(prefix string) *tally {
+		if stats[prefix] == nil {
+			stats[prefix] = &tally{}
+		}
+		return stats[prefix]
+	}
+	var minted []any
+	for _, c := range candidates {
+		st := statOf(c.prefix)
+		if numbered[c.code] {
+			st.stood++
+			continue
+		}
+		finish := finishFor(c.prefix)
+		if finish == "" {
+			st.noFinish++
+			continue
+		}
+
+		sib, found := bySetKonami[c.prefix+"|"+strconv.Itoa(c.card.ID)]
+		how := "konami passcode"
+		if !found {
+			sib, found = bySetName[c.prefix+"|"+normalizeName(c.card.Name)]
+			how = "name"
+		}
+		if found && sib.variant != "" {
+			log.Printf("european first prints: %s: North American sibling carries variant %q, not a plain row; standing down to avoid aliasing it",
+				c.code, sib.variant)
+			st.notPlain++
+			continue
+		}
+		if !found {
+			if !cardNames[normalizeName(c.card.Name)] {
+				log.Printf("european first prints: %s: %q has no priced sibling and is not itself a published name; standing down an unverifiable card",
+					c.code, c.card.Name)
+				st.unverifiable++
+				continue
+			}
+			sib = europeanSibling{name: c.card.Name, cardType: c.card.Type, attribute: c.card.Attribute}
+			how = "unjoined"
+		}
+
+		// The sibling's own rarity where one was found (TCGplayer's
+		// catalog wording); only an unjoined candidate falls back to
+		// YGOPRODeck's own set_rarity, spelled through the rarity table.
+		rarity := sib.rarity
+		if how == "unjoined" {
+			rarityKey := normRarity(c.rarity)
+			folded := false
+			if f, ok := europeanRarityFolds[rarityKey]; ok {
+				rarityKey, folded = f, true
+			}
+			var known bool
+			rarity, known = cardRarities[rarityKey]
+			if !known {
+				log.Printf("european first prints: %s: rarity %q is not one this build's own cards carry; standing down", c.code, c.rarity)
+				st.badRarity++
+				continue
+			}
+			if folded {
+				st.rarityFolds++
+			}
+		}
+
+		switch how {
+		case "konami passcode":
+			st.byID++
+		case "name":
+			st.byName++
+		case "unjoined":
+			st.unjoined++
+		}
+		st.minted++
+
+		entry := map[string]any{
+			"id":            strings.ToLower(c.code) + emit.FinishSuffix(finish),
+			"name":          sib.name,
+			"number":        c.code,
+			"setCode":       c.prefix,
+			"rarity":        rarity,
+			"attribute":     sib.attribute,
+			"type":          sib.cardType,
+			"finish":        finish,
+			"variant":       "European",
+			"promoTypes":    []string{"european"},
+			"externalLinks": map[string]any{"konamiId": c.card.ID},
+		}
+		minted = append(minted, entry)
+	}
+
+	var prefixes []string
+	for prefix := range stats {
+		prefixes = append(prefixes, prefix)
+	}
+	sort.Strings(prefixes)
+	var totalMinted, totalStood, totalByID, totalByName, totalUnjoined, totalFolds int
+	var totalNotPlain, totalNoFinish, totalBadRarity, totalUnverifiable int
+	for _, prefix := range prefixes {
+		st := stats[prefix]
+		log.Printf("european first prints: %s: %d minted (%d by passcode, %d by name, %d unjoined, %d rarities folded), %d already priced, %d not a plain sibling, %d no default finish, %d bad rarity, %d unverifiable",
+			prefix, st.minted, st.byID, st.byName, st.unjoined, st.rarityFolds, st.stood, st.notPlain, st.noFinish, st.badRarity, st.unverifiable)
+		totalMinted += st.minted
+		totalStood += st.stood
+		totalByID += st.byID
+		totalByName += st.byName
+		totalUnjoined += st.unjoined
+		totalFolds += st.rarityFolds
+		totalNotPlain += st.notPlain
+		totalNoFinish += st.noFinish
+		totalBadRarity += st.badRarity
+		totalUnverifiable += st.unverifiable
+	}
+	log.Printf("european first prints: %d minted (%d by passcode, %d by name, %d unjoined, %d rarities folded), stood down: %d already priced, %d not a plain sibling, %d no default finish, %d bad rarity, %d unverifiable",
+		totalMinted, totalByID, totalByName, totalUnjoined, totalFolds, totalStood, totalNotPlain, totalNoFinish, totalBadRarity, totalUnverifiable)
+
+	return append(cards, minted...)
+}
+
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 2 (required)")
@@ -623,16 +912,18 @@ func main() {
 	// A source that will not answer costs the annotation and nothing else:
 	// the datastore is the catalog's, and the passcode rides along on it.
 	var codes passcodes
+	var ygoCardList []ygoCard
 	cardsData, err := emit.Fetch(*ygoCards)
 	if err != nil {
-		log.Printf("ygoprodeck cards: %v (passcodes not annotated)", err)
+		log.Printf("ygoprodeck cards: %v (passcodes not annotated, no european first prints minted)", err)
 	} else {
 		var payload struct {
 			Data []ygoCard `json:"data"`
 		}
 		if err := json.Unmarshal(cardsData, &payload); err != nil {
-			log.Printf("ygoprodeck cards: %v (passcodes not annotated)", err)
+			log.Printf("ygoprodeck cards: %v (passcodes not annotated, no european first prints minted)", err)
 		} else {
+			ygoCardList = payload.Data
 			codes = konamiIDs(payload.Data)
 			log.Printf("ygoprodeck cards: %d cards, %d collector numbers naming one passcode",
 				len(payload.Data), len(codes.byNumber))
@@ -1292,6 +1583,10 @@ func main() {
 	}
 	log.Printf("promo types: %d labels dropped as the printing's own facts, %d tokens left, each one a slug", dropped, tokens)
 	log.Printf("release dates: %d printings dated by their own name, where the set dates them otherwise", dated)
+
+	// The European first prints, minted after the fold so it cannot rewrite
+	// their "European" label back into a promo type of its own.
+	cards = mintEuropeanPrints(cards, sets, ygoCardList)
 	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
 		len(sets), len(cards), len(singles), len(sealed))
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
@@ -1440,6 +1735,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 			Finish        string `json:"finish"`
 			ExternalLinks struct {
 				TcgPlayerID int `json:"tcgPlayerId"`
+				KonamiID    int `json:"konamiId"`
 			} `json:"externalLinks"`
 		} `json:"cards"`
 		Sealed []struct {
@@ -1480,18 +1776,22 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	// two different products never do - keying on the finish instead would
 	// wave through exactly the pair this is meant to catch, since most
 	// products carry a single edition.
-	identities := map[string]int{}
+	identities := map[string]string{}
 	var shared emit.SharedIdentities
 	gotFinishes := map[int][]string{}
 	for _, card := range doc.Cards {
+		// A minted card sells as no TCGplayer product, so the zero-skip
+		// check accepts a missing TcgPlayerID only for its own number
+		// shape plus a Konami id; anything else missing one is broken.
+		minted := europeanNumberRe.MatchString(card.Number) && card.ExternalLinks.KonamiID != 0
 		// The rarity is this game's variant axis and part of the identity,
 		// but its presence is TCGplayer's to provide, not this build's to
 		// demand: a freshly listed product carries none for a day, and one
 		// card without a rarity is no reason to publish nothing at all.
 		// The identity check below still refuses two products that are
 		// indistinguishable without it.
-		if card.ID == "" || card.Name == "" ||
-			card.Finish == "" || card.ExternalLinks.TcgPlayerID == 0 {
+		if card.ID == "" || card.Name == "" || card.Finish == "" ||
+			(card.ExternalLinks.TcgPlayerID == 0 && !minted) {
 			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
 		}
 		if !idShape.MatchString(card.ID) {
@@ -1509,19 +1809,30 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		cardIDs[card.ID] = true
 		identity := strings.Join([]string{
 			card.Name, card.Number, card.SetCode, card.Rarity, card.Variant}, "|")
-		if other, seen := identities[identity]; seen && other != card.ExternalLinks.TcgPlayerID {
-			shared.Add(fmt.Sprintf("product %d", other), fmt.Sprintf("product %d", card.ExternalLinks.TcgPlayerID), identity)
+		// A minted card bears no product, so it stands for itself under
+		// its own uuid - keyed on product 0, every mint in a set would
+		// look like one card and hide the collision this checks for.
+		bearer := fmt.Sprintf("product %d", card.ExternalLinks.TcgPlayerID)
+		if card.ExternalLinks.TcgPlayerID == 0 {
+			bearer = "card " + card.ID
+		}
+		if other, seen := identities[identity]; seen && other != bearer {
+			shared.Add(other, bearer, identity)
 		} else {
-			identities[identity] = card.ExternalLinks.TcgPlayerID
+			identities[identity] = bearer
 		}
 		if _, found := doc.Sets[card.SetCode]; !found {
 			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
 		}
-		productID := card.ExternalLinks.TcgPlayerID
-		if sliceContains(gotFinishes[productID], card.Finish) {
-			return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
+		// Only products are counted against the catalog's skus; a minted
+		// card answers to none and would otherwise pile every European
+		// first print's finish under product 0.
+		if productID := card.ExternalLinks.TcgPlayerID; productID != 0 {
+			if sliceContains(gotFinishes[productID], card.Finish) {
+				return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
+			}
+			gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 		}
-		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
 	}
 	if err := shared.Check(); err != nil {
 		return out, err

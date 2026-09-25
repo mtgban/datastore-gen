@@ -110,6 +110,7 @@ hold. Current counts:
 | fleshandblood | 205 entries over 205 collector numbers | 5 |
 | pokemon | 257 entries over 867 tcgdex cards | 38 |
 | onepiece | 49 pre-errata printings, hand-carried | 0 |
+| yugioh | 691 European first prints, 688 joined to their North American sibling | 0 |
 
 One Piece mints from neither source: the catalog carries every number
 Bandai publishes, and Bandai files an errata as a correction to a card
@@ -120,12 +121,15 @@ finish, artwork and rarity from the printing each is an errata of. A row
 stands down the day any source carries its identity, so the hand-carried
 entry never becomes a second card wearing a name a product already holds.
 
-Yu-Gi-Oh is the exception: it mints nothing. YGOPRODeck's cardinfo.php is
-read for Konami's passcodes, joined onto the catalog's printings by
+Yu-Gi-Oh mints one thing: the European first-print run of a set the catalog
+sells only the North American run of, joined to the catalog's printing of
+the same card by Konami's passcode and labelled "European" so a plain
+listing still lands on the North American card. YGOPRODeck's cardinfo.php
+is read for Konami's passcodes, joined onto the catalog's printings by
 collector number and checked against the name, and cardsets.php for the
 release dates TCGplayer lacks; no YGOPRODeck image is stored, their terms
-forbidding hotlinking. Neither adds a card the catalog does not sell, so
-there is no second half to add.
+forbidding hotlinking. See `docs/yugioh-european-prints.md` for the full
+mechanism and the replay evidence behind the label.
 
 ## What a datastore carries
 
