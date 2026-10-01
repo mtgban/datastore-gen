@@ -1,0 +1,91 @@
+name: measure
+
+# Measures a pull request the way its description is expected to: every game
+# it can reach built before and after on one catalog and one set of upstream
+# responses, with what datastorediff says moved, whether the build is
+# deterministic, how the logs, the vocabulary check and the baseline guard
+# answer, and how go-mtgban's catalog replay moved. The report is the job
+# summary; the diffs and logs behind it are the `measure` artifact.
+on:
+  pull_request:
+    paths:
+      - "cmd/**"
+      - "internal/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/scripts/measure-lib.sh"
+      - ".github/scripts/pr-measure.sh"
+  workflow_dispatch:
+    inputs:
+      before:
+        description: The commit to measure from
+        required: true
+        type: string
+      after:
+        description: The commit to measure
+        required: true
+        type: string
+
+# A new push to a pull request supersedes the measurement of the last one.
+concurrency:
+  group: measure-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    # The inputs come out of the bucket, so a pull request from a fork, which
+    # gets no secrets, has nothing to measure with.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # Both ends of the change are checked out and built.
+          fetch-depth: 0
+
+      - name: Checkout go-mtgban
+        uses: actions/checkout@v7
+        with:
+          repository: mtgban/go-mtgban
+          path: go-mtgban
+
+      - name: Install golang
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install b2
+        run: pipx install b2
+
+      - name: Measure
+        env:
+          B2_APPLICATION_KEY_ID: ${{ secrets.B2_APPLICATION_KEY_ID_DATASTORE }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY_DATASTORE }}
+          BEFORE_INPUT: ${{ inputs.before }}
+          AFTER_INPUT: ${{ inputs.after }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GOMTGBAN: ${{ github.workspace }}/go-mtgban
+          OUT: ${{ github.workspace }}/measure-out
+        run: |
+          if [ -n "${BEFORE_INPUT:-}" ]; then
+            before=$BEFORE_INPUT after=$AFTER_INPUT
+          else
+            # From the merge base, so master's own commits since the branch
+            # point are not counted as this change's.
+            after=$HEAD_SHA
+            before=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
+          fi
+          .github/scripts/pr-measure.sh "$before" "$after"
+
+      - name: Keep the diffs and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: measure
+          path: measure-out
+          if-no-files-found: ignore

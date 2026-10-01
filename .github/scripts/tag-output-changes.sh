@@ -37,41 +37,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-GAMES="riftbound lorcana onepiece yugioh fleshandblood pokemon gundam palworld"
+# shellcheck source=measure-lib.sh
+source "$(dirname "$0")/measure-lib.sh"
 
-# The flags each builder needs beyond the catalog, and where this run pins
-# them. A builder that has not grown a flag yet simply does not get it:
-# every one is checked against the source at the commit being built, so one
-# script spans the whole history rather than only its tip.
-upstream_flags() {
-  case "$1" in
-    riftbound)     echo "gallery=$WORK/riftbound-gallery.json" ;;
-    lorcana)       echo "lorcana=$WORK/lorcana-allcards.json cardmarket-catalog=$WORK/lorcana-cardmarket.json" ;;
-    onepiece)      echo "punk-cards=$WORK/punk-cards.json punk-packs=$WORK/punk-packs.json cardmarket-catalog=$WORK/onepiece-cardmarket.json" ;;
-    yugioh)        echo "ygoprodeck-sets=$WORK/ygo-sets.json ygoprodeck-cards=$WORK/ygo-cards.json" ;;
-    fleshandblood) echo "fab-cards=$WORK/fab-cards.json fab-sets=$WORK/fab-sets.json" ;;
-    pokemon)       echo "tcgdex-sets=$WORK/tcgdex-sets.json tcgdex-cards=$WORK/tcgdex-cards.json pokemontcg-sets=$WORK/pokemontcg-sets.json cardmarket-catalog=$WORK/pokemon-cardmarket.json" ;;
-    gundam)        echo "gcg-cards=$WORK/gcg-cards.json" ;;
-    palworld)      echo "palworld-cards=$WORK/palworld-cards.json" ;;
-  esac
-}
-
-# Which games a commit could possibly have changed. A builder reaches its
-# own directory, the module files, and the internal packages it imports;
-# internal/ is treated as reaching every builder rather than reading each
-# one's imports, since a package none of them imports yet costs a run of
-# builds that all say "no change".
+# Which games a commit could possibly have changed.
 games_touched() {
-  local sha=$1 touched=""
-  local files
-  files=$(git diff-tree --no-commit-id --name-only -r "$sha")
-  if grep -qE '^(go\.(mod|sum)|internal/)' <<<"$files"; then
-    echo "$GAMES"; return
-  fi
-  for g in $GAMES; do
-    grep -q "^cmd/$g/" <<<"$files" && touched="$touched $g"
-  done
-  echo "$touched"
+  git diff-tree --no-commit-id --name-only -r "$1" | games_in
 }
 
 COMMITS=$(git rev-list --reverse --no-merges "$BEFORE..$AFTER")
@@ -92,35 +63,9 @@ if [ -z "${NEEDED// /}" ]; then
 fi
 echo "games this range could have changed:$NEEDED"
 
-# One catalog and one set of upstream responses for the whole run. Only the
-# games in the range are fetched, which is what keeps a push touching one
-# builder from pulling a quarter of a gigabyte it will not read.
 echo "::group::fetching inputs"
-for g in $NEEDED; do
-  b2 file download --no-progress "b2://mtgban-datastore/$g/tcgplayer-catalog.json.xz" "$WORK/$g-cat.json.xz" >/dev/null
-  xz -d "$WORK/$g-cat.json.xz"
-done
-fetch() { curl -sSL --retry 3 --retry-all-errors --max-time 180 -A "datastore-gen tagger" "$1" -o "$2"; }
-for g in $NEEDED; do
-  case $g in
-    riftbound)     "$(dirname "$0")/fetch-riftbound-gallery.sh" "$WORK/riftbound-gallery.json" ;;
-    lorcana)       fetch https://lorcanajson.org/files/current/en/allCards.json "$WORK/lorcana-allcards.json"
-                   b2 file download --no-progress b2://mtgban-datastore/lorcana/cardmarket_catalog.json.xz "$WORK/lorcana-cardmarket.json.xz" >/dev/null && xz -d "$WORK/lorcana-cardmarket.json.xz" ;;
-    onepiece)      fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json "$WORK/punk-cards.json"
-                   fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/packs.json "$WORK/punk-packs.json"
-                   b2 file download --no-progress b2://mtgban-datastore/onepiece/cardmarket_catalog.json.xz "$WORK/onepiece-cardmarket.json.xz" >/dev/null && xz -d "$WORK/onepiece-cardmarket.json.xz" ;;
-    yugioh)        fetch https://db.ygoprodeck.com/api/v7/cardsets.php "$WORK/ygo-sets.json"
-                   fetch https://db.ygoprodeck.com/api/v7/cardinfo.php "$WORK/ygo-cards.json" ;;
-    fleshandblood) fetch https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card-flattened.json "$WORK/fab-cards.json"
-                   fetch https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/set.json "$WORK/fab-sets.json" ;;
-    gundam)        fetch https://raw.githubusercontent.com/yzRobo/gcg-api/main/data/cards.json "$WORK/gcg-cards.json" ;;
-    palworld)      "$(dirname "$0")/fetch-palworld-cards.sh" "$WORK/palworld-cards.json" ;;
-    pokemon)       b2 file download --no-progress b2://mtgban-datastore/pokemon/tcgdex-sets.json.xz "$WORK/tcgdex-sets.json.xz" >/dev/null && xz -d "$WORK/tcgdex-sets.json.xz"
-                   b2 file download --no-progress b2://mtgban-datastore/pokemon/tcgdex-cards.json.xz "$WORK/tcgdex-cards.json.xz" >/dev/null && xz -d "$WORK/tcgdex-cards.json.xz"
-                   b2 file download --no-progress b2://mtgban-datastore/pokemon/cardmarket_catalog.json.xz "$WORK/pokemon-cardmarket.json.xz" >/dev/null && xz -d "$WORK/pokemon-cardmarket.json.xz"
-                   fetch "https://api.pokemontcg.io/v2/sets?pageSize=250" "$WORK/pokemontcg-sets.json" ;;
-  esac
-done
+# shellcheck disable=SC2086 # one game per word
+fetch_inputs $NEEDED
 echo "::endgroup::"
 
 # Built from the tip, where the tool exists, rather than from whichever
@@ -128,34 +73,14 @@ echo "::endgroup::"
 go build -o "$WORK/datastorediff" ./cmd/datastorediff
 git worktree add -q --detach "$BUILD" "$AFTER"
 
-# Build one game at one commit, into $WORK/<game>-<sha>.json. The flags are
-# read off that commit's own source, so a commit predating a flag is built
-# without it rather than failing on one it does not define.
-build_at() {
-  local g=$1 sha=$2 out="$WORK/$1-${2:0:12}.json"
-  [ -f "$out" ] && { echo "$out"; return 0; }
-  git -C "$BUILD" checkout -q --detach "$sha" || return 1
-  # A commit before the builder existed built nothing: measured against an
-  # empty datastore, so the commit that adds a builder is tagged for what
-  # it published rather than skipped as unbuildable at its parent.
-  [ -d "$BUILD/cmd/$g" ] || { printf '{"cards":[],"sets":{},"sealed":[]}' > "$out"; echo "$out"; return 0; }
-  local args=""
-  for kv in $(upstream_flags "$g"); do
-    local name=${kv%%=*} path=${kv#*=}
-    grep -q "\"$name\"" "$BUILD/cmd/$g/main.go" 2>/dev/null && args="$args -$name $path"
-  done
-  # shellcheck disable=SC2086
-  ( cd "$BUILD" && go run "./cmd/$g" -tcg-catalog "$WORK/$g-cat.json" $args -o "$out" ) >/dev/null 2>&1 || return 1
-  echo "$out"
-}
-
 # The next number for a game, counted forward from the highest tag that
 # already exists. It is held rather than re-read, so a run that assigns two
 # numbers to one game gets two numbers - re-reading the tags would hand out
 # the same one twice on a dry run, which creates none.
 seed_number() {
   local g=$1 last
-  last=$(git tag --list "$g-v*" | sed "s/^$g-v//" | grep -E '^[0-9]+$' | sort -n | tail -1)
+  # A game with no tag yet starts at 1; the empty grep must not end the run.
+  last=$(git tag --list "$g-v*" | sed "s/^$g-v//" | grep -E '^[0-9]+$' | sort -n | tail -1 || true)
   eval "NEXT_$g=$(( ${last:-0} + 1 ))"
 }
 # Sets TAKEN rather than printing, because a command substitution runs in a
