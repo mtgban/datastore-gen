@@ -744,6 +744,39 @@ type card struct {
 	foilTypes []string
 }
 
+// oneCardPerPrinting leaves one card per printing, which upstream's
+// fullIdentifier names ("26/P2 • EN • 7"). Two cards under one are the same
+// printing under two names, as Vaiana is Moana's in Europe, and the card with
+// the lower id is kept. It returns the cards kept, in their order, and the
+// ones skipped.
+func oneCardPerPrinting(items []any) ([]any, []string) {
+	first := map[string]int{}
+	for _, item := range items {
+		raw, _ := item.(map[string]any)
+		printing, _ := raw["fullIdentifier"].(string)
+		id, ok := cardID(raw["id"])
+		if printing == "" || !ok {
+			continue
+		}
+		if kept, seen := first[printing]; !seen || id < kept {
+			first[printing] = id
+		}
+	}
+	var kept []any
+	var skipped []string
+	for _, item := range items {
+		raw, _ := item.(map[string]any)
+		printing, _ := raw["fullIdentifier"].(string)
+		id, ok := cardID(raw["id"])
+		if printing != "" && ok && first[printing] != id {
+			skipped = append(skipped, fmt.Sprintf("%v (%d), the printing of %d", raw["fullName"], id, first[printing]))
+			continue
+		}
+		kept = append(kept, item)
+	}
+	return kept, skipped
+}
+
 // oneCardPerID leaves one card per upstream id. The id is what every
 // printing's uuid is spelled from, so two cards under one would share the
 // first card's uuids and its prices, and validate refuses the build.
@@ -831,73 +864,6 @@ func decodeCard(item any) (card, bool) {
 		tcgID:     int(id),
 		foilTypes: foilTypes,
 	}, true
-}
-
-// handExternalLinks corrects externalLinks LorcanaJSON copies from a
-// different card onto this one, keyed by its own upstream id. Vaiana -
-// Adventurer of Land and Sea (1663) is Moana - Adventurer of Land and Sea
-// (1433, same number, same "Moana 2" promo) under Disney's regional title;
-// upstream copies Moana's own cardmarketId and cardTraderId onto it rather
-// than naming a card of its own. Cardmarket sells it as a separate product
-// (804164, expansion 5844 "Promos Year 2" - verified against the
-// 2026-09-24 Cardmarket catalog); CardTrader has no blueprint for it at
-// all, so the shared cardTraderId (Moana's own 311906) is dropped rather
-// than guessed. A census of all 3,266 cards for a shared cardmarketId or
-// cardTraderId found no other pair like it.
-var handExternalLinks = map[int]struct {
-	sharedCardmarketID int // the id upstream wrongly copies today
-	cardmarketID       int // the card's own Cardmarket product
-	sharedCardTraderID int // the id upstream wrongly copies today; dropped, not replaced
-}{
-	1663: {sharedCardmarketID: 801862, cardmarketID: 804164, sharedCardTraderID: 311906},
-}
-
-// fixExternalLinks applies handExternalLinks to the cards it names and
-// reports what it did to each one, the way oneCardPerID reports its
-// repeats. A row stands down instead of applying where it is no longer
-// doing anything: its card is gone from upstream, or upstream has stopped
-// copying the id the row corrects - by fixing it, or by giving the card
-// some other id neither the row's stored "shared" value nor its correction
-// names, which is left alone rather than guessed at.
-func fixExternalLinks(cards []card) []string {
-	byID := map[int]map[string]any{}
-	for _, c := range cards {
-		if id, ok := cardID(c.raw["id"]); ok {
-			byID[id] = c.links
-		}
-	}
-	// Stable order, so unchanged data keeps producing byte-identical output.
-	ids := make([]int, 0, len(handExternalLinks))
-	for id := range handExternalLinks {
-		ids = append(ids, id)
-	}
-	sort.Ints(ids)
-
-	var reports []string
-	for _, id := range ids {
-		fix := handExternalLinks[id]
-		links, found := byID[id]
-		if !found {
-			reports = append(reports, fmt.Sprintf("%d is gone from the source; the row correcting its external links does nothing", id))
-			continue
-		}
-		if have, _ := links["cardmarketId"].(float64); int(have) == fix.sharedCardmarketID {
-			links["cardmarketId"] = float64(fix.cardmarketID)
-			reports = append(reports, fmt.Sprintf("%d cardmarketId corrected from %d to %d", id, fix.sharedCardmarketID, fix.cardmarketID))
-		} else {
-			reports = append(reports, fmt.Sprintf("%d no longer carries cardmarketId %d; the row correcting it to %d does nothing",
-				id, fix.sharedCardmarketID, fix.cardmarketID))
-		}
-		if have, _ := links["cardTraderId"].(float64); int(have) == fix.sharedCardTraderID {
-			delete(links, "cardTraderId")
-			delete(links, "cardTraderUrl")
-			reports = append(reports, fmt.Sprintf("%d cardTraderId %d dropped, shared with another card", id, fix.sharedCardTraderID))
-		} else {
-			reports = append(reports, fmt.Sprintf("%d no longer carries cardTraderId %d; the row dropping it does nothing",
-				id, fix.sharedCardTraderID))
-		}
-	}
-	return reports
 }
 
 // mintedCardmarketIDs gives a minted card the Cardmarket product it is sold
@@ -1086,6 +1052,11 @@ func main() {
 		log.Printf("lorcana: %d cards repeat an id another card already has: %s",
 			len(repeats), strings.Join(repeats, ", "))
 	}
+	items, renamed := oneCardPerPrinting(items)
+	if len(renamed) > 0 {
+		log.Printf("lorcana: %d cards are a printing another card already is, skipped: %s",
+			len(renamed), strings.Join(renamed, ", "))
+	}
 
 	var cards []card
 	claimed := map[int]bool{}
@@ -1101,51 +1072,31 @@ func main() {
 			claimants[c.tcgID] = append(claimants[c.tcgID], len(cards)-1)
 		}
 	}
-	if reports := fixExternalLinks(cards); len(reports) > 0 {
-		log.Printf("hand-carried external links: %s", strings.Join(reports, "; "))
-	}
 	log.Printf("lorcana: %d cards, %d already carrying a product id", len(cards), len(claimed))
 
 	// Upstream sometimes puts one product id on two cards, and one printing
 	// belongs to one card: a shared id merges their price histories into
-	// whichever of them a consumer loads last. Settle it on the product's
-	// own name and collector number rather than on upstream's array order,
-	// so the answer does not move when upstream reorders — the claimant the
-	// product identifies keeps the id, the other loses it and is left to
-	// the fill below, which finds it the product that does match. A product
-	// identifying none of its claimants or several is left for validate to
-	// refuse, because nothing here can tell those cards apart.
+	// whichever of them a consumer loads last. Upstream's word is no good
+	// for either, so the id is dropped from both and left to the fill below,
+	// which gives it to the card the product's own name and number identify.
+	var contested []int
 	for id, indexes := range claimants {
-		if len(indexes) < 2 {
-			continue
+		if len(indexes) > 1 {
+			contested = append(contested, id)
 		}
-		product, found := productByID[id]
-		if !found {
-			continue
-		}
-		key := normalizeName(product.Name) + "|" + number(product.Extended("Number"))
-		var keeps []int
-		for _, i := range indexes {
-			if normalizeName(cards[i].fullName)+"|"+cards[i].number == key {
-				keeps = append(keeps, i)
-			}
-		}
-		if len(keeps) != 1 {
-			continue
-		}
-		for _, i := range indexes {
-			if i == keeps[0] {
-				continue
-			}
+	}
+	sort.Ints(contested)
+	for _, id := range contested {
+		var names []string
+		for _, i := range claimants[id] {
 			cards[i].tcgID = 0
 			delete(cards[i].links, "tcgPlayerId")
-			// The url names the same contested product, so it would
-			// contradict whatever id the fill gives this card.
 			delete(cards[i].links, "tcgPlayerUrl")
-			log.Printf("contested product %d: kept on %s (%s %s), dropped from %s (%s %s)",
-				id, cards[keeps[0]].fullName, cards[keeps[0]].setCode, cards[keeps[0]].number,
-				cards[i].fullName, cards[i].setCode, cards[i].number)
+			names = append(names, fmt.Sprintf("%s (%s %s)", cards[i].fullName, cards[i].setCode, cards[i].number))
 		}
+		delete(claimed, id)
+		log.Printf("contested product %d: upstream gives it to %s; dropped from all, left to the fill",
+			id, strings.Join(names, ", "))
 	}
 
 	// Index the single products no card claims, by normalized name and
@@ -1176,53 +1127,73 @@ func main() {
 		})
 	}
 
+	// Each card first says which products it would take, and a product goes
+	// to a card only when no other card asks for it too: two cards of one
+	// name and number in different sets ask for the same products, and
+	// nothing here tells which is which.
+	asks := make([][]int, len(cards))
+	askedBy := map[int]int{}
+	for i, c := range cards {
+		candidates := unclaimed[normalizeName(c.fullName)+"|"+c.number]
+		if c.tcgID == 0 {
+			// Only an unambiguous match may stand in for an id upstream did
+			// not publish: several candidates means we cannot tell which
+			// printing is the card's, and a wrong id silently reroutes a
+			// card's whole price history.
+			if len(candidates) == 1 {
+				asks[i] = []int{candidates[0].ProductID}
+			}
+		} else {
+			// TCGplayer sometimes sells a card's foil as its own product,
+			// leaving the claimed product foilless; those extra ids resolve
+			// to this same printing. The name must match exactly once the
+			// decoration is stripped AND the product must be foil-only,
+			// which excludes the oversized, errata and region-exclusive
+			// listings that share a name and number but are a different
+			// object whose prices must not land here.
+			for _, product := range candidates {
+				if foilOnly(printings[product.ProductID]) && strings.HasSuffix(product.Name, "(Foil)") {
+					asks[i] = append(asks[i], product.ProductID)
+				}
+			}
+		}
+		for _, id := range asks[i] {
+			askedBy[id]++
+		}
+	}
+
 	var filled, extras int
+	var shared []int
 	matched := map[int]bool{}
 	// By index: the id filled below has to land on the card itself rather
 	// than on a copy of it, or the printing export and the finish audit
 	// that follow skip every card this just identified.
 	for i := range cards {
 		c := &cards[i]
-		key := normalizeName(c.fullName) + "|" + c.number
-		candidates := unclaimed[key]
-
-		if c.tcgID == 0 {
-			// Only an unambiguous match may stand in for an id upstream did
-			// not publish: several candidates means we cannot tell which
-			// printing is the card's, and a wrong id silently reroutes a
-			// card's whole price history.
-			if len(candidates) != 1 {
-				continue
-			}
-			c.tcgID = candidates[0].ProductID
-			c.links["tcgPlayerId"] = c.tcgID
-			matched[c.tcgID] = true
-			filled++
-			continue
-		}
-
-		// TCGplayer sometimes sells a card's foil as its own product, leaving
-		// the claimed product foilless; those extra ids resolve to this same
-		// printing. The name must match exactly once the decoration is
-		// stripped AND the product must be foil-only, which excludes the
-		// oversized, errata and region-exclusive listings that share a name
-		// and number but are a different object whose prices must not land
-		// here.
 		var ids []int
-		for _, product := range candidates {
-			if !foilOnly(printings[product.ProductID]) {
+		for _, id := range asks[i] {
+			if askedBy[id] > 1 {
+				if !slices.Contains(shared, id) {
+					shared = append(shared, id)
+				}
 				continue
 			}
-			if !strings.HasSuffix(product.Name, "(Foil)") {
-				continue
-			}
-			ids = append(ids, product.ProductID)
-			matched[product.ProductID] = true
+			ids = append(ids, id)
+			matched[id] = true
 		}
-		if len(ids) > 0 {
+		switch {
+		case len(ids) == 0:
+		case c.tcgID == 0:
+			c.tcgID = ids[0]
+			c.links["tcgPlayerId"] = c.tcgID
+			filled++
+		default:
 			c.links["tcgPlayerExtraIds"] = ids
 			extras += len(ids)
 		}
+	}
+	if len(shared) > 0 {
+		log.Printf("merged: %d products several cards would take, given to none: %v", len(shared), shared)
 	}
 	log.Printf("merged: %d product ids filled in, %d extra product ids recorded", filled, extras)
 
