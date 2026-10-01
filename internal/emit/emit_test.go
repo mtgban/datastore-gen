@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -17,6 +16,20 @@ import (
 
 	"github.com/mtgban/go-tcgplayer"
 )
+
+// sameJSON reports whether two decoded documents encode to the same bytes;
+// encoding/json writes map keys in sorted order.
+func sameJSON(a, b any) bool {
+	left, err := json.Marshal(a)
+	if err != nil {
+		return false
+	}
+	right, err := json.Marshal(b)
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(left, right)
+}
 
 // TestFinishSuffixIsDerived pins that nothing about a category's printings
 // is written here. TCGplayer names them, adds to them and renames them, and
@@ -113,7 +126,7 @@ func TestPlainQuotesWalksTheWholeDocument(t *testing.T) {
 			`Eustass"Captain"Kid`,
 		},
 	}
-	if got := PlainQuotes(doc); !reflect.DeepEqual(got, want) {
+	if got := PlainQuotes(doc); !sameJSON(got, want) {
 		t.Errorf("PlainQuotes = %v, want %v", got, want)
 	}
 }
@@ -192,7 +205,7 @@ func TestEnvelopeShape(t *testing.T) {
 	if !bytes.HasPrefix(encoded, []byte(`{"meta":`)) {
 		t.Errorf("document opens %.24q, want it to open with meta", encoded)
 	}
-	if !reflect.DeepEqual(decoded.Data, map[string]any{"sets": "x"}) {
+	if !sameJSON(decoded.Data, map[string]any{"sets": "x"}) {
 		t.Errorf("data = %v, want the payload unchanged", decoded.Data)
 	}
 }
@@ -287,7 +300,7 @@ func TestUnwrapAgreesWithItself(t *testing.T) {
 			if err := json.Unmarshal(peeled, &asBytes); err != nil {
 				t.Fatalf("decode %s: %v", peeled, err)
 			}
-			if !reflect.DeepEqual(asBytes, asDocument) {
+			if !sameJSON(asBytes, asDocument) {
 				t.Errorf("%s: Unwrap = %v, UnwrapDocument = %v", document, asBytes, asDocument)
 			}
 		}
