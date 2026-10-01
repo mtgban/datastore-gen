@@ -2447,6 +2447,7 @@ func main() {
 	log.Printf("release dates: %d printings dated by a year their label stated, where the set states another",
 		datePrintings(cards, sets))
 
+	cards = emit.DropRepeatedFinishes(cards)
 	doc := map[string]any{
 		"game":   "onepiece",
 		"sets":   sets,

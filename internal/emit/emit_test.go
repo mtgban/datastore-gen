@@ -385,3 +385,27 @@ func TestReadCatalogDropsRepeats(t *testing.T) {
 		t.Errorf("products %q, %d groups; want %q, 1", names, len(catalog.Groups), want)
 	}
 }
+
+// TestDropRepeatedFinishesKeepsTheFirst pins that a second entry pricing a
+// product's finish is dropped, the first kept whatever else it carries, and
+// that entries no product prices, or pricing another finish, are kept.
+func TestDropRepeatedFinishesKeepsTheFirst(t *testing.T) {
+	entry := func(id string, product int, finish string) map[string]any {
+		e := map[string]any{"id": id, "finish": finish}
+		if product != 0 {
+			e["externalLinks"] = map[string]any{"tcgPlayerId": product}
+		}
+		return e
+	}
+	kept := DropRepeatedFinishes([]any{
+		entry("a", 100, "Normal"), entry("a_foil", 100, "Foil"), entry("b", 100, "Normal"),
+		entry("m1", 0, "Normal"), entry("m2", 0, "Normal"), entry("c", 200, "Normal"),
+	})
+	var ids []string
+	for _, e := range kept {
+		ids = append(ids, e.(map[string]any)["id"].(string))
+	}
+	if !slices.Equal(ids, []string{"a", "a_foil", "m1", "m2", "c"}) {
+		t.Errorf("kept %v, want b alone dropped", ids)
+	}
+}

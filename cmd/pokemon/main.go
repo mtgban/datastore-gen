@@ -4493,6 +4493,7 @@ func main() {
 
 	log.Printf("watermarks: %d printings marked by which copy of the number they are, %d still alike", marked, alike)
 
+	cards = emit.DropRepeatedFinishes(cards)
 	doc := map[string]any{
 		"game":   "pokemon",
 		"sets":   sets,
