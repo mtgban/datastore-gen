@@ -8,8 +8,8 @@ quoted it is the earlier day's.
 
 Module `github.com/mtgban/datastore-gen`, Go 1.26 (toolchain go1.26.8).
 Direct dependencies: `github.com/mtgban/go-tcgplayer` (the catalog reader) and
-`github.com/mtgban/go-cardmarket` (the Cardmarket catalog reader, Pokemon
-only). Nothing from go-mtgban is imported; the consumer and the producer
+`github.com/mtgban/go-cardmarket` (the Cardmarket catalog reader: Lorcana,
+One Piece and Pokemon). Nothing from go-mtgban is imported; the consumer and the producer
 meet only at the published file.
 
 ## 1. What a datastore is
@@ -125,8 +125,9 @@ whole.
 
 Keys are set codes: the catalog group's abbreviation, upper case, repaired
 where the catalog leaves it blank or claims it twice (a derived code, or the
-abbreviation with `-<groupId>`). A code is never claimed twice; a build whose
-set count differs from its group count is refused.
+abbreviation with `-<groupId>`). A code is never claimed twice; Gundam, One
+Piece and Palworld also refuse a build whose set count differs from its
+populated group count.
 
 | field | meaning |
 |---|---|
@@ -157,7 +158,7 @@ Common to every game:
 | `finish` | the catalog's printing name for the sku this entry prices: `Normal`, `Holofoil`, `Reverse Holofoil`, `1st Edition`, `Unlimited`, `Rainbow Foil`, `Cold Foil`… One entry per sku printing; the catalog decides which exist |
 | `variant` | the catalog's qualifiers, joined with spaces, wording untouched: the prose everything below is distilled from |
 | `promoTypes` | the promotions the printing wears, as lowercase slug tokens (§3.1); absent when none |
-| `watermark` | the mark: which copy of this number the printing is (§3.2); absent when none |
+| `watermark` | the mark: which copy of this number the printing is (§3.2); absent when none. Flesh and Blood, One Piece, Pokemon and Yu-Gi-Oh write one |
 | `language` | the printing's language where it is not the game's default (`"Japanese"`, `"German"`) |
 | `originalReleaseDate` | a date a label stated that the set's date does not cover (§3.3) |
 | `image` | the catalog image at the 400-wide rendition; Pokemon and Lorcana also carry `images.{full,thumbnail}` |
@@ -165,9 +166,10 @@ Common to every game:
 | `color`, `type`, `attribute`, `artist` | game facts where the source carries them: Flesh and Blood pitch colour, Gundam and Palworld colour and card type, Yu-Gi-Oh attribute, One Piece colour and type |
 
 Per game, on top of the common keys: under `externalLinks`, `fabId`
-(fleshandblood), `tcgdexId` (pokemon), `bandaiId` (onepiece) and `konamiId`
+(fleshandblood), `tcgdexId` (pokemon), `bandaiId` (onepiece), `konamiId`
 (yugioh, only where the passcode join is unambiguous and not contradicted
-by the name); `printings[]` (lorcana, §2.5).
+by the name), `cardmarketId` (lorcana, onepiece, pokemon) and
+`cardTraderId` (lorcana, onepiece); `printings[]` (lorcana, §2.5).
 
 ### 2.3 Sealed
 
@@ -199,7 +201,7 @@ the printing name (`""` for the plain printing, else `_` plus the slug:
 
 A product with no collector number takes the bare product id as its stem.
 The number in an id is lower-cased and its separators folded to dashes;
-Yu-Gi-Oh keeps the number as written. The two namespaces of a game (with
+Yu-Gi-Oh only lower-cases it. The two namespaces of a game (with
 and without `_<productId>`) can never collide, which is what lets a minted
 entry stand beside a priced one without a check.
 
@@ -244,7 +246,7 @@ is legal in, and a card the catalog sells nowhere in upstream's own set.
 The query vocabulary of promotions. Each token is `^[a-z0-9]+$`, at most
 `vocabulary.TokenLimit` = 22 characters, spelled by `emit.PromoSlug`
 (lower case, letters and digits, nothing else). The words behind a token
-are the loader's to keep (`mtgmatcher/<game>/promolabels.go`); this side
+are the loader's to keep (its word table, `promoTypeLabels`); this side
 publishes the token and keeps the words in `variant`.
 
 What is a token and what is not, the same in every builder:
@@ -259,9 +261,9 @@ What is a token and what is not, the same in every builder:
   Charizard Stamped` is card 42 of the Charizard deck), a span
   (`SWSH287-290`), a restatement of the entry's own number.
 - **A subject is not a promotion.** What the card pictures stays the
-  variant it is and, where it is the only thing telling two printings
-  apart, the mark: a Pokemon on a promo, a character on a DON!! card, a
-  Gundam form or part, a Pal on a Soul card. Tested against the card names
+  variant it is: a Gundam form or part, a Pal on a Soul card. Where it is
+  the only thing telling two printings apart it is also the mark: a
+  Pokemon on a promo, a character on a DON!! card. Tested against the card names
   the datastore carries where the game names every printing alike.
 - **A set the shelf reprints from is provenance, not promotion**, on the
   shelves that hold cards from everywhere (Deck and Blister Exclusives, the
@@ -298,12 +300,12 @@ drop is set aside rather than deleted, and the guard compares
 after the drops. The guard has caught something in every game it was
 written for.
 
-### 3.3 `originalReleaseDate`, `language`, `color`
+### 3.3 `originalReleaseDate`, `language`
 
 A fact a fold would take away is published as a field rather than folded
 away: the year in `World Championships 2013` (18 spellings of one promotion
-otherwise), the language in `Japanese Meiji Chocolate Exclusive Promo`, the
-ink in `Dark Magician Girl (Blue)`. The date is published only where the
+otherwise) and the language in `Japanese Meiji Chocolate Exclusive Promo`.
+The ink in `Dark Magician Girl (Blue)` is the mark (§3.2). The date is published only where the
 set's own date does not already cover it, which is what makes it an
 *original* release date; the TCGplayer catalog carries no per-product date
 and its group dates are wrong for every promo bucket. A copyright year
@@ -503,7 +505,7 @@ and `rebaseline`): per game, one at a time,
    `<game>/<game>.json.xz` to seed one, else nothing;
 3. Pokemon only: the upstream caches (`pokemon/tcgdex-sets.json.xz`,
    `tcgdex-cards.json.xz`, `pokemontcg-sets.json.xz`), plus a DNS pin for
-   `api.tcgdex.net`; Pokemon and One Piece: the required
+   `api.tcgdex.net`; Lorcana, One Piece and Pokemon: the required
    `<game>/cardmarket_catalog.json.xz`;
 4. `go run ./cmd/<game> -tcg-catalog tcgplayer-catalog.json [-against
    previous.json] [-lorcana …] [-upstream-cache .] [-cardmarket-catalog …]
@@ -541,7 +543,8 @@ what a change here must keep true:
   listing whose wording names a token reaches the printing wearing it; a
   listing naming none means the printing wearing none. A token's words come
   from the loader's `promoTypeLabels` table; a multi-word token with no row
-  fails `internal/vocabulary.TestLoadersReadWhatIsPublished` there.
+  is reported as due by `internal/vocabulary.TestLoadersReadWhatIsPublished`
+  there, without failing it.
 - **`watermark`** narrows when the wording names it, and an unmarked
   printing outranks a marked one for wording that names none (go-mtgban
   #543), which is what let print runs and energy kinds become marks.

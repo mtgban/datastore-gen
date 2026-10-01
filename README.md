@@ -109,13 +109,13 @@ hold. Current counts:
 | lorcana | 212 catalog products upstream has no card for | 2 |
 | fleshandblood | 205 entries over 205 collector numbers | 5 |
 | pokemon | 257 entries over 867 tcgdex cards | 38 |
-| onepiece | 49 pre-errata printings, hand-carried | 0 |
+| onepiece | 58 pre-errata printings hand-carried, and the Cardmarket pre-errata shelf's others minted | 0 |
 | yugioh | 691 European first prints, 688 joined to their North American sibling | 0 |
 
 One Piece mints from neither source: the catalog carries every number
 Bandai publishes, and Bandai files an errata as a correction to a card
 rather than as a new printing, so neither knows the pre-errata print runs
-that collectors and marketplaces price separately. Those 49 are carried by
+that collectors and marketplaces price separately. Those are carried by
 hand in `cmd/onepiece`, keyed on CardTrader's blueprint id and reading
 finish, artwork and rarity from the printing each is an errata of. A row
 stands down the day any source carries its identity, so the hand-carried
@@ -162,8 +162,9 @@ anything. The core check is coverage: the products the emitted entries
 carry must be exactly the products the catalog types as a card. A product
 no rule knew what to do with stops the publish instead of quietly leaving
 the datastore. Set codes are checked the same way - a code claimed twice
-would fold two groups onto one set, so the builders mint unique codes and
-refuse to publish a set count that does not match the group count.
+would fold two groups onto one set, so the builders mint unique codes, and
+Gundam, One Piece and Palworld also refuse a set count that does not match
+the populated group count.
 
 ## Refusing a build that lost something
 
@@ -276,8 +277,10 @@ B2, builds the datastore, compresses it, and uploads it to
 `b2://mtgban-datastore/<game>/<game>.json.xz`. Consumers decompress by
 suffix, so the extension matters. It needs the secrets
 `B2_APPLICATION_KEY_ID_DATASTORE` and `B2_APPLICATION_KEY_DATASTORE`, an
-application key allowed to write that bucket, and reads the repository
-variable `DATASTORE_LORCANA` for the LorcanaJSON location.
+application key allowed to write that bucket, and `BAN_SECRET`, which
+signs the request asking `<game>.mtgban.com` to reload what it uploaded. It
+reads the repository variables `DATASTORE_LORCANA`, for the LorcanaJSON
+location, and `RELOAD_GAMES`, the games whose site is told to reload.
 
 ## License
 
