@@ -403,6 +403,31 @@ func printingUUID(id, finish string) string {
 	return id + "_" + canonical
 }
 
+// dropExactRepeats drops a gallery row repeated in every field. On
+// 2026-10-01 the gallery served Viktor (OGN-117) and Poppy (UNL-116a) twice,
+// the same row each time, and carried twice they were two printings nothing
+// tells apart. A different row under an id already taken is not a repeat;
+// respellSharedIDs carries it. It returns the ids of the rows it dropped.
+func dropExactRepeats(items []any) ([]any, []string) {
+	seen := map[string]bool{}
+	kept := make([]any, 0, len(items))
+	var dropped []string
+	for _, row := range items {
+		// Map keys encode sorted, so two rows encode alike only when every
+		// field is the same.
+		encoded, err := json.Marshal(row)
+		if err == nil && seen[string(encoded)] {
+			if item, ok := row.(map[string]any); ok {
+				dropped = append(dropped, fmt.Sprint(item["id"]))
+			}
+			continue
+		}
+		seen[string(encoded)] = true
+		kept = append(kept, row)
+	}
+	return kept, dropped
+}
+
 // respellSharedIDs gives every card row an id of its own. The gallery has
 // published two printings under one: from 2026-09-20 to 09-22 Vendetta's
 // Signature #192 wore the Overnumbered row's id and number, and three nightly
@@ -786,6 +811,11 @@ func main() {
 	cardItems, ok := cards["items"].([]any)
 	if !ok {
 		log.Fatalln("the gallery's cards table carries no items")
+	}
+	if kept, dropped := dropExactRepeats(cardItems); len(dropped) > 0 {
+		log.Printf("gallery: %d rows repeated exactly, the same card twice; dropped: %s",
+			len(dropped), strings.Join(dropped, ", "))
+		cardItems = kept
 	}
 
 	// Index the gallery sets so the groups can stamp their release dates
