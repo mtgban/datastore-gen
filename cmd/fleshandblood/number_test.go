@@ -7,9 +7,10 @@ import (
 	"github.com/mtgban/go-tcgplayer"
 )
 
-// TestSpelledNumberTakesTheNameOverThePadding pins the one case the name
-// outranks the Number field: the same number, padded with a zero the card
-// does not print. A tail that disagrees in any other way stays the field's.
+// TestSpelledNumberTakesTheNameOverThePadding pins when the name's number
+// is taken over the Number field: the same number, padded with a zero the
+// card does not print, or a field left empty. A tail that disagrees in any
+// other way stays the field's.
 func TestSpelledNumberTakesTheNameOverThePadding(t *testing.T) {
 	for _, test := range []struct{ name, num, want string }{
 		{"Dash I/O - HER156", "HER0156", "HER156"},
@@ -19,9 +20,12 @@ func TestSpelledNumberTakesTheNameOverThePadding(t *testing.T) {
 		{"Snatch - WTR100", "WTR100", "WTR100"},
 		// A different number is a different number, whichever is right.
 		{"Dig In (Yellow) - FAB385", "FAB384", "FAB384"},
-		// No tail, no field: as they were.
+		// No tail: the field's.
 		{"Snatch", "WTR100", "WTR100"},
-		{"Snatch - WTR100", "", ""},
+		// No field: the number the name spells, and none where it spells
+		// something else.
+		{"Renounce Grandeur - FAB330", "", "FAB330"},
+		{"Bravo - Hero Deck", "", ""},
 	} {
 		if got := spelledNumber(test.name, test.num); got != test.want {
 			t.Errorf("spelledNumber(%q, %q) = %q, want %q", test.name, test.num, got, test.want)

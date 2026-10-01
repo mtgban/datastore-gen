@@ -322,8 +322,13 @@ var paddingRe = regexp.MustCompile(`\d+`)
 func spelledNumber(name, num string) string {
 	_, tail, found := strings.Cut(name, " - ")
 	tail = strings.TrimSpace(tail)
-	if !found || num == "" || tail == num || !numTailRe.MatchString(tail) {
+	if !found || tail == num || !numTailRe.MatchString(tail) {
 		return num
+	}
+	// The catalog left the field empty and wrote the number into the name
+	// instead: 2 promos on 2026-10-01, "Renounce Grandeur - FAB330".
+	if num == "" {
+		return tail
 	}
 	if foldPadding(strings.ToUpper(tail)) == foldPadding(strings.ToUpper(num)) {
 		return tail
@@ -434,7 +439,9 @@ type single struct {
 // dataset's rather than the catalog's own, which settles a disagreeing tail.
 func decompose(p tcgplayer.Product, num string, witnessed bool) single {
 	name := p.Name
-	name = strings.ReplaceAll(name, " - "+num, "")
+	if num != "" {
+		name = strings.ReplaceAll(name, " - "+num, "")
+	}
 
 	var quals []string
 	name = parenRe.ReplaceAllStringFunc(name, func(m string) string {
