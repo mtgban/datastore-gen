@@ -465,6 +465,11 @@ spelling each, for all eight builders and for every reader of a built
 file — the peel was eleven copies of a `json.RawMessage` peek before, and
 a discriminator that has to be fixed in eleven places is fixed in none.
 
+**`internal/validate`** — `Rules`, `Card`, `Sealed`, `Counts`, `Datastore`,
+`SetCode`. The re-read of a built file six builders share (lorcana and
+riftbound read their own shapes): the shared checks once, and each game's
+identity fields, minted key and own checks as its `Rules`.
+
 **`internal/baseline`** — `Counts`, `Count`, `Identity`, `MinLoss`, `Reader`, `Regression`,
 `Options{Against, Tolerance, FitPath, Unit}`, `Guard`. Riftbound hands
 `Guard` a reader of its own for its shape. `Count` peels through
