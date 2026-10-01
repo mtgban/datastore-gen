@@ -57,6 +57,7 @@ import (
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
 	"github.com/mtgban/datastore-gen/internal/handtable"
+	"github.com/mtgban/datastore-gen/internal/validate"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 
 	"github.com/mtgban/go-tcgplayer"
@@ -1168,14 +1169,14 @@ func main() {
 	// Re-read the encoded output and verify it structurally before
 	// publishing anything: a format drift or a truncated dump must fail
 	// here, not in every consumer.
-	counted, err := validate(buf.Bytes(), catalogFinishes)
+	counted, err := validate.Datastore(buf.Bytes(), catalogFinishes, validationRules())
 	if err != nil {
 		log.Fatalln("validation:", err)
 	}
-	log.Printf("validated: %d sets, %d cards, %d sealed", counted.sets, counted.cards, counted.sealed)
-	if counted.cards != len(cards) || counted.sealed != len(sealed) {
+	log.Printf("validated: %d sets, %d cards, %d sealed", counted.Sets, counted.Cards, counted.Sealed)
+	if counted.Cards != len(cards) || counted.Sealed != len(sealed) {
 		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			len(cards), len(sealed), counted.cards, counted.sealed)
+			len(cards), len(sealed), counted.Cards, counted.Sealed)
 	}
 	// The coverage contract for the sealed side. Sealed is everything the
 	// catalog does not type as a single, so it is exhaustive by
@@ -1184,9 +1185,9 @@ func main() {
 	// lose a product to is an edit: one `continue` on the sealed path and
 	// the products would leave the datastore with nothing to say so.
 	wantSealed := len(catalog.Products) - len(singles) - len(unpriced)
-	if counted.sealed != wantSealed {
+	if counted.Sealed != wantSealed {
 		log.Fatalf("%d sealed products emitted but the catalog types %d as something other than a card; refusing to publish",
-			counted.sealed, wantSealed)
+			counted.Sealed, wantSealed)
 	}
 
 	// Compare against the baseline, when the publish handed one over, and
@@ -1211,174 +1212,16 @@ func main() {
 	}
 }
 
-type counts struct {
-	sets, cards, sealed int
-}
-
-// codeShape is what a set code has to look like to be asked for: a search
-// query is split on whitespace before a filter sees it and on the colon that
-// names the filter, so a code holding either can never be typed after "is:".
-// Folded up, because every reader of a code folds the spelling it is asked
-// with before the lookup - an unfolded code is listed everywhere and found
-// nowhere, which is what Gundam's "GD01-b" was.
-var codeShape = regexp.MustCompile(`^[A-Z0-9-]+$`)
-
-// idShape is what a uuid has to look like wherever one is written down: a
-// slash is a path separator and a space ends a word, and a uuid travels
-// through urls, filenames and query strings alike.
-var idShape = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
-
-// validate decodes an encoded datastore and checks its shape: every card
-// and sealed product carrying its identity, every id unique within its
-// namespace, no two entries wearing the same identity, every referenced set
-// existing, every finish one of the printing names, and every product's
-// entries covering exactly the sku printings the catalog lists for it.
-func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
-	data, err := emit.Unwrap(data)
-	if err != nil {
-		return counts{}, err
+// validationRules are what this game adds to the shared re-read of the
+// output: rarity is in the identity because it is this game's variant axis -
+// the same number is sold as "Common" and again as "C+", one card twice, and
+// the rarity is the only field that tells the two apart once the name's
+// echo of it has been dropped.
+func validationRules() validate.Rules {
+	return validate.Rules{
+		Game:     "gundam",
+		Identity: []string{"name", "number", "setCode", "rarity", "variant"},
 	}
-
-	var doc struct {
-		Game string `json:"game"`
-		Sets map[string]struct {
-			Name string `json:"name"`
-		} `json:"sets"`
-		Cards []struct {
-			ID            string `json:"id"`
-			Name          string `json:"name"`
-			Number        string `json:"number"`
-			SetCode       string `json:"setCode"`
-			Rarity        string `json:"rarity"`
-			Variant       string `json:"variant"`
-			Finish        string `json:"finish"`
-			ExternalLinks struct {
-				TcgPlayerID int `json:"tcgPlayerId"`
-			} `json:"externalLinks"`
-		} `json:"cards"`
-		Sealed []struct {
-			ID            string `json:"id"`
-			Name          string `json:"name"`
-			SetCode       string `json:"setCode"`
-			ExternalLinks struct {
-				TcgPlayerID int `json:"tcgPlayerId"`
-			} `json:"externalLinks"`
-		} `json:"sealed"`
-	}
-	var out counts
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return out, err
-	}
-
-	if doc.Game != "gundam" {
-		return out, fmt.Errorf("game is %q, not gundam", doc.Game)
-	}
-	for code, set := range doc.Sets {
-		if set.Name == "" {
-			return out, fmt.Errorf("set %s missing its name", code)
-		}
-		if !codeShape.MatchString(code) {
-			return out, fmt.Errorf("set code %q holds what a query cannot carry", code)
-		}
-	}
-	cardIDs := map[string]bool{}
-	// A query resolves a card by its name, number, set, rarity and variant
-	// label, never by the id, so two products wearing all of them alike are
-	// one card to every consumer and would alias each other's prices.
-	// Rarity is in the key because it is this game's variant axis: the same
-	// number is sold as "Common" and again as "C+", one card twice, and the
-	// rarity is the only field that tells the two apart once the name's
-	// echo of it has been dropped. The key holds the product id rather than
-	// a flag so a product's own Normal and Holofoil entries pass while two
-	// different products never do.
-	identities := map[string]string{}
-	var shared emit.SharedIdentities
-	gotFinishes := map[int][]string{}
-	for _, card := range doc.Cards {
-		// The number is not required: the game hands out cards it gives no
-		// collector number, and those are carried on the id their product
-		// alone mints.
-		if card.ID == "" || card.Name == "" || card.Finish == "" {
-			return out, fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
-		}
-		if !idShape.MatchString(card.ID) {
-			return out, fmt.Errorf("card %q has a uuid nothing can carry: %q", card.Name, card.ID)
-		}
-		if strings.ContainsAny(card.Number, " \t") {
-			return out, fmt.Errorf("card %q (%s) has a collector number a query cannot carry: %q",
-				card.Name, card.ID, card.Number)
-		}
-		if card.Finish == "" {
-			return out, fmt.Errorf("card %q (%s) carries no finish at all", card.Name, card.ID)
-		}
-		if cardIDs[card.ID] {
-			return out, fmt.Errorf("duplicate card id %s", card.ID)
-		}
-		cardIDs[card.ID] = true
-		identity := strings.Join([]string{
-			card.Name, card.Number, card.SetCode, card.Rarity, card.Variant}, "|")
-		// A minted printing sells as no product, so it stands for itself
-		// under its own uuid; keying those on the absent product id would
-		// make every one of them the same card and wave through exactly
-		// the collision this catches.
-		bearer := fmt.Sprintf("product %d", card.ExternalLinks.TcgPlayerID)
-		if card.ExternalLinks.TcgPlayerID == 0 {
-			bearer = "card " + card.ID
-		}
-		if other, seen := identities[identity]; seen && other != bearer {
-			shared.Add(other, bearer, identity)
-		} else {
-			identities[identity] = bearer
-		}
-		if _, found := doc.Sets[card.SetCode]; !found {
-			return out, fmt.Errorf("card %q in unknown set %s", card.Name, card.SetCode)
-		}
-		// Only products are counted against the catalog's skus: a minted
-		// printing answers to no product and would otherwise pile its
-		// finish under product 0, which coverage would then have to
-		// explain.
-		if productID := card.ExternalLinks.TcgPlayerID; productID != 0 {
-			if slices.Contains(gotFinishes[productID], card.Finish) {
-				return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
-			}
-			gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
-		}
-	}
-	if err := shared.Check(); err != nil {
-		return out, err
-	}
-	if err := emit.Coverage(gotFinishes, wantFinishes); err != nil {
-		return out, err
-	}
-	for productID, want := range wantFinishes {
-		got := append([]string(nil), gotFinishes[productID]...)
-		sort.Strings(got)
-		expected := append([]string(nil), want...)
-		sort.Strings(expected)
-		if strings.Join(got, "|") != strings.Join(expected, "|") {
-			return out, fmt.Errorf("product %d emits finishes %v, skus carry %v", productID, got, expected)
-		}
-	}
-	sealedIDs := map[string]bool{}
-	for _, product := range doc.Sealed {
-		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
-			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
-		}
-		if !idShape.MatchString(product.ID) {
-			return out, fmt.Errorf("sealed %q has a uuid nothing can carry: %q", product.Name, product.ID)
-		}
-		if sealedIDs[product.ID] {
-			return out, fmt.Errorf("duplicate sealed id %s", product.ID)
-		}
-		sealedIDs[product.ID] = true
-		if _, found := doc.Sets[product.SetCode]; !found {
-			return out, fmt.Errorf("sealed %q in unknown set %s", product.Name, product.SetCode)
-		}
-	}
-	out.sets = len(doc.Sets)
-	out.cards = len(doc.Cards)
-	out.sealed = len(doc.Sealed)
-	return out, nil
 }
 
 // printingDisplayOrder is where each of a category's printings sits in the

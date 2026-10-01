@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/mtgban/datastore-gen/internal/validate"
+)
 
 // TestSetCodeOfFolds pins that a set code leaves this build folded up.
 // A set code is a case-insensitive token to every reader of one: go-mtgban's
@@ -29,7 +33,7 @@ func TestSetCodeOfFolds(t *testing.T) {
 		if got != test.want {
 			t.Errorf("setCodeOf(%q) = %q, want %q", test.in, got, test.want)
 		}
-		if got != "" && !codeShape.MatchString(got) {
+		if got != "" && !validate.SetCode(got) {
 			t.Errorf("setCodeOf(%q) = %q, which the build's own check refuses", test.in, got)
 		}
 	}

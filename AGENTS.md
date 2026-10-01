@@ -54,6 +54,8 @@ internal/emit          what every builder spells the same way: finish suffix,
                        normalisation, image link, Fetch, StringsOf, the
                        catalog read and the coverage check
 internal/baseline      the guard that refuses a build which lost too much
+internal/validate      the re-read of a built file every builder but
+                       lorcana and riftbound shares, with the game's rules
 internal/vocabulary    the promo-type rules, checked against a built file
 internal/datastorediff the comparison behind cmd/datastorediff
 internal/handtable     the tables carried by hand, which report the rows a
