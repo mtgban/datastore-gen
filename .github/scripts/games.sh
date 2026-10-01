@@ -1,29 +1,77 @@
 # shellcheck shell=bash
 #
-# What every script that builds a datastore to measure it needs: the games,
-# the upstream flags each builder takes and where one run pins them, which
-# games a set of changed files reaches, the inputs fetched once for a run,
-# and a build of one game at one commit.
+# What a game's build reads, for every script and workflow that builds one:
+# the games, the objects each reads from beside its datastore in the bucket,
+# the upstreams each fetches live, which games a set of changed files
+# reaches, the inputs a measurement fetches once for a run, and a build of
+# one game at one commit.
 #
-# Sourced, not run. The caller sets WORK (a scratch directory holding the
+# Sourced, not run. A measurement sets WORK (a scratch directory holding the
 # inputs and the builds) and BUILD (a git worktree the builds check commits
-# out in, never the tree the caller runs from).
+# out in, never the tree the caller runs from); the publish reads only the
+# per-game lists.
 
 GAMES="riftbound lorcana onepiece yugioh fleshandblood pokemon gundam palworld"
-MEASURE_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+GAMES_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+BUCKET=mtgban-datastore
 
-# The flags each builder needs beyond the catalog, and where this run pins
-# them. A builder that has not grown a flag yet simply does not get it:
-# every one is checked against the source at the commit being built, so one
-# script spans the whole history rather than only its tip.
+# LorcanaJSON, the one upstream a builder has no default for. DATASTORE_LORCANA
+# overrides it, so there is one place to change if it moves.
+LORCANA_SOURCE=${DATASTORE_LORCANA:-https://lorcanajson.org/files/current/en/allCards.json}
+
+# The objects beside a game's datastore its build cannot do without, as
+# flag:object, each object under $BUCKET/<game>/<object>.json.xz. The builder
+# refuses without one rather than publish a datastore quietly missing what
+# only it lists: the Cardmarket catalog mkmcatalog publishes, for Pokemon's
+# stamped promo shelves, One Piece's pre-errata one and the Cardmarket
+# product of each Lorcana foil TCGplayer sells apart.
+required_objects() {
+  case "$1" in
+    lorcana|onepiece|pokemon) echo "cardmarket-catalog:cardmarket_catalog" ;;
+  esac
+}
+
+# The upstream responses a game's builder caches, each the name of its flag
+# and of its object beside the datastore. The builder asks the live API first
+# and falls back on the cached response, so the publish keeps the last one in
+# the bucket, and a measurement pins the build to it.
+cached_objects() {
+  case "$1" in
+    pokemon) echo "tcgdex-sets tcgdex-cards pokemontcg-sets" ;;
+  esac
+}
+
+# The flags a publish of one game builds with beyond the catalog and the
+# baseline, reading the objects fetched into the working directory.
+publish_flags() {
+  local pair flags=""
+  [ "$1" = lorcana ] && flags="-lorcana $LORCANA_SOURCE"
+  for pair in $(required_objects "$1"); do
+    flags="$flags -${pair%%:*} ${pair#*:}.json"
+  done
+  [ -n "$(cached_objects "$1")" ] && flags="$flags -upstream-cache ."
+  echo "$flags"
+}
+
+# The flags each builder needs beyond the catalog, and where a measurement
+# pins them: the bucket's objects and the live upstreams alike. A builder
+# that has not grown a flag yet simply does not get it: every one is checked
+# against the source at the commit being built, so one script spans the
+# whole history rather than only its tip.
 upstream_flags() {
+  local pair name
+  for pair in $(required_objects "$1"); do
+    echo "${pair%%:*}=$WORK/$1-${pair#*:}.json"
+  done
+  for name in $(cached_objects "$1"); do
+    echo "$name=$WORK/$1-$name.json"
+  done
   case "$1" in
     riftbound)     echo "gallery=$WORK/riftbound-gallery.json" ;;
-    lorcana)       echo "lorcana=$WORK/lorcana-allcards.json cardmarket-catalog=$WORK/lorcana-cardmarket.json" ;;
-    onepiece)      echo "punk-cards=$WORK/punk-cards.json punk-packs=$WORK/punk-packs.json cardmarket-catalog=$WORK/onepiece-cardmarket.json" ;;
+    lorcana)       echo "lorcana=$WORK/lorcana-allcards.json" ;;
+    onepiece)      echo "punk-cards=$WORK/punk-cards.json punk-packs=$WORK/punk-packs.json" ;;
     yugioh)        echo "ygoprodeck-sets=$WORK/ygo-sets.json ygoprodeck-cards=$WORK/ygo-cards.json" ;;
     fleshandblood) echo "fab-cards=$WORK/fab-cards.json fab-sets=$WORK/fab-sets.json" ;;
-    pokemon)       echo "tcgdex-sets=$WORK/tcgdex-sets.json tcgdex-cards=$WORK/tcgdex-cards.json pokemontcg-sets=$WORK/pokemontcg-sets.json cardmarket-catalog=$WORK/pokemon-cardmarket.json" ;;
     gundam)        echo "gcg-cards=$WORK/gcg-cards.json" ;;
     palworld)      echo "palworld-cards=$WORK/palworld-cards.json" ;;
   esac
@@ -50,28 +98,28 @@ games_in() {
 # games named are fetched, which is what keeps a change touching one builder
 # from pulling a quarter of a gigabyte it will not read.
 fetch_inputs() {
-  local g
+  local g pair name
   fetch() { curl -sSL --retry 3 --retry-all-errors --max-time 180 -A "datastore-gen tagger" "$1" -o "$2"; }
-  bucket() { b2 file download --no-progress "b2://mtgban-datastore/$1" "$2.xz" >/dev/null && xz -d "$2.xz"; }
+  bucket() { b2 file download --no-progress "b2://$BUCKET/$1" "$2.xz" >/dev/null && xz -d "$2.xz"; }
   for g in "$@"; do
     bucket "$g/tcgplayer-catalog.json.xz" "$WORK/$g-cat.json"
+    for pair in $(required_objects "$g"); do
+      bucket "$g/${pair#*:}.json.xz" "$WORK/$g-${pair#*:}.json"
+    done
+    for name in $(cached_objects "$g"); do
+      bucket "$g/$name.json.xz" "$WORK/$g-$name.json"
+    done
     case $g in
-      riftbound)     "$MEASURE_LIB_DIR/fetch-riftbound-gallery.sh" "$WORK/riftbound-gallery.json" ;;
-      lorcana)       fetch https://lorcanajson.org/files/current/en/allCards.json "$WORK/lorcana-allcards.json"
-                     bucket lorcana/cardmarket_catalog.json.xz "$WORK/lorcana-cardmarket.json" ;;
+      riftbound)     "$GAMES_DIR/fetch-riftbound-gallery.sh" "$WORK/riftbound-gallery.json" ;;
+      lorcana)       fetch "$LORCANA_SOURCE" "$WORK/lorcana-allcards.json" ;;
       onepiece)      fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json "$WORK/punk-cards.json"
-                     fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/packs.json "$WORK/punk-packs.json"
-                     bucket onepiece/cardmarket_catalog.json.xz "$WORK/onepiece-cardmarket.json" ;;
+                     fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/packs.json "$WORK/punk-packs.json" ;;
       yugioh)        fetch https://db.ygoprodeck.com/api/v7/cardsets.php "$WORK/ygo-sets.json"
                      fetch https://db.ygoprodeck.com/api/v7/cardinfo.php "$WORK/ygo-cards.json" ;;
       fleshandblood) fetch https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card-flattened.json "$WORK/fab-cards.json"
                      fetch https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/set.json "$WORK/fab-sets.json" ;;
       gundam)        fetch https://raw.githubusercontent.com/yzRobo/gcg-api/main/data/cards.json "$WORK/gcg-cards.json" ;;
-      palworld)      "$MEASURE_LIB_DIR/fetch-palworld-cards.sh" "$WORK/palworld-cards.json" ;;
-      pokemon)       bucket pokemon/tcgdex-sets.json.xz "$WORK/tcgdex-sets.json"
-                     bucket pokemon/tcgdex-cards.json.xz "$WORK/tcgdex-cards.json"
-                     bucket pokemon/cardmarket_catalog.json.xz "$WORK/pokemon-cardmarket.json"
-                     fetch "https://api.pokemontcg.io/v2/sets?pageSize=250" "$WORK/pokemontcg-sets.json" ;;
+      palworld)      "$GAMES_DIR/fetch-palworld-cards.sh" "$WORK/palworld-cards.json" ;;
     esac
   done
 }

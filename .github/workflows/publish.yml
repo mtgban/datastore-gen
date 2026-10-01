@@ -47,11 +47,16 @@ jobs:
     outputs:
       matrix: ${{ steps.select.outputs.matrix }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
       - id: select
         env:
           SELECTED: ${{ inputs.game || 'all' }}
         run: |
-          games='["riftbound", "lorcana", "onepiece", "yugioh", "fleshandblood", "pokemon", "gundam", "palworld"]'
+          source .github/scripts/games.sh
+          # shellcheck disable=SC2086 # one game per word
+          games=$(jq -cn '$ARGS.positional' --args $GAMES)
           if [ "$SELECTED" = all ]; then
             selection=$(jq -c . <<< "$games")
           else
@@ -87,7 +92,9 @@ jobs:
         env:
           B2_APPLICATION_KEY_ID: ${{ secrets.B2_APPLICATION_KEY_ID_DATASTORE }}
           B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY_DATASTORE }}
+          GAME: ${{ matrix.game }}
         run: |
+          source .github/scripts/games.sh
           # The dump tcgdumper writes nightly, published beside the datastore
           # this run is about to replace.
           b2 file download --no-progress \
@@ -134,7 +141,7 @@ jobs:
           # is ever pinned unprobed, and when none answers the system
           # resolver stands - the builder then retries and falls back to
           # the cached responses below.
-          if [ "${{ matrix.game }}" = pokemon ]; then
+          if cached_objects "$GAME" | grep -qw tcgdex-cards; then
             resolved=$(dig +short api.tcgdex.net A @1.1.1.1 | grep -E '^[0-9.]+$' | head -1)
             for cand in $resolved 217.182.193.43; do
               if curl -sf -o /dev/null --max-time 8 \
@@ -146,64 +153,45 @@ jobs:
             done
           fi
 
-          # The last responses a build fetched live from the two upstreams
-          # this game annotates from, kept beside the datastore so a run
-          # that cannot reach one builds on them instead of publishing
-          # without. The builder asks each live API first and refreshes
-          # these whenever it answers.
-          #
-          # A runner's workspace is new every time, so this is the whole of
-          # what makes the builder's cache mean anything here: without the
-          # round trip the cache is written to a directory that is thrown
-          # away, and only a local build ever reads one back.
-          if [ "${{ matrix.game }}" = pokemon ]; then
-            for f in tcgdex-sets tcgdex-cards pokemontcg-sets; do
-              if b2 file download --no-progress \
-                b2://mtgban-datastore/pokemon/$f.json.xz $f.json.xz; then
-                xz -d $f.json.xz
-              else
-                echo "no cached $f yet; the live fetch has to answer"
-              fi
-            done
-          fi
-          # The Cardmarket catalog mkmcatalog publishes, read for what no
-          # other catalog lists: Pokemon's stamped promo shelves, One
-          # Piece's pre-errata one, and the Cardmarket product of each
-          # Lorcana foil TCGplayer sells apart. The builder refuses without
-          # it rather than publish a datastore quietly missing them, so the
-          # download failing has to fail the run.
-          if [ "${{ matrix.game }}" = pokemon ] || [ "${{ matrix.game }}" = onepiece ] || [ "${{ matrix.game }}" = lorcana ]; then
+          # The last responses a build fetched live from the upstreams this
+          # game caches, so a run that cannot reach one builds on them
+          # instead of publishing without. A runner's workspace is new every
+          # time, so this round trip is the whole of what makes the builder's
+          # cache mean anything here.
+          for name in $(cached_objects "$GAME"); do
+            if b2 file download --no-progress \
+              "b2://$BUCKET/$GAME/$name.json.xz" "$name.json.xz"; then
+              xz -d "$name.json.xz"
+            else
+              echo "no cached $name yet; the live fetch has to answer"
+            fi
+          done
+          # The objects the build cannot do without, so the download
+          # failing has to fail the run.
+          for pair in $(required_objects "$GAME"); do
             b2 file download --no-progress \
-              b2://mtgban-datastore/${{ matrix.game }}/cardmarket_catalog.json.xz \
-              cardmarket_catalog.json.xz
-            xz -d cardmarket_catalog.json.xz
-          fi
+              "b2://$BUCKET/$GAME/${pair#*:}.json.xz" "${pair#*:}.json.xz"
+            xz -d "${pair#*:}.json.xz"
+          done
 
       - name: Build the datastore
         env:
           # Overrides the upstream LorcanaJSON location when set (it lives
-          # on go-mtgban today, not at the org level), so there is one place
-          # to change if LorcanaJSON moves.
+          # on go-mtgban today, not at the org level).
           DATASTORE_LORCANA: ${{ vars.DATASTORE_LORCANA }}
+          GAME: ${{ matrix.game }}
         run: |
-          args=""
-          if [ "${{ matrix.game }}" = lorcana ]; then
-            args="-lorcana ${DATASTORE_LORCANA:-https://lorcanajson.org/files/current/en/allCards.json}"
-          fi
+          source .github/scripts/games.sh
+          args=$(publish_flags "$GAME")
           # A rebaseline run ignores the baseline and resets it to whatever
           # this build holds, the way out of a baseline left standing above
           # a genuine, lasting shrinkage.
           if [ -f previous.json ] && [ "${{ inputs.rebaseline }}" != "true" ]; then
             args="$args -against previous.json"
           fi
-          if [ "${{ matrix.game }}" = pokemon ]; then
-            args="$args -upstream-cache ."
-          fi
-          if [ "${{ matrix.game }}" = pokemon ] || [ "${{ matrix.game }}" = onepiece ] || [ "${{ matrix.game }}" = lorcana ]; then
-            args="$args -cardmarket-catalog cardmarket_catalog.json"
-          fi
-          go run ./cmd/${{ matrix.game }} -tcg-catalog tcgplayer-catalog.json \
-            $args -baseline-fit baseline.fit -o ${{ matrix.game }}.json
+          # shellcheck disable=SC2086 # one flag per word
+          go run "./cmd/$GAME" -tcg-catalog tcgplayer-catalog.json \
+            $args -baseline-fit baseline.fit -o "$GAME.json"
 
           # The promo-type rules every builder follows, held against the
           # file about to be published rather than trusted. The README has
@@ -230,7 +218,9 @@ jobs:
         env:
           B2_APPLICATION_KEY_ID: ${{ secrets.B2_APPLICATION_KEY_ID_DATASTORE }}
           B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY_DATASTORE }}
+          GAME: ${{ matrix.game }}
         run: |
+          source .github/scripts/games.sh
           b2 file upload --no-progress mtgban-datastore \
             ${{ matrix.game }}.json.xz ${{ matrix.game }}/${{ matrix.game }}.json.xz
 
@@ -254,15 +244,13 @@ jobs:
           # next run reads identical to the one this run built from, so a
           # long outage degrades by standing still rather than by the
           # fallback quietly aging out from under the runs using it.
-          if [ "${{ matrix.game }}" = pokemon ]; then
-            for f in tcgdex-sets tcgdex-cards pokemontcg-sets; do
-              if [ -f $f.json ]; then
-                xz -9 -f $f.json
-                b2 file upload --no-progress mtgban-datastore \
-                  $f.json.xz pokemon/$f.json.xz
-              fi
-            done
-          fi
+          for name in $(cached_objects "$GAME"); do
+            if [ -f "$name.json" ]; then
+              xz -9 -f "$name.json"
+              b2 file upload --no-progress "$BUCKET" \
+                "$name.json.xz" "$GAME/$name.json.xz"
+            fi
+          done
 
       # A published datastore reaches the site when the site is told to
       # reload it. Without this step it goes live only when one of

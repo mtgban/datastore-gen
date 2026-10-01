@@ -36,8 +36,8 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$OUT"
 
-# shellcheck source=measure-lib.sh
-source "$(dirname "$0")/measure-lib.sh"
+# shellcheck source=games.sh
+source "$(dirname "$0")/games.sh"
 
 GAMES_TOUCHED=$(git diff --name-only "$BEFORE" "$AFTER" | games_in)
 if [ -z "${GAMES_TOUCHED// /}" ]; then

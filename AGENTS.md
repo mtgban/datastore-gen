@@ -61,8 +61,9 @@ internal/datastorediff the comparison behind cmd/datastorediff
 internal/handtable     the tables carried by hand, which report the rows a
                        build used nothing of
 .github/workflows      ci.yml, publish.yml, tag-output-changes.yml, measure.yml
-.github/scripts        measure-lib.sh (the games, their inputs, a build at
-                       a commit), pr-measure.sh, tag-output-changes.sh,
+.github/scripts        games.sh (the games, what each build reads, a build
+                       at a commit; publish and measure both read it),
+                       pr-measure.sh, tag-output-changes.sh,
                        fetch-datastores.sh, the palworld and riftbound
                        upstream fetches
 docs/                  evidence too long for a comment or a commit
