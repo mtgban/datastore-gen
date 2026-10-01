@@ -373,6 +373,46 @@ func ReadCatalog(path string, category int) (tcgplayer.CatalogDump, error) {
 	return catalog, nil
 }
 
+// DropRepeatedFinishes keeps the first entry pricing each product's finish,
+// logs the rest, and returns the entries kept in order. A product sells a
+// finish once, so a second entry for it is a printing nothing tells apart
+// from the first and splits its price; it is dropped rather than refusing
+// every card of the game over one product. An entry no product prices is
+// kept as it is.
+func DropRepeatedFinishes(entries []any) []any {
+	type printing struct {
+		product int
+		finish  string
+	}
+	seen := map[printing]bool{}
+	kept := make([]any, 0, len(entries))
+	var dropped []string
+	for _, raw := range entries {
+		entry, _ := raw.(map[string]any)
+		links, _ := entry["externalLinks"].(map[string]any)
+		var product int
+		switch id := links["tcgPlayerId"].(type) {
+		case int:
+			product = id
+		case float64:
+			product = int(id)
+		}
+		finish, _ := entry["finish"].(string)
+		key := printing{product, finish}
+		if product != 0 && finish != "" && seen[key] {
+			dropped = append(dropped, fmt.Sprintf("%v (product %d %s)", entry["id"], product, finish))
+			continue
+		}
+		seen[key] = true
+		kept = append(kept, raw)
+	}
+	if len(dropped) > 0 {
+		log.Printf("finishes: %d entries price a product's finish another entry already prices, dropped: %s",
+			len(dropped), strings.Join(dropped, ", "))
+	}
+	return kept
+}
+
 // DropRepeats keeps the first row under each key, logs the rest under
 // source, and returns the rows kept in order. The key is the id the source
 // keeps unique, so a second row under it is the same row served again: by a

@@ -1589,6 +1589,7 @@ func main() {
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
+	cards = emit.DropRepeatedFinishes(cards)
 	doc := map[string]any{
 		"game":   "yugioh",
 		"sets":   sets,
