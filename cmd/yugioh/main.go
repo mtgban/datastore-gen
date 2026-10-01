@@ -143,9 +143,8 @@ type passcodes struct {
 // passcode.
 //
 // The passcode is Konami's own identifier for a card, the one every other
-// Yu-Gi-Oh source keys on, and the datastore carried nothing but a
-// TCGplayer product id until now: a listing naming a passcode had no way
-// in, and no printing could be checked against what upstream says is
+// Yu-Gi-Oh source keys on. Without it a listing naming a passcode has no
+// way in, and no printing can be checked against what upstream says is
 // printed under its number.
 func konamiIDs(cards []ygoCard) passcodes {
 	byNumber := map[string]map[int]bool{}

@@ -172,8 +172,8 @@ func TestGalleryCardsAreFound(t *testing.T) {
 // TestNoCardsKeyFallsBackToLeaves is a shape with cards nowhere this knows
 // to look. A document that
 // publishes the upstream payload has no cards key to compare, and reporting
-// it as unchanged - which keying on a missing field does - hid real changes
-// behind "no material change" until this fell back instead.
+// it as unchanged, which keying on a missing field would, hides real changes
+// behind "no material change"; the comparison falls back to its leaves.
 func TestNoCardsKeyFallsBackToLeaves(t *testing.T) {
 	before := []byte(`{"pageProps":{"blades":[{"publicCode":"OGN-001","rarity":"Common"}]}}`)
 	after := []byte(`{"pageProps":{"blades":[{"publicCode":"OGN-001","rarity":"Rare","art":"x"}]}}`)

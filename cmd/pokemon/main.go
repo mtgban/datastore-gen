@@ -993,9 +993,8 @@ var variantOnlyQuals = map[string]bool{
 // from anywhere in the game and writes which set it came from beside the
 // number, so a label there naming a set this datastore carries is where the
 // card was reprinted from and not what promoted it. Twelve Burger King
-// promos wrote "[Diamond & Pearl]" and twelve "[Platinum]", and fifty jumbo
-// cards named their source and nothing else, all of it published as
-// promotion until now.
+// promos write "[Diamond & Pearl]" and twelve "[Platinum]", and fifty jumbo
+// cards name their source and nothing else; none of it is a promotion.
 var shelfNames = map[string]bool{
 	"Jumbo Cards":                     true,
 	"Burger King Promos":              true,
@@ -1674,8 +1673,8 @@ func qualNameKey(base, qual string) string {
 
 // foldPunctuationOnly keeps a qualifier that is nothing but punctuation
 // telling itself apart. Unseen Forces names two Unown "!" and "?", and a
-// key that drops every non-alphanumeric makes those the same qualifier -
-// which spelled both of them "?" until this.
+// key that drops every non-alphanumeric makes those the same qualifier and
+// spells both of them "?".
 func foldPunctuationOnly(qual string) string {
 	return mtgmatcherNormalize(qual)
 }
@@ -2935,10 +2934,8 @@ func mintFromCardmarket(path string, cards []any, sets map[string]any, ptcg []po
 			"rarity":  rarity,
 			"finish":  finish,
 			// The product this was minted from, and the only id it can be
-			// priced by: no TCGplayer product sells a stamped promo. It
-			// was legible only inside the uuid until now - the one fact
-			// about these entries that had to be read out of an id rather
-			// than off a field.
+			// priced by: no TCGplayer product sells a stamped promo. A
+			// field, so nothing has to read it out of the uuid.
 			"externalLinks": map[string]any{"cardmarketId": id},
 		}
 		if total != "" {

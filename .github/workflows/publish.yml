@@ -25,14 +25,9 @@ on:
           - palworld
   schedule:
     # After the catalog dump, with margin for how late either of us runs.
-    #
-    # The dump is a scheduled workflow too, and both it and this one drifted
-    # hours later at the end of August: the dump finished at 05:30 UTC on
-    # the 26th and has landed between 09:15 and 11:31 every day since, while
-    # this workflow fired 30-55 minutes after its cron until the 27th and
-    # 5-12 hours after it since. So 07:00 was only ever safe by accident -
-    # a punctual run at 07:00 builds on the previous day's catalog, and it
-    # is the delay that has been hiding that.
+    # The dump is scheduled too and lands between 05:30 and 11:31 UTC, and
+    # GitHub can start this workflow hours after its cron; a run before the
+    # dump builds on the previous day's catalog.
     #
     # 12:37 clears the dump whether it lands at 05:30 or at 11:31, and the
     # odd minute is deliberate: GitHub queues scheduled workflows and the
@@ -270,10 +265,9 @@ jobs:
           fi
 
       # A published datastore reaches the site when the site is told to
-      # reload it. Until now nothing here said so, and a publish only went
-      # live when one of go-mtgban's scraper workflows next happened to ping
-      # the same endpoint for its own reasons - which for a quiet game is
-      # hours after the upload.
+      # reload it. Without this step it goes live only when one of
+      # go-mtgban's scraper workflows next pings the same endpoint for its
+      # own reasons, which for a quiet game is hours after the upload.
       #
       # Gated on the game, because publishing a datastore and serving one are
       # separate things: a builder can land here before its site exists, and

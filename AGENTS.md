@@ -13,7 +13,8 @@ the invariants; read `README.md` for the human-facing overview.
 and nothing is ever dropped silently.** Every builder re-reads its own
 encoded output before writing and refuses to publish when the products the
 entries carry are not exactly the products the catalog prices (the
-zero-skip invariant), when a set code is claimed twice, when more than a
+zero-skip invariant), when a set code is claimed twice (and in Gundam, One
+Piece and Palworld when the set count misses a populated group), when more than a
 handful of product pairs wear one identity, or when the build shrank past
 the baseline.
 
@@ -56,6 +57,9 @@ internal/baseline      the guard that refuses a build which lost too much
 internal/vocabulary    the promo-type rules, checked against a built file
 internal/datastorediff the comparison behind cmd/datastorediff
 .github/workflows      ci.yml, publish.yml, tag-output-changes.yml
+.github/scripts        fetch-datastores.sh, the palworld and riftbound
+                       upstream fetches, tag-output-changes.sh
+docs/                  evidence too long for a comment or a commit
 ```
 
 Each `cmd/<game>/main.go` is one large file on purpose. The builders are
@@ -100,15 +104,15 @@ b2 file download b2://mtgban-datastore/<game>/tcgplayer-catalog.json.xz <game>.j
 xz -d <game>.json.xz
 ```
 
-Upstream sources default to their public URLs and every one can be pinned
-to a saved file, which is how a comparison is held still: `-fab-cards` and
-`-fab-sets`, `-gcg-cards`, `-lorcana` (required, no default) and
-`-cardmarket-catalog` (required),
-`-punk-cards`, `-punk-packs` and `-cardmarket-catalog` (required),
-`-palworld-cards`, `-tcgdex-sets`,
-`-tcgdex-cards`, `-pokemontcg-sets` and `-cardmarket-catalog` (required),
-`-gallery`, `-ygoprodeck-sets` and `-ygoprodeck-cards`. Full list per game
-in `SPECIFICATIONS.md`.
+Every upstream can be pinned to a saved file, which is how a comparison is
+held still. Per game: fleshandblood `-fab-cards`, `-fab-sets`; gundam
+`-gcg-cards`; lorcana `-lorcana` and `-cardmarket-catalog` (both required);
+onepiece `-punk-cards`, `-punk-packs`, `-cardmarket-catalog` (required);
+palworld `-palworld-cards`; pokemon `-tcgdex-sets`, `-tcgdex-cards`,
+`-pokemontcg-sets`, `-upstream-cache`, `-cardmarket-catalog` (required);
+riftbound `-gallery`; yugioh `-ygoprodeck-sets`, `-ygoprodeck-cards`. The
+rest default to a public URL or the live API. Full list in
+`SPECIFICATIONS.md`.
 
 **Never measure on a stale catalog.** The catalog changes nightly, and a
 finding measured against last week's dump is confidently wrong ("34 Palworld
@@ -202,7 +206,7 @@ workflow's `internal/vocabulary` check is the backstop.
 **A fact a fold removes is published as a field.** The set a promo reprints,
 the year in "World Championships 2013", the language in "Japanese Exclusive"
 and the ink of a Duelist League printing come off the token and go to
-`watermark`, `originalReleaseDate`, `language` and `color`. `variant`
+`watermark` (the set, the ink), `originalReleaseDate` and `language`. `variant`
 always keeps the catalog's own wording, joined, so nothing is lost.
 
 **The mark (`watermark`) says which copy of a number a printing is**, not
@@ -240,7 +244,9 @@ semantics a datastore change must respect. The ones that have bitten:
   printing: a listing that says nothing means the product sold under the
   bare name.
 - **A multi-word token wants a row in the loader's word table**
-  (`mtgmatcher/<game>/promolabels.go`), or a reader sees it run together.
+  (`promoTypeLabels`, in `mtgmatcher/<game>/promolabels.go`,
+  `promolabels_table.go` for One Piece, or the game's main file for Lorcana
+  and Palworld), or a reader sees it run together.
   A token published before its row is reported by go-mtgban's
   `TestLoadersReadWhatIsPublished` as a label that is due, without
   failing. Since go-mtgban#779, a row for a token no datastore declares
