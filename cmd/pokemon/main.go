@@ -4494,6 +4494,7 @@ func main() {
 	log.Printf("watermarks: %d printings marked by which copy of the number they are, %d still alike", marked, alike)
 
 	cards = emit.DropRepeatedFinishes(cards)
+	emit.DropEmptySets(sets, cards, sealed)
 	doc := map[string]any{
 		"game":   "pokemon",
 		"sets":   sets,
@@ -4615,19 +4616,7 @@ func validationRules() validate.Rules {
 			}
 			return nil
 		},
-		Finally: func(cards []validate.Card, sealed []validate.Sealed, sets map[string]string) error {
-			setsInUse := map[string]bool{}
-			for _, card := range cards {
-				setsInUse[card.SetCode] = true
-			}
-			for _, product := range sealed {
-				setsInUse[product.SetCode] = true
-			}
-			for code := range sets {
-				if !setsInUse[code] {
-					return fmt.Errorf("set %s holds no card and no sealed product", code)
-				}
-			}
+		Finally: func([]validate.Card, []validate.Sealed, map[string]string) error {
 			if len(imageless) > 0 && len(imageless) == priced {
 				return errors.New("no priced card carries an image: the image link is broken")
 			}

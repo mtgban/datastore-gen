@@ -1187,6 +1187,21 @@ func main() {
 		log.Printf("sets: %d published by the gallery with no catalog group to date them yet: %s", len(undated), strings.Join(undated, " "))
 	}
 
+	// A set holding no printing and no sealed product is one nothing can be
+	// found in; it is carried from the first build that has something in it.
+	inUse := emit.SetsInUse(cardItems, sealedItems)
+	var empty []string
+	setItems = slices.DeleteFunc(setItems, func(raw any) bool {
+		set, _ := raw.(map[string]any)
+		id, _ := set["id"].(string)
+		if !inUse[id] {
+			empty = append(empty, id)
+		}
+		return !inUse[id]
+	})
+	if len(empty) > 0 {
+		log.Printf("sets: %d hold no printing and no sealed product, dropped: %s", len(empty), strings.Join(empty, " "))
+	}
 	sets["items"] = setItems
 	cards["items"] = cardItems
 

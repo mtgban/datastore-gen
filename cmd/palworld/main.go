@@ -796,6 +796,7 @@ func main() {
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
 	cards = emit.DropRepeatedFinishes(cards)
+	emit.DropEmptySets(sets, cards, sealed)
 	doc := map[string]any{
 		"game":   "palworld",
 		"sets":   sets,

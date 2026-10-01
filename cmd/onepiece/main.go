@@ -2448,6 +2448,7 @@ func main() {
 		datePrintings(cards, sets))
 
 	cards = emit.DropRepeatedFinishes(cards)
+	emit.DropEmptySets(sets, cards, sealed)
 	doc := map[string]any{
 		"game":   "onepiece",
 		"sets":   sets,
