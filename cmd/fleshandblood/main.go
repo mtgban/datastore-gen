@@ -106,9 +106,6 @@ const (
 // catalog names them for this game; everything else is sealed by exclusion.
 var tcgSingles = tcgplayer.SinglesProductTypes(fabCategory)
 
-// tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
-// for a category, published next to the datastore it describes.
-
 // printingNames maps each product to the distinct printing names its skus
 // carry, in the order the catalog displays them; a printing the catalog does not list for a product
 // is one that does not exist.

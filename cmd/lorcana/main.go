@@ -114,12 +114,6 @@ const (
 // sealed side where it is noticed instead of silently passing as a single.
 var tcgSingles = tcgplayer.SinglesProductTypes(lorcanaCategory)
 
-// releaseDate reduces a group's publishedOn timestamp to the bare day
-// LorcanaJSON dates carry ("2023-08-18T00:00:00" -> "2023-08-18").
-
-// tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
-// for a category, published next to the datastore it describes.
-
 // printingNames maps each product to the sorted printing names it is sold
 // under. TCGplayer's category 71 has exactly three — Normal, Holofoil and
 // Cold Foil — and a printing it does not list for a product is one that

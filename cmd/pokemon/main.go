@@ -130,9 +130,6 @@ func hasDate(g tcgplayer.Group) bool {
 	return strings.HasSuffix(g.PublishedOn, "T00:00:00")
 }
 
-// tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
-// for a category, published next to the datastore it describes.
-
 // printingNames maps each product to the distinct printing names its English
 // skus carry, in the order the catalog displays them; a printing it does not list for a
 // product is one that does not exist.

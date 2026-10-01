@@ -88,12 +88,6 @@ func galleryPayload(location string) ([]byte, error) {
 	return emit.Fetch(fmt.Sprintf(galleryDataURL, m[1]))
 }
 
-// releaseDate reduces a group's publishedOn timestamp to the bare day the
-// loader parses ("2025-10-31T00:00:00" -> "2025-10-31").
-
-// tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
-// for a category, published next to the datastore it describes.
-
 // finishesByProduct maps each product to the finishes it is sold in, named
 // as TCGplayer names them - which is how the other six games name theirs,
 // and what lets a consumer read the datastore's word back against a sku.
