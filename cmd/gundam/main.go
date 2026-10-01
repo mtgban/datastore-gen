@@ -56,6 +56,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/vocabulary"
 
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -1153,6 +1154,18 @@ func main() {
 	envelope := emit.Envelope(emit.Today(), doc)
 	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
 		log.Fatalln(err)
+	}
+
+	// A token the vocabulary refuses comes off its printing here, logged,
+	// rather than stopping every card of the game at the publish's check.
+	{
+		setAside, err := vocabulary.FitInto(&buf)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		for _, line := range setAside {
+			log.Println("vocabulary:", line)
+		}
 	}
 
 	// Re-read the encoded output and verify it structurally before

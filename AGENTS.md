@@ -193,8 +193,10 @@ token: a rarity, a finish, a number (bare, a deck place, a span, a
 restatement), and a subject (what the card pictures: a Pokemon, a One Piece
 character on a DON!! card, a Gundam form). One label has one spelling,
 folded to the wording most listings arrive in; where the singles disagree
-the sealed side is the authority. `internal/vocabulary` refuses a file that
-breaks these and the publish workflow runs it.
+the sealed side is the authority. Every builder runs `vocabulary.Fit` on its
+output, which sets aside a token breaking these from the one printing
+wearing it and logs it, so one label never stops a game; the publish
+workflow's `internal/vocabulary` check is the backstop.
 
 **A fact a fold removes is published as a field.** The set a promo reprints,
 the year in "World Championships 2013", the language in "Japanese Exclusive"

@@ -90,6 +90,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-cardmarket"
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -1431,7 +1432,7 @@ func main() {
 		}
 	}
 	universal := universalVarnishes(items)
-	vocabulary := map[string]int{}
+	tokenCounts := map[string]int{}
 	var labelled, imaged int
 	for _, raw := range items {
 		item, ok := raw.(map[string]any)
@@ -1459,7 +1460,7 @@ func main() {
 		item["promoTypes"] = types
 		labelled++
 		for _, t := range types {
-			vocabulary[t]++
+			tokenCounts[t]++
 		}
 	}
 	log.Printf("image: %d cards given the common field beside upstream's images object", imaged)
@@ -1548,7 +1549,7 @@ func main() {
 	log.Printf("printings: %d named over %d cards, so the loader spells no uuid and joins no finish by name", named, withIDs)
 	log.Printf("finishes: named in TCGplayer's words, %d foil treatments carried by the printing that has them", treatments)
 	log.Printf("promo types: %d labels over %d cards, and %d varnishes left off as their rarity's own",
-		len(vocabulary), labelled, len(universal))
+		len(tokenCounts), labelled, len(universal))
 
 	// A card is filed where TCGplayer sells it, not where upstream does:
 	// upstream files a promo under the set it is legal in ("10/D23 • EN •
@@ -1678,6 +1679,18 @@ func main() {
 	envelope := emit.Envelope(emit.Today(), doc)
 	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
 		log.Fatalln(err)
+	}
+
+	// A token the vocabulary refuses comes off its printing here, logged,
+	// rather than stopping every card of the game at the publish's check.
+	{
+		setAside, err := vocabulary.FitInto(&buf)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		for _, line := range setAside {
+			log.Println("vocabulary:", line)
+		}
 	}
 
 	// Re-read the encoded output and verify it structurally before

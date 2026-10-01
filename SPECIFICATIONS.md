@@ -465,7 +465,10 @@ a discriminator that has to be fixed in eleven places is fixed in none.
 `-against`: "not a datastore envelope".
 
 **`internal/vocabulary`** — `TokenLimit`, `Slug`, `Printing`, `Problems`,
-`Check`, `SetNames`, `ReadDatastore`, `ErrNotDatastore`; `SetNames` and
+`Check`, `Fit`, `FitInto`, `SetNames`, `ReadDatastore`, `ErrNotDatastore`.
+Every builder passes its encoded output through `FitInto`, which takes off
+each printing the tokens `Check` would refuse and logs them, and returns the
+bytes untouched when there are none; `SetNames` and
 `ReadDatastore` peel through `emit`, the envelope being plumbing rather
 than an answer this package re-derives. `Slug` is kept
 separate from `emit.PromoSlug` on purpose: a check that spelled its tokens

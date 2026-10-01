@@ -86,25 +86,29 @@ func SetNames(path string) ([]string, error) {
 		return nil, err
 	}
 
-	var payload struct {
-		Sets map[string]struct {
-			Name string `json:"name"`
-		} `json:"sets"`
-	}
+	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, err
 	}
+	return setNamesOf(payload), nil
+}
+
+// setNamesOf is SetNames on a decoded document.
+func setNamesOf(document map[string]any) []string {
+	sets, _ := document["sets"].(map[string]any)
 	var names []string
-	for _, set := range payload.Sets {
-		if set.Name == "" {
+	for _, value := range sets {
+		set, _ := value.(map[string]any)
+		name, _ := set["name"].(string)
+		if name == "" {
 			continue
 		}
-		names = append(names, set.Name)
-		if _, rest, found := strings.Cut(set.Name, ": "); found && rest != "" {
+		names = append(names, name)
+		if _, rest, found := strings.Cut(name, ": "); found && rest != "" {
 			names = append(names, rest)
 		}
 	}
-	return names, nil
+	return names
 }
 
 // ReadDatastore reads a published datastore as the printings it holds.
