@@ -195,9 +195,6 @@ var fabFinish = map[string]string{
 	"U|R": "Unlimited Edition Rainbow Foil",
 }
 
-// idBase mints the id stem an entry's finish suffix hangs off: the
-// collector number and the product id, or the product id alone for a
-// product the game gives no number.
 // numberOf spells a collector number the way a query can carry it. A search
 // is split on whitespace before a filter sees it, so the two halves of a
 // double-faced number have to stay one token: "WTR040 // WTR039" is
@@ -550,24 +547,6 @@ func normalizeSetName(name string) string {
 	return b.String()
 }
 
-// setCodeOf reduces a catalog abbreviation to what a search query can carry.
-// A set code is typed after "is:", and a query is split on whitespace before
-// a filter ever sees it and on the colon that names the filter, so a code
-// holding either cannot be asked for: "is:OP11 RE" reaches the filter as
-// "is:OP11" and "is:crz:gg" names a filter called crz. Every run of anything
-// but a letter or a digit becomes one dash, and the ends are trimmed of them.
-//
-// The result is folded up. A set code is a case-insensitive token to every
-// reader of it - the matcher's GetSet, GetUUIDsInSet and GetSealedUUIDsInSet
-// all fold the caller's spelling up before the lookup - so a code that is
-// not already folded is one nothing can find, however it is written. The
-// catalog spells an abbreviation however it likes: Gundam's Edition Beta is
-// "GD01_b", and the set code "GD01-b" it used to mint was listed everywhere
-// and found nowhere.
-func setCodeOf(abbreviation string) string {
-	return strings.ToUpper(strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-"))
-}
-
 // setCodes assigns every group a unique, non-empty set code. Non-blank
 // abbreviations claim their codes first, in group-id order; blank ones get
 // the group name's initials; any code already claimed gets "-groupId"
@@ -591,12 +570,12 @@ func setCodes(groups []tcgplayer.Group) map[int]string {
 		taken[code] = true
 	}
 	for _, g := range ordered {
-		if code := setCodeOf(g.Abbreviation); code != "" {
+		if code := emit.SetCodeOf(g.Abbreviation); code != "" {
 			claim(g, code)
 		}
 	}
 	for _, g := range ordered {
-		if setCodeOf(g.Abbreviation) != "" {
+		if emit.SetCodeOf(g.Abbreviation) != "" {
 			continue
 		}
 		code := initials(g.Name)
@@ -892,7 +871,7 @@ func main() {
 				productByNumber[foldPadding(number)] = productID
 			}
 		}
-		setID := setCodeOf(row.SetID)
+		setID := emit.SetCodeOf(row.SetID)
 		if setID != "" {
 			if groupsByDatasetSet[setID] == nil {
 				groupsByDatasetSet[setID] = map[int]int{}
@@ -1068,7 +1047,7 @@ func main() {
 	sameName := map[string][]string{}
 	for _, number := range mintableOrder {
 		row := mintable[number][0]
-		group, sold := groupBySales[setCodeOf(row.SetID)]
+		group, sold := groupBySales[emit.SetCodeOf(row.SetID)]
 		if !sold || !numberlessNames[group][strings.ToLower(row.Name)] {
 			continue
 		}
@@ -1179,7 +1158,7 @@ func main() {
 				codeByName[name] = codes[group.GroupID]
 			}
 		}
-		abbreviation := setCodeOf(group.Abbreviation)
+		abbreviation := emit.SetCodeOf(group.Abbreviation)
 		if abbreviation == "" {
 			continue
 		}
@@ -1194,7 +1173,7 @@ func main() {
 	mintedSetCode := map[string]string{}
 	var mintedSets int
 	for _, number := range mintableOrder {
-		setID := setCodeOf(mintable[number][0].SetID)
+		setID := emit.SetCodeOf(mintable[number][0].SetID)
 		if setID == "" {
 			log.Fatalf("dataset row %q names no set", mintable[number][0].ID)
 		}
@@ -1330,7 +1309,7 @@ func main() {
 	for _, number := range mintableOrder {
 		rows := mintable[number]
 		row := rows[0]
-		code := mintedSetCode[setCodeOf(row.SetID)]
+		code := mintedSetCode[emit.SetCodeOf(row.SetID)]
 		rarity := fabRarity[row.Rarity]
 		if rarity == "" && row.Rarity != "" {
 			log.Printf("dataset rarity %q on %s is not one this datastore spells", row.Rarity, row.ID)

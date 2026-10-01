@@ -477,24 +477,6 @@ func idStem(number string) string {
 	return strings.ToLower(strings.Trim(nonAlnumRe.ReplaceAllString(number, "-"), "-"))
 }
 
-// setCodeOf reduces a catalog abbreviation to what a search query can carry.
-// A set code is typed after "is:", and a query is split on whitespace before
-// a filter ever sees it and on the colon that names the filter, so a code
-// holding either cannot be asked for: "is:OP11 RE" reaches the filter as
-// "is:OP11" and "is:crz:gg" names a filter called crz. Every run of anything
-// but a letter or a digit becomes one dash, and the ends are trimmed of them.
-//
-// The result is folded up. A set code is a case-insensitive token to every
-// reader of it - the matcher's GetSet, GetUUIDsInSet and GetSealedUUIDsInSet
-// all fold the caller's spelling up before the lookup - so a code that is
-// not already folded is one nothing can find, however it is written. The
-// catalog spells an abbreviation however it likes: Gundam's Edition Beta is
-// "GD01_b", and the set code "GD01-b" it used to mint was listed everywhere
-// and found nowhere.
-func setCodeOf(abbreviation string) string {
-	return strings.ToUpper(strings.Trim(nonAlnumRe.ReplaceAllString(abbreviation, "-"), "-"))
-}
-
 // isPromoGroup reports whether a catalog group hands its cards out rather
 // than selling them in packs of its own. The group name is the only thing
 // that says so in this category, the way it is the only thing in Yu-Gi-Oh's:
@@ -507,46 +489,6 @@ func setCodeOf(abbreviation string) string {
 // asserted twice, in the place that cannot see the catalog.
 func isPromoGroup(group tcgplayer.Group) bool {
 	return strings.Contains(strings.ToLower(group.Name), "promo")
-}
-
-// setCodes assigns every group a unique, non-empty set code. Codes are
-// claimed in group-id order, so the group that claimed one keeps it bare
-// and only a later arrival is marked: a set code then depends on the groups
-// that came before it and never on the ones that come after, and an
-// existing set keeps its code the day TCGplayer files a new group under an
-// abbreviation it already uses. A blank abbreviation gets a code minted
-// from the group id. Every repair is logged, because none of it is the
-// catalog's own identity.
-func setCodes(groups []tcgplayer.Group) map[int]string {
-	ordered := append([]tcgplayer.Group(nil), groups...)
-	sort.Slice(ordered, func(i, j int) bool {
-		return ordered[i].GroupID < ordered[j].GroupID
-	})
-
-	codes := map[int]string{}
-	used := map[string]bool{}
-	var minted, suffixed int
-	for _, group := range ordered {
-		code := setCodeOf(group.Abbreviation)
-		if code == "" {
-			code = fmt.Sprintf("G%d", group.GroupID)
-			minted++
-			log.Printf("%s: no abbreviation, set code %s minted", group.Name, code)
-		}
-		if used[code] {
-			code = fmt.Sprintf("%s-%d", code, group.GroupID)
-			suffixed++
-			log.Printf("%s: abbreviation %s already taken, set code %s minted",
-				group.Name, group.Abbreviation, code)
-		}
-		if used[code] {
-			log.Fatalf("set code %s still not unique; refusing to guess further", code)
-		}
-		used[code] = true
-		codes[group.GroupID] = code
-	}
-	log.Printf("set codes: %d minted for blank abbreviations, %d deduplicated", minted, suffixed)
-	return codes
 }
 
 // idBase is the id stem an entry carries before its finish suffix: the
@@ -583,7 +525,7 @@ func main() {
 	for _, group := range catalog.Groups {
 		groupByID[group.GroupID] = group
 	}
-	codes := setCodes(catalog.Groups)
+	codes := emit.SetCodes(catalog.Groups)
 	printings := catalog.PrintingNames()
 	displayOrder := printingDisplayOrder(&catalog)
 
@@ -889,7 +831,7 @@ func main() {
 		if u.Number == "" || carriedNumbers[u.Number] {
 			continue
 		}
-		code := setCodeOf(u.SetCode)
+		code := emit.SetCodeOf(u.SetCode)
 		if _, known := sets[code]; !known {
 			// A card whose set this datastore does not carry has nowhere
 			// to be filed, and a set invented for it would be a set no
