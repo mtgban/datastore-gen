@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.8
 
 require (
-	github.com/mtgban/go-cardmarket v0.1.1
+	github.com/mtgban/go-cardmarket v0.4.0
 	github.com/mtgban/go-tcgplayer v0.2.0
 )
 
