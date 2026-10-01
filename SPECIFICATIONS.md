@@ -500,7 +500,7 @@ built from one catalog.
 ## 7. Workflows
 
 **`ci.yml`** (push to master, pull requests): gofmt `-s`, vet, revive
-1.13.0, staticcheck 2025.1.1, build, `go test -race`.
+1.13.0, staticcheck 2026.2.1, govulncheck, build, `go test -race`.
 
 **`publish.yml`** (`37 12 * * *` UTC, and `workflow_dispatch` with `game`
 and `rebaseline`): per game, one at a time,
