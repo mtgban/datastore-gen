@@ -56,6 +56,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 
 	"github.com/mtgban/go-tcgplayer"
@@ -503,8 +504,11 @@ func namedPromotions(tag string) []string {
 // keeping them made a promo type of every run, so a query naming the
 // promotion reached one of them and none of the rest.
 func generalPromotion(tag string) string {
-	for abbrev, spelled := range promoAbbrevs {
-		tag = regexp.MustCompile(`\b`+abbrev+`\b`).ReplaceAllString(tag, spelled)
+	for abbrev, spelled := range promoAbbrevs.Rows() {
+		if re := regexp.MustCompile(`\b` + abbrev + `\b`); re.MatchString(tag) {
+			promoAbbrevs.Use(abbrev)
+			tag = re.ReplaceAllString(tag, spelled)
+		}
 	}
 	tag = setCodeHead.ReplaceAllString(tag, "")
 	tag = setCodePair.ReplaceAllString(tag, "")
@@ -528,10 +532,10 @@ func generalPromotion(tag string) string {
 
 // promoAbbrevs are the two the catalog writes both ways, so one promotion is
 // one token however a product name happens to spell it.
-var promoAbbrevs = map[string]string{
+var promoAbbrevs = handtable.New("promoAbbrevs", map[string]string{
 	"sdcc": "san diego comic-con",
 	"wcs":  "world championship",
-}
+})
 
 // setNameHeads are the sets' names, lower-cased and longest first, for the
 // same stripping the codes get. Filled in main once the sets are known.
@@ -1141,6 +1145,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
+	handtable.Report()
 	emit.PlainQuotes(doc)
 
 	envelope := emit.Envelope(emit.Today(), doc)

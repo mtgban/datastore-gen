@@ -95,6 +95,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-cardmarket"
 	"github.com/mtgban/go-tcgplayer"
@@ -483,7 +484,7 @@ func normalizeName(name string) string {
 // against tcgdex's "Black Star Promos" family, the flagship base sets, and
 // the sets TCGplayer names by their subtitle alone.
 // Values are tcgdex set names, normalized at join time like everything else.
-var setAliases = map[string]string{
+var setAliases = handtable.New("setAliases", map[string]string{
 	"WoTC Promo":                       "Wizards Black Star Promos",
 	"Nintendo Promos":                  "Nintendo Black Star Promos",
 	"Diamond and Pearl Promos":         "DP Black Star Promos",
@@ -497,7 +498,7 @@ var setAliases = map[string]string{
 	"SM Base Set":                      "Sun & Moon",
 	"SV: Scarlet & Violet 151":         "151",
 	"Rumble":                           "Pokémon Rumble",
-}
+})
 
 // stripSetPrefix removes the leading short-code TCGplayer prefixes group
 // names with ("SWSH07: Evolving Skies", "SM - Guardians Rising"): a single
@@ -897,7 +898,7 @@ var deckPlaceRe = regexp.MustCompile(`^(.+?)\s+([0-9]{1,3})$`)
 // CLV say which deck a copy came from and nothing more. Thirteen cards
 // each, and the marker is the only thing between the three copies, so it
 // stays a variant rather than leaving.
-var variantOnlyQuals = map[string]bool{
+var variantOnlyQuals = handtable.New("variantOnlyQuals", map[string]bool{
 	"clb": true,
 	"clc": true,
 	"clv": true,
@@ -986,7 +987,7 @@ var variantOnlyQuals = map[string]bool{
 	"surfing": true,
 	"ivy":     true,
 	"baby":    true,
-}
+})
 
 // shelfNames are the groups that are a shelf rather than a set, beside the
 // Deck and Blister Exclusives the name already says: each holds a reprint
@@ -995,12 +996,12 @@ var variantOnlyQuals = map[string]bool{
 // card was reprinted from and not what promoted it. Twelve Burger King
 // promos write "[Diamond & Pearl]" and twelve "[Platinum]", and fifty jumbo
 // cards name their source and nothing else; none of it is a promotion.
-var shelfNames = map[string]bool{
+var shelfNames = handtable.New("shelfNames", map[string]bool{
 	"Jumbo Cards":                     true,
 	"Burger King Promos":              true,
 	"Miscellaneous Cards & Products":  true,
 	"Pikachu World Collection Promos": true,
-}
+})
 
 // eraHeads are the series a set name or a label opens with, which the
 // catalog writes in front of a set's name where this datastore's own name
@@ -1264,7 +1265,7 @@ func printMark(s *single, setCode string) string {
 	// same name twice, once each way, and the qualifier would go on
 	// reading as a promotion for failing to match.
 	named := strings.ToLower(respellQual(strings.TrimSpace(match[1])))
-	if fixed, hand := qualSpellings[named]; hand {
+	if fixed, hand := qualSpellings.Get(named); hand {
 		named = strings.ToLower(fixed)
 	}
 	// And without whatever is written beside it. The 2024 decks put the
@@ -1376,7 +1377,7 @@ func promoTypesOf(s *single, p published, onShelf bool, own map[string]bool, fin
 			}
 			continue
 		}
-		if variantOnlyQuals[lowered] {
+		if variantOnlyQuals.Has(lowered) {
 			if mark == "" {
 				// Two of these on one printing are two facts of one
 				// copy, the way markPrintings already joins them:
@@ -1898,9 +1899,9 @@ func peelQuals(name string) (string, []qual) {
 // carrying. "English" is the language every card in this datastore is
 // printed in, so it distinguishes a Pikachu from nothing; the six other
 // languages beside it in the same set do distinguish theirs and stay.
-var droppedQuals = map[string]bool{
+var droppedQuals = handtable.New("droppedQuals", map[string]bool{
 	"english": true,
-}
+})
 
 // isBareLetter reports whether a qualifier is a single letter and nothing
 // else. Where the letter belongs to the card, upstream says so and it has
@@ -1925,7 +1926,7 @@ func isBareLetter(qualifier string) bool {
 // other card writes as two. "Finneon - SWSH240 (Prerelease Staff)" is the
 // only card of 298 staff printings to run the two words together, and the
 // three Non-Holos are a surface and a distribution said in one breath.
-var qualSplits = map[string][]string{
+var qualSplits = handtable.New("qualSplits", map[string][]string{
 	"prerelease staff": {"Prerelease", "Staff"},
 	// A rarity and a treatment: "Mewtwo EX (163 Secret Full Art)" is the
 	// secret rare and it is full art, and both are labels hundreds of cards
@@ -1939,9 +1940,9 @@ var qualSplits = map[string][]string{
 	// A store and what it sold: folding this to the store alone dropped the
 	// metalcard token the five other metal cards carry.
 	"gamestop metal card": {"GameStop Exclusive", "Metal Card"},
-}
+})
 
-var qualSpellings = map[string]string{
+var qualSpellings = handtable.New("qualSpellings", map[string]string{
 	"player reward": "Player Rewards",
 	// One marking, named twice. Both cards carry the anniversary logo, and
 	// the catalog calls it a stamp on one of them: "Professor Burnet -
@@ -2078,9 +2079,9 @@ var qualSpellings = map[string]string{
 	"paldean fates":              "Paldean Fates Stamped",
 	"jeremy moran":               "Jeremy Maron",
 	"jose cruz galindo-rosendiz": "Jose Cruz Galindo-Resendiz",
-}
+})
 
-var rawNames = map[int]string{
+var rawNames = handtable.New("rawNames", map[int]string{
 	// The catalog never closes the parenthesis: "Chesnaught - XY68
 	// (Prerelease [Staff]". Both qualifiers are real and neither is
 	// reachable while the name is unbalanced.
@@ -2088,7 +2089,7 @@ var rawNames = map[int]string{
 	// A stray letter after the closing parenthesis, which stops the peel
 	// dead: "Jet Energy - 2023 (Gabriel Fernandez)a".
 	541801: "Jet Energy - 2023 (Gabriel Fernandez)",
-}
+})
 
 // worldsGroupRe matches the catalog group that is not one set. TCGplayer
 // files every World Championship deck ever printed on one shelf, twenty
@@ -2176,7 +2177,7 @@ var bracketInnerRe = regexp.MustCompile(`^(\S.*?)\s*\[([^\[\]]+)\]$`)
 
 func decompose(p tcgplayer.Product, num, year string) (single, int) {
 	name := p.Name
-	if repaired, hand := rawNames[p.ProductID]; hand {
+	if repaired, hand := rawNames.Get(p.ProductID); hand {
 		name = repaired
 	}
 	if year != "" {
@@ -2311,7 +2312,7 @@ func decompose(p tcgplayer.Product, num, year string) (single, int) {
 	// 163 restating its own number is gone.
 	var split []qual
 	for _, q := range s.quals {
-		parts, hand := qualSplits[strings.ToLower(q.text)]
+		parts, hand := qualSplits.Get(strings.ToLower(q.text))
 		if !hand {
 			split = append(split, q)
 			continue
@@ -2390,9 +2391,9 @@ func identityKey(name, number string) string {
 // CC001 upstream and 2 here, Umbreon Star CC015 and 17. All twenty-five
 // were minted a second time, unpriced, beside the products that carry
 // their prices.
-var renumberedSets = map[string]bool{
+var renumberedSets = handtable.New("renumberedSets", map[string]bool{
 	"cel25cc": true, // Celebrations: Classic Collection
-}
+})
 
 // shadowShare is how much of a tcgdex set has to be the catalog's already
 // for the set to be the catalog's under another name. The measured sets sit
@@ -3195,7 +3196,7 @@ func main() {
 	joinedSets := map[int]*tcgdexSet{}
 	for _, group := range groups {
 		name := group.Name
-		alias, aliased := setAliases[name]
+		alias, aliased := setAliases.Get(name)
 		if aliased {
 			name = alias
 		}
@@ -3366,7 +3367,7 @@ func main() {
 		s.baseName = strings.Join(name, " ")
 		s.quals = nil
 		for _, q := range variant {
-			if droppedQuals[strings.ToLower(q.text)] || isBareLetter(q.text) {
+			if droppedQuals.Has(strings.ToLower(q.text)) || isBareLetter(q.text) {
 				droppedLabels++
 				continue
 			}
@@ -3540,7 +3541,7 @@ func main() {
 	var handFixed int
 	for i := range singles {
 		for j, q := range singles[i].quals {
-			if fixed, hand := qualSpellings[strings.ToLower(q.text)]; hand {
+			if fixed, hand := qualSpellings.Get(strings.ToLower(q.text)); hand {
 				singles[i].quals[j].text = fixed
 				handFixed++
 			}
@@ -3565,7 +3566,7 @@ func main() {
 			// with no date at all, which is the opposite of the point:
 			// "2014 Movie Promo" is one Pikachu nothing else dates, where
 			// the three Champions Festivals are dated by their numbers.
-			if m != nil && variantOnlyQuals[strings.ToLower(m[1])] {
+			if m != nil && variantOnlyQuals.Has(strings.ToLower(m[1])) {
 				m = nil
 			}
 			if m == nil || !written[m[2]] {
@@ -4025,7 +4026,7 @@ func main() {
 			continue
 		}
 		whole := []string{name}
-		if alias, aliased := setAliases[name]; aliased {
+		if alias, aliased := setAliases.Get(name); aliased {
 			whole = append(whole, alias)
 			if strings.HasSuffix(alias, "Black Star Promos") {
 				whole = append(whole, "Black Star Promos")
@@ -4045,7 +4046,7 @@ func main() {
 		for _, spelling := range spellings {
 			facts.setNames[mtgmatcherNormalize(spelling)] = true
 		}
-		if strings.HasSuffix(name, "Exclusives") || shelfNames[name] {
+		if strings.HasSuffix(name, "Exclusives") || shelfNames.Has(name) {
 			shelf[code] = true
 		}
 	}
@@ -4299,7 +4300,7 @@ func main() {
 		switch {
 		// A set the catalog numbers its own way: the name is all there is
 		// to go on, and the catalog selling that name here is the answer.
-		case len(numbers) > 0 && renumberedSets[card.Set.ID]:
+		case len(numbers) > 0 && renumberedSets.Has(card.Set.ID):
 			renumberedTwins++
 			continue
 		// A name the catalog sells with no collector number at all. Nothing
@@ -4498,6 +4499,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
+	handtable.Report()
 	emit.PlainQuotes(doc)
 
 	envelope := emit.Envelope(emit.Today(), doc)

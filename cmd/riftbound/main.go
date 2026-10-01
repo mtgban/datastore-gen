@@ -45,6 +45,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -355,10 +356,10 @@ func unnamedQualifiers(qualifiers []string, name string) []string {
 //
 // Only the promo types split. The variant keeps the catalog's phrase whole,
 // so the words a storefront writes are still the words this datastore shows.
-var promoParts = map[string][]string{
+var promoParts = handtable.New("promoParts", map[string][]string{
 	"T1 Worlds Champion Player Bundle":            {"T1 Worlds Champion", "Player Bundle"},
 	"T1 Worlds Champion Signature Edition Bundle": {"T1 Worlds Champion", "Signature Edition Bundle"},
-}
+})
 
 // promoTypesOf is those labels lowercased, the way every datastore here
 // spells a promo type.
@@ -378,8 +379,9 @@ func promoTypesOf(qualifiers []string, number string) []string {
 // promoPartsOf is what a qualifier says, which is the qualifier itself
 // wherever it says one thing.
 func promoPartsOf(qualifier string) []string {
-	for phrase, parts := range promoParts {
+	for phrase, parts := range promoParts.Rows() {
 		if strings.EqualFold(phrase, qualifier) {
+			promoParts.Use(phrase)
 			return parts
 		}
 	}
@@ -1164,6 +1166,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
+	handtable.Report()
 	emit.PlainQuotes(doc)
 
 	envelope := emit.Envelope(emit.Today(), doc)

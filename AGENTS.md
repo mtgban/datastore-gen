@@ -56,6 +56,8 @@ internal/emit          what every builder spells the same way: finish suffix,
 internal/baseline      the guard that refuses a build which lost too much
 internal/vocabulary    the promo-type rules, checked against a built file
 internal/datastorediff the comparison behind cmd/datastorediff
+internal/handtable     the tables carried by hand, which report the rows a
+                       build used nothing of
 .github/workflows      ci.yml, publish.yml, tag-output-changes.yml
 .github/scripts        fetch-datastores.sh, the palworld and riftbound
                        upstream fetches, tag-output-changes.sh
@@ -228,7 +230,9 @@ does not type as a card, and a name-pattern filter flags real product.
 
 **Hand tables report their own staleness.** A row carried by hand (a
 subject, a hand-carried printing, a respelling) logs when nothing uses it
-any more, and stands down the day a source carries the same fact.
+any more, and stands down the day a source carries the same fact. A plain
+lookup table goes through `internal/handtable`, whose report every builder
+logs before encoding; a table with a richer rule logs its own.
 
 ## The loader is the other half of every rule
 

@@ -60,6 +60,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 
 	"github.com/mtgban/go-tcgplayer"
@@ -112,16 +113,16 @@ var upstreamRarity = map[string]string{
 
 // upstreamSet maps the set code the upstream writes onto the catalog
 // group's abbreviation where the two differ.
-var upstreamSet = map[string]string{
+var upstreamSet = handtable.New("upstreamSet", map[string]string{
 	"PROMO": "PR",
-}
+})
 
 // upstreamSetCode is the set code of ours an upstream card's set answers
 // to: the code the catalog abbreviates the same set with, through the alias
 // table where the two differ.
 func upstreamSetCode(u palworldCard) string {
 	abbreviation := u.SetCode
-	if aliased, found := upstreamSet[abbreviation]; found {
+	if aliased, found := upstreamSet.Get(abbreviation); found {
 		abbreviation = aliased
 	}
 	return setCodeOf(abbreviation)
@@ -799,6 +800,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
+	handtable.Report()
 	emit.PlainQuotes(doc)
 
 	envelope := emit.Envelope(emit.Today(), doc)

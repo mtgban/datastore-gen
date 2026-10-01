@@ -85,6 +85,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -1431,6 +1432,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
+	handtable.Report()
 	emit.PlainQuotes(doc)
 
 	envelope := emit.Envelope(emit.Today(), doc)
@@ -1774,12 +1776,12 @@ var artworkLetter = regexp.MustCompile(`^[A-Za-z]$`)
 // promoTypeNames folds the spellings the catalog writes one promotion under.
 // Three ways of saying a Japanese alternate art is one promotion, and a query
 // naming it should not have to guess which the product name used.
-var promoTypeNames = map[string]string{
+var promoTypeNames = handtable.New("promoTypeNames", map[string]string{
 	"japanese alternate artwork": "japanese alternate art",
 	"japanese alternative art":   "japanese alternate art",
 	"jpn exclusive":              "japanese exclusive",
 	"cc label":                   "cc tag",
-}
+})
 
 // subjects are what a printing shows rather than what promoted it: which
 // pitch value it is, which hero's deck it came in, which element it depicts,
@@ -1790,7 +1792,7 @@ var promoTypeNames = map[string]string{
 // Runechant is ROS162 as Earth and as Lightning, Seismic Surge is MPG112 as
 // Crystal, Forest and Lava - because what tells one printing from another is
 // exactly what a promo type is for. foldPromoTypes puts those back.
-var subjects = map[string]bool{
+var subjects = handtable.New("subjects", map[string]bool{
 	// Which piece of a puzzle this one is; the number already says.
 	"top left": true, "top center": true, "top right": true,
 	"middle left": true, "middle center": true, "middle right": true,
@@ -1806,7 +1808,7 @@ var subjects = map[string]bool{
 	// What it depicts.
 	"earth": true, "forest": true, "lava": true, "lightning": true,
 	"crystal": true, "maori": true,
-}
+})
 
 // foldPromoTypes reduces every card's promo types to the promotions they
 // name, and spells each as its slug. It runs once the cards are built because
@@ -1833,7 +1835,7 @@ func foldPromoTypes(cards []any) (int, int) {
 		color := emit.PromoSlug(fmt.Sprint(item["color"]))
 		rarity := emit.PromoSlug(fmt.Sprint(item["rarity"]))
 		for _, tag := range emit.StringsOf(item["promoTypes"]) {
-			if name, found := promoTypeNames[tag]; found {
+			if name, found := promoTypeNames.Get(tag); found {
 				tag = name
 			}
 			slug := emit.PromoSlug(tag)
@@ -1870,7 +1872,7 @@ func foldPromoTypes(cards []any) (int, int) {
 				row.marks = append(row.marks, strings.ToLower(tag))
 			case numberish.MatchString(tag):
 				dropped++
-			case subjects[tag]:
+			case subjects.Has(tag):
 				row.dropped = append(row.dropped, slug)
 			case !slices.Contains(row.kept, slug):
 				row.kept = append(row.kept, slug)
