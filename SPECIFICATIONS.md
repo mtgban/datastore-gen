@@ -349,9 +349,11 @@ card TCGplayer listed twice, published and logged; a card in an unknown
 set; a product emitting a
 finish twice or emitting a set of finishes other than the catalog's skus
 for it (**coverage, the zero-skip invariant**); a sealed entry missing its
-identity or its set. Per game on top: a Pokemon build whose every priced
+identity or its set; a set holding no card and no sealed product, which
+every builder drops and logs before encoding, so meeting one is a build's
+own bug. Per game on top: a Pokemon build whose every priced
 card has no image (one card without is logged, not refused),
-a Pokemon set holding nothing, a Yu-Gi-Oh card with no product id that is
+a Yu-Gi-Oh card with no product id that is
 not a European first print (`konamiId` set, number shaped `<PREFIX>-E###`),
 a Flesh and Blood minted entry wearing a priced entry's
 `fabId` or its set, number and name, a Riftbound gallery with no card

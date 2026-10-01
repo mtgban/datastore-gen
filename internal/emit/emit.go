@@ -373,6 +373,42 @@ func ReadCatalog(path string, category int) (tcgplayer.CatalogDump, error) {
 	return catalog, nil
 }
 
+// SetsInUse is the set codes the entries name as their setCode.
+func SetsInUse(entries ...[]any) map[string]bool {
+	inUse := map[string]bool{}
+	for _, list := range entries {
+		for _, raw := range list {
+			entry, _ := raw.(map[string]any)
+			if code, _ := entry["setCode"].(string); code != "" {
+				inUse[code] = true
+			}
+		}
+	}
+	return inUse
+}
+
+// DropEmptySets deletes from sets every code no entry names as its setCode,
+// and logs them. A set holding no card and no sealed product is one nothing
+// can be found in - an upstream announcing a set before its cards, or a
+// group every product of which went elsewhere - and it is carried from the
+// first build that has something in it.
+func DropEmptySets(sets map[string]any, entries ...[]any) {
+	inUse := SetsInUse(entries...)
+	var empty []string
+	for code := range sets {
+		if !inUse[code] {
+			empty = append(empty, code)
+		}
+	}
+	sort.Strings(empty)
+	for _, code := range empty {
+		delete(sets, code)
+	}
+	if len(empty) > 0 {
+		log.Printf("sets: %d hold no card and no sealed product, dropped: %s", len(empty), strings.Join(empty, " "))
+	}
+}
+
 // DropRepeatedFinishes keeps the first entry pricing each product's finish,
 // logs the rest, and returns the entries kept in order. A product sells a
 // finish once, so a second entry for it is a printing nothing tells apart

@@ -1626,6 +1626,8 @@ func main() {
 		doc["sealed"] = sealedItems
 	}
 	log.Printf("sealed: %d products", len(sealedItems))
+	published, _ := doc["cards"].([]any)
+	emit.DropEmptySets(sets, published, sealedItems)
 
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the

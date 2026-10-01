@@ -1429,6 +1429,7 @@ func main() {
 	log.Printf("external links: %d cards carry their fabId under externalLinks", linked)
 
 	cards = emit.DropRepeatedFinishes(cards)
+	emit.DropEmptySets(sets, cards, sealed)
 	doc := map[string]any{
 		"game":   "fleshandblood",
 		"sets":   sets,

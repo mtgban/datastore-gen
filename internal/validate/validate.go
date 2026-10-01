@@ -18,6 +18,7 @@ package validate
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -275,6 +276,20 @@ func Check(doc Document, wantFinishes map[int][]string, rules Rules) (Counts, er
 		sealedIDs[product.ID] = true
 		if _, found := setNames[product.SetCode]; !found {
 			return out, fmt.Errorf("sealed %q in unknown set %s", product.Name, product.SetCode)
+		}
+	}
+	// A set holding nothing is one no query finds anything in; the builders
+	// drop one before encoding, so meeting one here is a build's own bug.
+	inUse := map[string]bool{}
+	for _, card := range cards {
+		inUse[card.SetCode] = true
+	}
+	for _, product := range sealed {
+		inUse[product.SetCode] = true
+	}
+	for _, code := range slices.Sorted(maps.Keys(setNames)) {
+		if !inUse[code] {
+			return out, fmt.Errorf("set %s holds no card and no sealed product", code)
 		}
 	}
 	if rules.Finally != nil {

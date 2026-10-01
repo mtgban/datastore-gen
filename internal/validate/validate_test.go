@@ -37,6 +37,7 @@ func TestDatastoreRefusesWhatAConsumerWouldMisread(t *testing.T) {
 		{"a finish emitted twice", string(doc(priced+","+strings.Replace(priced, "ab1_100", "ab1_100_x", 1)+","+foil, "")), `carries finish "Normal" twice`},
 		{"a finish the skus do not sell", string(doc(priced, "")), "emits finishes [Normal], skus carry [Foil Normal]"},
 		{"no finish", string(doc(strings.Replace(priced, `"finish":"Normal",`, "", 1)+","+foil, "")), "missing identity"},
+		{"a set holding nothing", strings.Replace(string(doc(priced+","+foil, "")), sets, `"sets":{"AB":{"name":"Alpha"},"ZZ":{"name":"Zeta"}}`, 1), "set ZZ holds no card and no sealed product"},
 	} {
 		_, err := Datastore([]byte(test.data), want, rules)
 		switch {
