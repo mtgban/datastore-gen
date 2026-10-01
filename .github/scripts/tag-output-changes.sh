@@ -37,8 +37,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# shellcheck source=measure-lib.sh
-source "$(dirname "$0")/measure-lib.sh"
+# shellcheck source=games.sh
+source "$(dirname "$0")/games.sh"
 
 # Which games a commit could possibly have changed.
 games_touched() {
