@@ -11,8 +11,8 @@ func envelope(payload string) []byte {
 
 const (
 	sets   = `"sets":{"AB":{"name":"Alpha"}}`
-	priced = `{"id":"ab1_100","name":"Ace","number":"1","setCode":"AB","rarity":"R","finish":"Normal","externalLinks":{"tcgPlayerId":100}}`
-	foil   = `{"id":"ab1_100_foil","name":"Ace","number":"1","setCode":"AB","rarity":"R","finish":"Foil","externalLinks":{"tcgPlayerId":100}}`
+	priced = `{"id":"ab1_100","name":"Ace","number":"1","setCode":"AB","rarity":"R","finish":"Normal","image":"https://tcgplayer-cdn.tcgplayer.com/product/100_400w.jpg","externalLinks":{"tcgPlayerId":100}}`
+	foil   = `{"id":"ab1_100_foil","name":"Ace","number":"1","setCode":"AB","rarity":"R","finish":"Foil","image":"https://tcgplayer-cdn.tcgplayer.com/product/100_400w.jpg","externalLinks":{"tcgPlayerId":100}}`
 	sealed = `"sealed":[{"id":"ab-900","name":"Box","setCode":"AB","externalLinks":{"tcgPlayerId":900}}]`
 )
 
@@ -37,6 +37,8 @@ func TestDatastoreRefusesWhatAConsumerWouldMisread(t *testing.T) {
 		{"a finish emitted twice", string(doc(priced+","+strings.Replace(priced, "ab1_100", "ab1_100_x", 1)+","+foil, "")), `carries finish "Normal" twice`},
 		{"a finish the skus do not sell", string(doc(priced, "")), "emits finishes [Normal], skus carry [Foil Normal]"},
 		{"no finish", string(doc(strings.Replace(priced, `"finish":"Normal",`, "", 1)+","+foil, "")), "missing identity"},
+		{"no priced card with an image", strings.ReplaceAll(string(doc(priced+","+foil, "")), `"image":`, `"picture":`), "no priced card carries an image"},
+		{"one priced card without an image", string(doc(strings.Replace(priced, `"image":`, `"picture":`, 1)+","+foil, "")), ""},
 		{"a set holding nothing", strings.Replace(string(doc(priced+","+foil, "")), sets, `"sets":{"AB":{"name":"Alpha"},"ZZ":{"name":"Zeta"}}`, 1), "set ZZ holds no card and no sealed product"},
 	} {
 		_, err := Datastore([]byte(test.data), want, rules)

@@ -17,7 +17,9 @@ package validate
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"maps"
 	"regexp"
 	"slices"
@@ -187,6 +189,10 @@ func Check(doc Document, wantFinishes map[int][]string, rules Rules) (Counts, er
 	// than a flag, so a product's own finishes pass while two different
 	// products never do.
 	identities := map[string]string{}
+	// A priced printing without an image is a gap to fill rather than one to
+	// refuse; every one without is a broken image link.
+	var priced int
+	var imageless []string
 	var shared emit.SharedIdentities
 	gotFinishes := map[int][]string{}
 	for _, card := range cards {
@@ -240,6 +246,10 @@ func Check(doc Document, wantFinishes map[int][]string, rules Rules) (Counts, er
 		if card.TcgPlayerID == 0 {
 			continue
 		}
+		priced++
+		if card.Field("image") == "" {
+			imageless = append(imageless, card.ID)
+		}
 		if slices.Contains(gotFinishes[card.TcgPlayerID], card.Finish) {
 			return out, fmt.Errorf("product %d carries finish %q twice", card.TcgPlayerID, card.Finish)
 		}
@@ -277,6 +287,12 @@ func Check(doc Document, wantFinishes map[int][]string, rules Rules) (Counts, er
 		if _, found := setNames[product.SetCode]; !found {
 			return out, fmt.Errorf("sealed %q in unknown set %s", product.Name, product.SetCode)
 		}
+	}
+	if len(imageless) > 0 && len(imageless) == priced {
+		return out, errors.New("no priced card carries an image: the image link is broken")
+	}
+	if len(imageless) > 0 {
+		log.Printf("images: %d priced cards carry no image yet, first is %s", len(imageless), imageless[0])
 	}
 	// A set holding nothing is one no query finds anything in; the builders
 	// drop one before encoding, so meeting one here is a build's own bug.

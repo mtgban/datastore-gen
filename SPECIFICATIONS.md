@@ -351,9 +351,9 @@ finish twice or emitting a set of finishes other than the catalog's skus
 for it (**coverage, the zero-skip invariant**); a sealed entry missing its
 identity or its set; a set holding no card and no sealed product, which
 every builder drops and logs before encoding, so meeting one is a build's
-own bug. Per game on top: a Pokemon build whose every priced
-card has no image (one card without is logged, not refused),
-a Yu-Gi-Oh card with no product id that is
+own bug; a build whose every priced printing has no image, which is a
+broken image link (one printing without is logged, not refused). Per game
+on top: a Yu-Gi-Oh card with no product id that is
 not a European first print (`konamiId` set, number shaped `<PREFIX>-E###`),
 a Flesh and Blood minted entry wearing a priced entry's
 `fabId` or its set, number and name, a Riftbound gallery with no card
