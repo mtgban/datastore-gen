@@ -158,7 +158,7 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 				continue
 			}
 			n := name[sku.PrintingID]
-			if n == "" || sliceContains(names, n) {
+			if n == "" || slices.Contains(names, n) {
 				continue
 			}
 			names = append(names, n)
@@ -172,15 +172,6 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 		out[product.ProductID] = names
 	}
 	return out
-}
-
-func sliceContains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
 }
 
 // printRunPrintings name a print run rather than a finish. TCGplayer files
@@ -1578,7 +1569,7 @@ func promoTypesOf(s *single, p published, onShelf bool, own map[string]bool, fin
 // promoTypeLimit is how long a promo type may read before it stops being a
 // name and starts being a sentence. A query carries a token, and a token
 // nobody can type is one nobody will.
-const promoTypeLimit = 22
+const promoTypeLimit = vocabulary.TokenLimit
 
 // publishedPrefix is the run of words a label opens with that this datastore
 // states elsewhere - the set a promo reprints, or the Pokemon it pictures -
@@ -3055,18 +3046,9 @@ func main() {
 	if *cardmarketCatalogPath == "" {
 		log.Fatalln("-cardmarket-catalog is required: nothing else lists the stamped promos, and their loss is too small for the baseline guard to catch")
 	}
-	catalogData, err := os.ReadFile(*catalogPath)
+	catalog, err := emit.ReadCatalog(*catalogPath, pokemonCategory)
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
-	}
-	var catalog tcgplayer.CatalogDump
-	err = json.Unmarshal(catalogData, &catalog)
-	if err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
-	if catalog.Category.CategoryID != pokemonCategory {
-		log.Fatalf("tcg catalog: category %d, want %d (wrong game's dump)",
-			catalog.Category.CategoryID, pokemonCategory)
 	}
 
 	setsData, err := loadTcgdexCached(*tcgdexSets, *upstreamCache, "tcgdex-sets.json", tcgdexSetsQuery)
@@ -3713,10 +3695,10 @@ func main() {
 		// The WotC-era printing names spell the axes differently: 1st
 		// Edition and Unlimited are that era's normals, their Holofoil
 		// forms its holos.
-		hasNormal := sliceContains(names, "Normal") ||
-			sliceContains(names, "1st Edition") || sliceContains(names, "Unlimited")
-		hasHolo := sliceContains(names, "Holofoil") ||
-			sliceContains(names, "1st Edition Holofoil") || sliceContains(names, "Unlimited Holofoil")
+		hasNormal := slices.Contains(names, "Normal") ||
+			slices.Contains(names, "1st Edition") || slices.Contains(names, "Unlimited")
+		hasHolo := slices.Contains(names, "Holofoil") ||
+			slices.Contains(names, "1st Edition Holofoil") || slices.Contains(names, "Unlimited Holofoil")
 		tracked := setAxes[card.Set.ID]
 		checks := []struct {
 			axis    string
@@ -3725,10 +3707,10 @@ func main() {
 			printed bool
 		}{
 			{"normal", card.Variants.Normal, tracked.normal, hasNormal},
-			{"reverse", card.Variants.Reverse, tracked.reverse, sliceContains(names, "Reverse Holofoil")},
+			{"reverse", card.Variants.Reverse, tracked.reverse, slices.Contains(names, "Reverse Holofoil")},
 			{"holo", card.Variants.Holo, tracked.holo, hasHolo},
 			{"firstEdition", card.Variants.FirstEdition, tracked.firstEdition,
-				sliceContains(names, "1st Edition") || sliceContains(names, "1st Edition Holofoil")},
+				slices.Contains(names, "1st Edition") || slices.Contains(names, "1st Edition Holofoil")},
 		}
 		for _, c := range checks {
 			if c.tcgdex && !c.printed {
@@ -4603,38 +4585,6 @@ type counts struct {
 	sets, cards, sealed int
 }
 
-// coverage is the zero-skip invariant: the products the emitted entries
-// cover must be exactly the products the catalog types as cards. Checked on
-// the encoded output, so a card product no rule above knew what to do with
-// stops the publish instead of quietly leaving the datastore. The offender
-// is named lowest id first, so the same data always reports the same one.
-func coverage(got, want map[int][]string) error {
-	var missing, extra []int
-	for productID := range want {
-		_, found := got[productID]
-		if !found {
-			missing = append(missing, productID)
-		}
-	}
-	for productID := range got {
-		_, found := want[productID]
-		if !found {
-			extra = append(extra, productID)
-		}
-	}
-	sort.Ints(missing)
-	sort.Ints(extra)
-	if len(missing) > 0 {
-		return fmt.Errorf("%d catalog card products carry no entry, first is %d",
-			len(missing), missing[0])
-	}
-	if len(extra) > 0 {
-		return fmt.Errorf("%d entries name a product the catalog does not type as a card, first is %d",
-			len(extra), extra[0])
-	}
-	return nil
-}
-
 // validate decodes an encoded datastore and checks its shape: every card
 // and sealed product carrying its identity, every id unique within its
 // namespace, no two products wearing the same identity, every referenced set
@@ -4783,7 +4733,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		if productID == 0 {
 			continue
 		}
-		if sliceContains(gotFinishes[productID], card.Finish) {
+		if slices.Contains(gotFinishes[productID], card.Finish) {
 			return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 		}
 		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
@@ -4791,7 +4741,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	if err := shared.Check(); err != nil {
 		return out, err
 	}
-	err = coverage(gotFinishes, wantFinishes)
+	err = emit.Coverage(gotFinishes, wantFinishes)
 	if err != nil {
 		return out, err
 	}

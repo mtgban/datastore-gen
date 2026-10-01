@@ -316,3 +316,34 @@ func TestSharedIdentities(t *testing.T) {
 		t.Errorf("%d pairs published", SharedIdentityLimit+1)
 	}
 }
+
+// TestCoverageNamesTheLowestOffender pins the zero-skip check every builder
+// runs: a product missing or extra is named lowest id first, and an exact
+// match passes.
+func TestCoverageNamesTheLowestOffender(t *testing.T) {
+	want := map[int][]string{1: nil, 2: nil, 3: nil}
+	if err := Coverage(map[int][]string{1: nil, 2: nil, 3: nil}, want); err != nil {
+		t.Errorf("exact coverage refused: %v", err)
+	}
+	if err := Coverage(map[int][]string{1: nil}, want); err == nil || !strings.Contains(err.Error(), "2 catalog card products carry no entry, first is 2") {
+		t.Errorf("missing products: %v", err)
+	}
+	if err := Coverage(map[int][]string{1: nil, 2: nil, 3: nil, 9: nil, 7: nil}, want); err == nil || !strings.Contains(err.Error(), "first is 7") {
+		t.Errorf("extra products: %v", err)
+	}
+}
+
+// TestReadCatalogRefusesAnotherGame pins that a dump of the wrong category
+// stops a build before anything reads it.
+func TestReadCatalogRefusesAnotherGame(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	if err := os.WriteFile(path, []byte(`{"category":{"categoryId":91},"groups":[],"products":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadCatalog(path, 91); err != nil {
+		t.Errorf("right category refused: %v", err)
+	}
+	if _, err := ReadCatalog(path, 86); err == nil || err.Error() != "category 91, want 86 (wrong game's dump)" {
+		t.Errorf("wrong category: %v", err)
+	}
+}

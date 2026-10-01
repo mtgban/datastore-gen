@@ -111,15 +111,6 @@ var tcgSingles = tcgplayer.SinglesProductTypes(fabCategory)
 // carry, in the order the catalog displays them; a printing the catalog does not list for a product
 // is one that does not exist.
 
-func sliceContains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
-}
-
 // fabRow is the slice of a the-fab-cube printing this build reads: the
 // game's own printing id, the TCGplayer product the row maps it to, and
 // the card's own particulars, which are what a printing the catalog has no
@@ -452,7 +443,7 @@ func decompose(p tcgplayer.Product, num string, witnessed bool) single {
 		// A double-sided name decorates each face ("Ash (Cold Foil) //
 		// Aether Ashwing (Cold Foil)"): one qualifier, not two, or the
 		// repeat double-votes in the epithet election below.
-		if !sliceContains(quals, q) {
+		if !slices.Contains(quals, q) {
 			quals = append(quals, q)
 		}
 		return ""
@@ -480,7 +471,7 @@ func decompose(p tcgplayer.Product, num string, witnessed bool) single {
 			log.Printf("dash number: %q names %s where the dataset prints it at %s; dropped", p.Name, tail, num)
 		} else if numTailRe.MatchString(tail) {
 			name = strings.TrimSpace(name[:idx])
-			if !sliceContains(quals, tail) {
+			if !slices.Contains(quals, tail) {
 				quals = append(quals, tail)
 			}
 			log.Printf("dash number: %q disagrees with Number %q; kept as a variant", p.Name, num)
@@ -638,7 +629,7 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 		var names []string
 		for _, sku := range product.Skus {
 			n := name[sku.PrintingID]
-			if n == "" || sliceContains(names, n) {
+			if n == "" || slices.Contains(names, n) {
 				continue
 			}
 			names = append(names, n)
@@ -667,17 +658,9 @@ func main() {
 	if *catalogPath == "" {
 		log.Fatalln("-tcg-catalog is required: the dump carries the printings and the ids")
 	}
-	catalogData, err := os.ReadFile(*catalogPath)
+	catalog, err := emit.ReadCatalog(*catalogPath, fabCategory)
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
-	}
-	var catalog tcgplayer.CatalogDump
-	if err := json.Unmarshal(catalogData, &catalog); err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
-	if catalog.Category.CategoryID != fabCategory {
-		log.Fatalf("tcg catalog: category %d, want %d (wrong game's dump)",
-			catalog.Category.CategoryID, fabCategory)
 	}
 
 	fabData, err := emit.Fetch(*fabCards)
@@ -884,7 +867,7 @@ func main() {
 			unknownIDs++
 			continue
 		}
-		if !sliceContains(fabIDsByProduct[productID], row.ID) {
+		if !slices.Contains(fabIDsByProduct[productID], row.ID) {
 			fabIDsByProduct[productID] = append(fabIDsByProduct[productID], row.ID)
 		}
 		if color := pitchColors[strings.TrimSpace(row.Pitch)]; color != "" {
@@ -894,7 +877,7 @@ func main() {
 			pitchByProduct[productID][color] = true
 		}
 		for _, artist := range row.Artists {
-			if !sliceContains(artistsByProduct[productID], artist) {
+			if !slices.Contains(artistsByProduct[productID], artist) {
 				artistsByProduct[productID] = append(artistsByProduct[productID], artist)
 			}
 		}
@@ -1357,7 +1340,7 @@ func main() {
 				unspellable++
 				continue
 			}
-			if !sliceContains(finishes, finish) {
+			if !slices.Contains(finishes, finish) {
 				finishes = append(finishes, finish)
 			}
 		}
@@ -1520,38 +1503,6 @@ type counts struct {
 	sets, cards, sealed int
 }
 
-// coverage is the zero-skip invariant: the products the emitted entries
-// cover must be exactly the products the catalog types as cards. Checked on
-// the encoded output, so a card product no rule above knew what to do with
-// stops the publish instead of quietly leaving the datastore. The offender
-// is named lowest id first, so the same data always reports the same one.
-func coverage(got, want map[int][]string) error {
-	var missing, extra []int
-	for productID := range want {
-		_, found := got[productID]
-		if !found {
-			missing = append(missing, productID)
-		}
-	}
-	for productID := range got {
-		_, found := want[productID]
-		if !found {
-			extra = append(extra, productID)
-		}
-	}
-	sort.Ints(missing)
-	sort.Ints(extra)
-	if len(missing) > 0 {
-		return fmt.Errorf("%d catalog card products carry no entry, first is %d",
-			len(missing), missing[0])
-	}
-	if len(extra) > 0 {
-		return fmt.Errorf("%d entries name a product the catalog does not type as a card, first is %d",
-			len(extra), extra[0])
-	}
-	return nil
-}
-
 // validate decodes an encoded datastore and checks its shape: every card
 // and sealed product carrying its identity, every id unique within its
 // namespace, every referenced set existing, every finish one of the eight
@@ -1706,7 +1657,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		if productID == 0 {
 			continue
 		}
-		if sliceContains(gotFinishes[productID], card.Finish) {
+		if slices.Contains(gotFinishes[productID], card.Finish) {
 			return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 		}
 		gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
@@ -1714,7 +1665,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	if err := shared.Check(); err != nil {
 		return out, err
 	}
-	err = coverage(gotFinishes, wantFinishes)
+	err = emit.Coverage(gotFinishes, wantFinishes)
 	if err != nil {
 		return out, err
 	}

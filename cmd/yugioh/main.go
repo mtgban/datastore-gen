@@ -519,7 +519,7 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 		var names []string
 		for _, sku := range product.Skus {
 			n := name[sku.PrintingID]
-			if n == "" || sliceContains(names, n) {
+			if n == "" || slices.Contains(names, n) {
 				continue
 			}
 			names = append(names, n)
@@ -851,17 +851,9 @@ func main() {
 	if *catalogPath == "" {
 		log.Fatalln("-tcg-catalog is required: the dump carries the printings and the ids")
 	}
-	catalogData, err := os.ReadFile(*catalogPath)
+	catalog, err := emit.ReadCatalog(*catalogPath, yugiohCategory)
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
-	}
-	var catalog tcgplayer.CatalogDump
-	if err := json.Unmarshal(catalogData, &catalog); err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
-	if catalog.Category.CategoryID != yugiohCategory {
-		log.Fatalf("tcg catalog: category %d, want %d (wrong game's dump)",
-			catalog.Category.CategoryID, yugiohCategory)
 	}
 
 	setsData, err := emit.Fetch(*ygoSets)
@@ -879,7 +871,7 @@ func main() {
 	datesByCode := map[string][]string{}
 	datesByName := map[string][]string{}
 	addDate := func(index map[string][]string, key, date string) {
-		if key == "" || sliceContains(index[key], date) {
+		if key == "" || slices.Contains(index[key], date) {
 			return
 		}
 		index[key] = append(index[key], date)
@@ -1675,38 +1667,6 @@ type counts struct {
 	sets, cards, sealed int
 }
 
-// coverage is the zero-skip invariant: the products the emitted entries
-// cover must be exactly the products the catalog types as cards. Checked on
-// the encoded output, so a card product no rule above knew what to do with
-// stops the publish instead of quietly leaving the datastore. The offender
-// is named lowest id first, so the same data always reports the same one.
-func coverage(got, want map[int][]string) error {
-	var missing, extra []int
-	for productID := range want {
-		_, found := got[productID]
-		if !found {
-			missing = append(missing, productID)
-		}
-	}
-	for productID := range got {
-		_, found := want[productID]
-		if !found {
-			extra = append(extra, productID)
-		}
-	}
-	sort.Ints(missing)
-	sort.Ints(extra)
-	if len(missing) > 0 {
-		return fmt.Errorf("%d catalog card products carry no entry, first is %d",
-			len(missing), missing[0])
-	}
-	if len(extra) > 0 {
-		return fmt.Errorf("%d entries name a product the catalog does not type as a card, first is %d",
-			len(extra), extra[0])
-	}
-	return nil
-}
-
 // validate decodes an encoded datastore and checks its shape: every card
 // and sealed product carrying its identity — for a card that includes the
 // rarity it is varied by and the edition its skus price — every id unique
@@ -1841,7 +1801,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// card answers to none and would otherwise pile every European
 		// first print's finish under product 0.
 		if productID := card.ExternalLinks.TcgPlayerID; productID != 0 {
-			if sliceContains(gotFinishes[productID], card.Finish) {
+			if slices.Contains(gotFinishes[productID], card.Finish) {
 				return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 			}
 			gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
@@ -1850,7 +1810,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	if err := shared.Check(); err != nil {
 		return out, err
 	}
-	err = coverage(gotFinishes, wantFinishes)
+	err = emit.Coverage(gotFinishes, wantFinishes)
 	if err != nil {
 		return out, err
 	}
@@ -1883,15 +1843,6 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	out.cards = len(doc.Cards)
 	out.sealed = len(doc.Sealed)
 	return out, nil
-}
-
-func sliceContains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
 }
 
 // numberish is a qualifier that is a collector number rather than a
@@ -2120,7 +2071,7 @@ var subjects = map[string]bool{
 // promoTypeLimit is how long a promo type may read before only its first two
 // words are kept. A token is what a query carries, and the whole of a name is
 // the variant beside it.
-const promoTypeLimit = 22
+const promoTypeLimit = vocabulary.TokenLimit
 
 // shorterName is the name a promotion is known by: the shortest head of it
 // the vocabulary already holds, or its first two words where it still reads
