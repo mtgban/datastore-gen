@@ -27,7 +27,7 @@ func TestRegressionRefusesTheThreeShapes(t *testing.T) {
 		{"growth", counts(1100, 120, map[string]int{"A": 550, "B": 330, "C": 220}), ""},
 		{"a drop inside the tolerance", counts(995, 100, map[string]int{"A": 495, "B": 300, "C": 200}), ""},
 		{"a total past the tolerance", counts(980, 100, map[string]int{"A": 480, "B": 300, "C": 200}), "980 cards, down from 1000"},
-		{"sealed past the tolerance", counts(1000, 90, map[string]int{"A": 500, "B": 300, "C": 200}), "90 sealed products"},
+		{"sealed past the tolerance", counts(1000, 85, map[string]int{"A": 500, "B": 300, "C": 200}), "85 sealed products"},
 		{"a set emptied under the tolerance", counts(995, 100, map[string]int{"A": 500, "B": 300, "D": 195}), "hold no card any more: C"},
 		{"a set halved", counts(995, 100, map[string]int{"A": 500, "B": 300, "C": 99, "D": 96}), "lost more than half"},
 		{"a set at exactly half is logged, not refused", counts(1000, 100, map[string]int{"A": 500, "B": 300, "C": 100, "D": 100}), ""},
@@ -41,6 +41,50 @@ func TestRegressionRefusesTheThreeShapes(t *testing.T) {
 		case test.refused != "" && !strings.Contains(err.Error(), test.refused):
 			t.Errorf("%s: refused for %q, want %q", test.desc, err, test.refused)
 		}
+	}
+}
+
+// TestRegressionReadsAFloorBesideTheTolerance pins that a loss of MinLoss
+// entries or fewer is never refused, however small the game: Palworld's
+// 279 cards lost 7 minted ones to an upstream refiling on 2026-09-22.
+func TestRegressionReadsAFloorBesideTheTolerance(t *testing.T) {
+	previous := counts(279, 12, map[string]int{"PW": 279})
+	if err := Regression(previous, counts(272, 12, map[string]int{"PW": 272}), 0.01); err != nil {
+		t.Errorf("7 of 279 lost: refused: %v", err)
+	}
+	if err := Regression(previous, counts(268, 12, map[string]int{"PW": 268}), 0.01); err == nil {
+		t.Error("11 of 279 lost: accepted, want a refusal")
+	}
+}
+
+// TestRegressionTellsAMoveFromALoss pins that a set whose cards the build
+// still carries under another set is logged, not refused - TCGplayer
+// renaming a set, a builder filing a promo by its catalog group (Lorcana's
+// D23 on 2026-09-25) - while a set whose cards are gone is refused as ever.
+func TestRegressionTellsAMoveFromALoss(t *testing.T) {
+	where := func(pairs ...string) map[string]string {
+		out := map[string]string{}
+		for i := 0; i < len(pairs); i += 2 {
+			out[pairs[i]] = pairs[i+1]
+		}
+		return out
+	}
+	previous := Counts{Cards: 4, BySet: map[string]int{"11": 2, "D23": 2},
+		Where: where("tcg:1:", "11", "tcg:2:", "11", "tcg:3:", "D23", "tcg:4:", "D23")}
+	moved := Counts{Cards: 4, BySet: map[string]int{"11": 4},
+		Where: where("tcg:1:", "11", "tcg:2:", "11", "tcg:3:", "11", "tcg:4:", "11")}
+	if err := Regression(previous, moved, 0.01); err != nil {
+		t.Errorf("a set moved whole: refused: %v", err)
+	}
+	gone := Counts{Cards: 4, BySet: map[string]int{"11": 2, "X": 2},
+		Where: where("tcg:1:", "11", "tcg:2:", "11", "tcg:5:", "X", "tcg:6:", "X")}
+	if err := Regression(previous, gone, 0.01); err == nil || !strings.Contains(err.Error(), "hold no card any more: D23") {
+		t.Errorf("a set lost whole: %v, want a refusal naming D23", err)
+	}
+	halved := Counts{Cards: 4, BySet: map[string]int{"11": 3, "X": 1},
+		Where: where("tcg:1:", "11", "tcg:2:", "11", "tcg:3:", "11", "tcg:5:", "X")}
+	if err := Regression(previous, halved, 0.01); err != nil {
+		t.Errorf("half a set moved, half lost: refused: %v", err)
 	}
 }
 

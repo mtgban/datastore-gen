@@ -652,11 +652,15 @@ func countDatastore(data []byte) (baseline.Counts, error) {
 					Type  string `json:"type"`
 					Cards struct {
 						Items []struct {
+							ID  string `json:"id"`
 							Set struct {
 								Value struct {
 									ID string `json:"id"`
 								} `json:"value"`
 							} `json:"set"`
+							ExternalLinks struct {
+								TcgPlayerID int `json:"tcgPlayerId"`
+							} `json:"externalLinks"`
 						} `json:"items"`
 					} `json:"cards"`
 					Sealed struct {
@@ -666,7 +670,7 @@ func countDatastore(data []byte) (baseline.Counts, error) {
 			} `json:"page"`
 		} `json:"pageProps"`
 	}
-	out := baseline.Counts{BySet: map[string]int{}}
+	out := baseline.Counts{BySet: map[string]int{}, Where: map[string]string{}}
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return out, err
 	}
@@ -678,6 +682,9 @@ func countDatastore(data []byte) (baseline.Counts, error) {
 		out.Sealed = len(blade.Sealed.Items)
 		for _, card := range blade.Cards.Items {
 			out.BySet[card.Set.Value.ID]++
+			if card.ID != "" || card.ExternalLinks.TcgPlayerID != 0 {
+				out.Where[baseline.Identity(card.ID, card.ExternalLinks.TcgPlayerID, "")] = card.Set.Value.ID
+			}
 		}
 		return out, nil
 	}

@@ -24,13 +24,27 @@ import (
 	"github.com/mtgban/datastore-gen/internal/emit"
 )
 
-// Counts is what a datastore holds: the two totals, and the card count per
-// set. It is read off an encoded datastore - this build's own, or the one it
-// is about to replace - so both sides are counted the same way by the same
-// code.
+// Counts is what a datastore holds: the two totals, the card count per set,
+// and the set each card entry is filed in by its identity (see Identity). It
+// is read off an encoded datastore - this build's own, or the one it is
+// about to replace - so both sides are counted the same way by the same
+// code. A reader that leaves Where nil gets the per-set checks by count
+// alone.
 type Counts struct {
 	Cards, Sealed int
 	BySet         map[string]int
+	Where         map[string]string
+}
+
+// Identity names a card entry across builds: the TCGplayer product and the
+// finish it is priced in, or the entry's own id for a card nothing sells.
+// Neither moves when a set is renamed or a card is refiled under another
+// set, which is what tells a set whose cards moved from one that lost them.
+func Identity(id string, productID int, finish string) string {
+	if productID != 0 {
+		return fmt.Sprintf("tcg:%d:%s", productID, finish)
+	}
+	return "id:" + id
 }
 
 // Count reads the counts off a datastore that keeps its cards and sealed
@@ -48,11 +62,16 @@ func Count(data []byte) (Counts, error) {
 
 	var doc struct {
 		Cards []struct {
-			SetCode string `json:"setCode"`
+			ID            any    `json:"id"`
+			SetCode       string `json:"setCode"`
+			Finish        string `json:"finish"`
+			ExternalLinks struct {
+				TcgPlayerID int `json:"tcgPlayerId"`
+			} `json:"externalLinks"`
 		} `json:"cards"`
 		Sealed []json.RawMessage `json:"sealed"`
 	}
-	out := Counts{BySet: map[string]int{}}
+	out := Counts{BySet: map[string]int{}, Where: map[string]string{}}
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return out, err
 	}
@@ -60,6 +79,9 @@ func Count(data []byte) (Counts, error) {
 	out.Sealed = len(doc.Sealed)
 	for _, card := range doc.Cards {
 		out.BySet[card.SetCode]++
+		if id := fmt.Sprint(card.ID); card.ExternalLinks.TcgPlayerID != 0 || card.ID != nil && id != "" {
+			out.Where[Identity(id, card.ExternalLinks.TcgPlayerID, card.Finish)] = card.SetCode
+		}
 	}
 	return out, nil
 }
@@ -67,22 +89,33 @@ func Count(data []byte) (Counts, error) {
 // Reader reads a datastore's counts off its encoded form.
 type Reader func(data []byte) (Counts, error)
 
+// MinLoss is the fewest entries a build may lose before the tolerance is
+// read at all. One percent of Palworld's 279 cards is two, and an upstream
+// refiling the cards a build mints moved seven on 2026-09-22 and 23 while
+// every product the catalog sells was carried.
+const MinLoss = 10
+
 // Regression compares this build against the one it is about to replace.
 //
 // Only shrinkage is suspicious - these datastores grow every week - and
 // only three shapes of it are refused: a total that fell by more than the
-// tolerance, a set that holds no card at all any more, and a set that lost
-// more than half of what it held. The last two are what a whole-file count
-// cannot see: one set folding onto another moves the total by a fraction
-// of a percent while emptying a set completely. Every other per-set drop is
-// logged rather than refused, because a product delisted here and there is
-// ordinary and a build that cried wolf would be turned off.
+// tolerance (and by more than MinLoss), a set that holds no card at all any
+// more, and a set that lost more than half of what it held. The last two
+// are what a whole-file count cannot see: one set folding onto another
+// moves the total by a fraction of a percent while emptying a set
+// completely. A set's cards still in the build under another set are not
+// lost - TCGplayer renames a set, a builder files a card by its catalog
+// group - so where both sides say where each card is, a set is judged by
+// what it held that the build no longer carries anywhere, and the move is
+// logged. Every other per-set drop is logged rather than refused, because a
+// product delisted here and there is ordinary and a build that cried wolf
+// would be turned off.
 func Regression(previous, current Counts, tolerance float64) error {
 	if previous.Cards == 0 {
 		return nil
 	}
 	lost := func(was, now int) bool {
-		return now < was && float64(was-now)/float64(was) > tolerance
+		return was-now > MinLoss && float64(was-now)/float64(was) > tolerance
 	}
 	if lost(previous.Cards, current.Cards) {
 		return fmt.Errorf("%d cards, down from %d, more than the %.1f%% a build may lose",
@@ -92,9 +125,14 @@ func Regression(previous, current Counts, tolerance float64) error {
 		return fmt.Errorf("%d sealed products, down from %d, more than the %.1f%% a build may lose",
 			current.Sealed, previous.Sealed, tolerance*100)
 	}
-	var vanished, collapsed, shrank []string
+	kept := keptBySet(previous, current)
+	var vanished, collapsed, shrank, moved []string
 	for code, was := range previous.BySet {
 		now := current.BySet[code]
+		if held, known := kept[code]; known && held > now {
+			moved = append(moved, fmt.Sprintf("%s %d->%d, %d of them now under another set", code, was, now, held-now))
+			now = held
+		}
 		switch {
 		case now == 0:
 			vanished = append(vanished, code)
@@ -107,6 +145,10 @@ func Regression(previous, current Counts, tolerance float64) error {
 	sort.Strings(vanished)
 	sort.Strings(collapsed)
 	sort.Strings(shrank)
+	sort.Strings(moved)
+	for _, s := range moved {
+		log.Printf("against: set %s", s)
+	}
 	for _, s := range shrank {
 		log.Printf("against: set %s", s)
 	}
@@ -119,6 +161,22 @@ func Regression(previous, current Counts, tolerance float64) error {
 			len(collapsed), strings.Join(collapsed, " "))
 	}
 	return nil
+}
+
+// keptBySet counts, per set of the previous build, the entries it held that
+// the current build still carries in any set. Nil when either side does not
+// say where its entries are.
+func keptBySet(previous, current Counts) map[string]int {
+	if previous.Where == nil || current.Where == nil {
+		return nil
+	}
+	kept := map[string]int{}
+	for identity, code := range previous.Where {
+		if _, carried := current.Where[identity]; carried {
+			kept[code]++
+		}
+	}
+	return kept
 }
 
 // Options is what the publish hands a build about its baseline.

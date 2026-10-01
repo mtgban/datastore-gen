@@ -356,8 +356,11 @@ not type as a card.
 
 Then the **baseline guard** (`internal/baseline.Guard`): against the
 previous baseline, refuse a card or sealed total that fell by more than
-`-against-tolerance` (1%), a set that holds no card any more, or a set that
-lost more than half; log every other per-set drop. Write `-baseline-fit`
+`-against-tolerance` (1%) and more than `MinLoss` (10) entries, a set that
+holds no card any more, or a set that lost more than half, counting as held
+the cards a set had that the build still carries under another set (by
+`Identity`: product and finish, or the id where nothing sells it); log
+every other per-set drop and every move. Write `-baseline-fit`
 only when the build holds at least as much as the baseline, so the baseline
 only ever moves forward.
 
@@ -458,7 +461,7 @@ spelling each, for all eight builders and for every reader of a built
 file — the peel was eleven copies of a `json.RawMessage` peek before, and
 a discriminator that has to be fixed in eleven places is fixed in none.
 
-**`internal/baseline`** — `Counts`, `Count`, `Reader`, `Regression`,
+**`internal/baseline`** — `Counts`, `Count`, `Identity`, `MinLoss`, `Reader`, `Regression`,
 `Options{Against, Tolerance, FitPath, Unit}`, `Guard`. Riftbound hands
 `Guard` a reader of its own for its shape. `Count` peels through
 `emit.Unwrap`, so a baseline that is not an envelope stops the build at

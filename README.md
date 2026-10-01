@@ -177,9 +177,14 @@ Only shrinkage is suspicious - these datastores grow every week - and only
 three shapes of it are refused:
 
 - a card or sealed total that fell by more than `-against-tolerance`
-  (1% by default);
+  (1% by default) and by more than ten entries;
 - a set that holds no card at all any more;
 - a set that lost more than half of what it held.
+
+A set's cards still in the build under another set count as held: a card
+is known by its TCGplayer product and finish (or its id where nothing sells
+it), so a set TCGplayer renamed, or a card refiled by its catalog group, is
+logged as a move rather than refused as a loss.
 
 The last two are what a whole-file count cannot see. One set folding onto
 another - the bug the unique set codes now prevent - moves the total by a
