@@ -865,6 +865,8 @@ func main() {
 	if err := json.Unmarshal(setsData, &ygo); err != nil {
 		log.Fatalln("ygoprodeck sets:", err)
 	}
+	// YGOPRODeck gives a set no id of its own, and several share a code.
+	ygo = emit.DropRepeats("ygoprodeck sets", ygo, func(s ygoSet) ygoSet { return s })
 	// Index the dates by code and by normalized name. Several YGOPRODeck
 	// entries share a code (a set beside its special editions), so a key
 	// maps to every distinct date it was seen with, and only a key with
@@ -917,6 +919,7 @@ func main() {
 		if err := json.Unmarshal(cardsData, &payload); err != nil {
 			log.Printf("ygoprodeck cards: %v (passcodes not annotated, no european first prints minted)", err)
 		} else {
+			payload.Data = emit.DropRepeats("ygoprodeck cards", payload.Data, func(c ygoCard) int { return c.ID })
 			ygoCardList = payload.Data
 			codes = konamiIDs(payload.Data)
 			log.Printf("ygoprodeck cards: %d cards, %d collector numbers naming one passcode",

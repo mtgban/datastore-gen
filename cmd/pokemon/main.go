@@ -2486,7 +2486,7 @@ func loadPokemontcgSets(path, cacheDir string) ([]pokemontcgSet, error) {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return nil, err
 	}
-	return payload.Data, nil
+	return emit.DropRepeats("pokemontcg.io sets", payload.Data, func(s pokemontcgSet) string { return s.ID }), nil
 }
 
 // mtgmatcherNormalize reduces a set name to its letters and digits, so the
@@ -3061,6 +3061,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("tcgdex sets:", err)
 	}
+	setsResponse.Sets = emit.DropRepeats("tcgdex sets", setsResponse.Sets, func(s tcgdexSet) string { return s.ID })
 	// A response older than the query answers every field the query did not
 	// used to ask for with nothing, and says so nowhere: -tcgdex-sets reads
 	// a file whatever the query has become, and the cache is read back
@@ -3090,6 +3091,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("tcgdex cards:", err)
 	}
+	cardsResponse.Cards = emit.DropRepeats("tcgdex cards", cardsResponse.Cards, func(c tcgdexCard) string { return c.ID })
 
 	var dexSets []tcgdexSet
 	// dexSetKnown is the sets a tcgdex card may be counted under: the

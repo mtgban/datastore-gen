@@ -118,14 +118,16 @@ var tcgSingles = tcgplayer.SinglesProductTypes(fabCategory)
 // the card's own particulars, which are what a printing the catalog has no
 // product for is minted from.
 type fabRow struct {
-	ID        string `json:"id"`
-	SetID     string `json:"set_id"`
-	ProductID string `json:"tcgplayer_product_id"`
-	Name      string `json:"name"`
-	Rarity    string `json:"rarity"`
-	Foiling   string `json:"foiling"`
-	Edition   string `json:"edition"`
-	ImageURL  string `json:"image_url"`
+	// PrintingID is the dataset's own id for the row, unique to it.
+	PrintingID string `json:"printing_unique_id"`
+	ID         string `json:"id"`
+	SetID      string `json:"set_id"`
+	ProductID  string `json:"tcgplayer_product_id"`
+	Name       string `json:"name"`
+	Rarity     string `json:"rarity"`
+	Foiling    string `json:"foiling"`
+	Edition    string `json:"edition"`
+	ImageURL   string `json:"image_url"`
 	// Pitch is the value the card pitches for, 1 to 3, which the catalog
 	// also carries as "Pitch Value" and gets wrong now and then.
 	Pitch string `json:"pitch"`
@@ -677,6 +679,7 @@ func main() {
 	if err := json.Unmarshal(setsData, &fabSetRows); err != nil {
 		log.Fatalln("fab sets:", err)
 	}
+	fabSetRows = emit.DropRepeats("fab sets", fabSetRows, func(s fabSet) string { return s.ID })
 	fabSetByID := map[string]fabSet{}
 	for _, set := range fabSetRows {
 		fabSetByID[strings.ToUpper(set.ID)] = set
@@ -685,6 +688,7 @@ func main() {
 	if err := json.Unmarshal(fabData, &fabRows); err != nil {
 		log.Fatalln("fab dataset:", err)
 	}
+	fabRows = emit.DropRepeats("fab dataset", fabRows, func(r fabRow) string { return r.PrintingID })
 	log.Printf("catalog: %d groups, %d products; fab dataset: %d printings",
 		len(catalog.Groups), len(catalog.Products), len(fabRows))
 

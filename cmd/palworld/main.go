@@ -79,6 +79,8 @@ const (
 // card is and where it is filed, and nothing that would republish the
 // upstream's own work.
 type palworldCard struct {
+	// Slug is the API's own id for the card, unique to it.
+	Slug     string   `json:"slug"`
 	Number   string   `json:"card_number"`
 	Name     string   `json:"name"`
 	SetCode  string   `json:"set_code"`
@@ -625,6 +627,7 @@ func main() {
 	if err != nil {
 		log.Fatalln("palworldtcg:", err)
 	}
+	upstream = emit.DropRepeats("palworldtcg", upstream, func(c palworldCard) string { return c.Slug })
 	// Stable order, so unchanged data keeps producing byte-identical output.
 	sort.Slice(upstream, func(i, j int) bool {
 		return upstream[i].Number < upstream[j].Number

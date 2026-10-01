@@ -347,3 +347,28 @@ func TestReadCatalogRefusesAnotherGame(t *testing.T) {
 		t.Errorf("wrong category: %v", err)
 	}
 }
+
+// TestReadCatalogDropsRepeats pins that a product or group served twice is
+// read once, as it was served first, in order, and that products with no id
+// are all kept.
+func TestReadCatalogDropsRepeats(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.json")
+	data := `{"category":{"categoryId":91},"groups":[{"groupId":1},{"groupId":1}],"products":[
+		{"productId":5,"name":"Ace"},{"productId":6,"name":"Two"},{"productId":5,"name":"Ace (Again)"},{"productId":7,"name":"Two"},
+		{"name":"Unnumbered"},{"name":"Unnumbered"}]}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := ReadCatalog(path, 91)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, product := range catalog.Products {
+		names = append(names, fmt.Sprintf("%d %s", product.ProductID, product.Name))
+	}
+	want := []string{"5 Ace", "6 Two", "7 Two", "0 Unnumbered", "0 Unnumbered"}
+	if !slices.Equal(names, want) || len(catalog.Groups) != 1 {
+		t.Errorf("products %q, %d groups; want %q, 1", names, len(catalog.Groups), want)
+	}
+}
