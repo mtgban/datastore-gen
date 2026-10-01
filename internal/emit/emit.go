@@ -368,7 +368,36 @@ func ReadCatalog(path string, category int) (tcgplayer.CatalogDump, error) {
 		return catalog, fmt.Errorf("category %d, want %d (wrong game's dump)",
 			catalog.Category.CategoryID, category)
 	}
+	catalog.Groups = DropRepeats("catalog groups", catalog.Groups, func(g tcgplayer.Group) int { return g.GroupID })
+	catalog.Products = DropRepeats("catalog products", catalog.Products, func(p tcgplayer.Product) int { return p.ProductID })
 	return catalog, nil
+}
+
+// DropRepeats keeps the first row under each key, logs the rest under
+// source, and returns the rows kept in order. The key is the id the source
+// keeps unique, so a second row under it is the same row served again: by a
+// source that pages, two printings nothing tells apart, a product claimed
+// twice, or an upstream match read as ambiguous. A row with no id, its key
+// the zero value, is kept: nothing says it is another row again.
+func DropRepeats[T any, K comparable](source string, rows []T, key func(T) K) []T {
+	var none K
+	seen := map[K]bool{}
+	kept := make([]T, 0, len(rows))
+	var dropped []string
+	for _, row := range rows {
+		k := key(row)
+		if k != none && seen[k] {
+			dropped = append(dropped, fmt.Sprint(k))
+			continue
+		}
+		seen[k] = true
+		kept = append(kept, row)
+	}
+	if len(dropped) > 0 {
+		log.Printf("%s: %d rows under an id already read, the same row served twice; dropped: %s",
+			source, len(dropped), strings.Join(dropped, ", "))
+	}
+	return kept
 }
 
 // Coverage is the zero-skip invariant: the products the emitted entries

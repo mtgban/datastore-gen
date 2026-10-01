@@ -75,6 +75,8 @@ const (
 // and where it is filed, and nothing that would republish the upstream's
 // own work.
 type gcgCard struct {
+	// ID is gcg-api's own id for the printing, unique to it.
+	ID       string `json:"product_id"`
 	Number   string `json:"card_number"`
 	Name     string `json:"name"`
 	SetCode  string `json:"set_code"`
@@ -731,6 +733,7 @@ func main() {
 	if err := json.Unmarshal(upstreamData, &upstream); err != nil {
 		log.Fatalln("gcg-api:", err)
 	}
+	upstream = emit.DropRepeats("gcg-api", upstream, func(c gcgCard) string { return c.ID })
 	// Stable order, so unchanged data keeps producing byte-identical output.
 	sort.Slice(upstream, func(i, j int) bool {
 		return upstream[i].Number < upstream[j].Number
