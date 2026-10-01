@@ -338,7 +338,9 @@ read first only because seven identifiers spell the promo number last.
 `validate` re-reads the encoded output before anything is written,
 peeling it through `emit.Unwrap` first: the output is the envelope now,
 and a check that decoded the top level would validate a shape nothing
-publishes. Refused
+publishes. Lorcana and Riftbound, whose documents hold a card's printings
+inside it, read theirs one printing at a time into the same checks.
+Refused
 in every game: a card missing its identity fields; an id outside the id
 shape; a number carrying whitespace; a duplicate id; more than
 `emit.SharedIdentityLimit` (5) pairs of products wearing one identity
@@ -352,9 +354,11 @@ card has no image (one card without is logged, not refused),
 a Pokemon set holding nothing, a Yu-Gi-Oh card with no product id that is
 not a European first print (`konamiId` set, number shaped `<PREFIX>-E###`),
 a Flesh and Blood minted entry wearing a priced entry's
-`fabId` or its set, number and name, a Lorcana product claimed by two cards
-or carried by none, a Riftbound printing naming a product the catalog does
-not type as a card.
+`fabId` or its set, number and name, a Riftbound gallery with no card
+blade or two sets under one id, a Riftbound sealed product wearing a
+printing's id. Lorcana alone logs rather than refuses a product upstream
+links that the catalog types as no card, since the dump can lag a day
+behind upstream.
 
 Then the **baseline guard** (`internal/baseline.Guard`): against the
 previous baseline, refuse a card or sealed total that fell by more than
@@ -407,8 +411,8 @@ Per-game notes an agent needs:
   catalog files with no `Number` carry no number rather than a `0`, which
   is only what an empty string parses to. The number is a string like
   every other game's, which it was not until the absence had to survive a
-  consumer's own decoding: `validate` re-reads it as one, so a build
-  publishing an integer again cannot get past the decode.
+  consumer's own decoding: the re-read refuses any other type, so a build
+  publishing an integer again cannot get past it.
 - **onepiece**: DON!! cards are all named `DON!! Card`, so the character on
   one is the mark, tested against the card names in the catalog with the
   epithet fold (`Rocks D. Xebec` is `Rocks.D.Xebec`); labels are cut at the

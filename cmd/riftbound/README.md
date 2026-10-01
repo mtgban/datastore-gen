@@ -30,10 +30,11 @@ Every product the catalog types as a card becomes a printing:
   promotional printings, so a set the gallery has merely not published yet
   stays a main set.
 
-`validate` re-reads the encoded output and refuses to publish if any catalog
-card product carries no printing, if two printings claim one product, or if
-two sets wear one id — the last of which would fold two groups onto one set
-while every card naming it still resolved.
+The encoded output is read back one printing at a time and held to the
+checks every game shares (`internal/validate`), which refuse to publish if
+any catalog card product carries no printing or a printing other than the
+ones its skus sell. On top, it refuses two sets wearing one id, which would
+fold two groups onto one set while every card naming it still resolved.
 
 The gallery says nothing about finish, and most of Riftbound is sold in one
 finish only - promotional printings foil, starter cards plain - so the

@@ -86,7 +86,7 @@ func TestMintedNumber(t *testing.T) {
 }
 
 // TestValidateNumber pins the contract the number is published under, which
-// validate holds by declaring its type: a card carries the number as a
+// readDocument holds: a card carries the number as a
 // string or carries none at all. The corners are the ones that used to
 // collide - a product the catalog files with no number, and "Bruno
 // Madrigal", which really is numbered 0 - and the refusal is what stops a
@@ -118,7 +118,7 @@ func TestValidateNumber(t *testing.T) {
 		refused: true,
 	}} {
 		t.Run(tt.desc, func(t *testing.T) {
-			_, err := validate(document(tt.card), map[int]bool{})
+			_, _, err := readDocument(document(tt.card), map[int][]string{})
 			if tt.refused && err == nil {
 				t.Error("the build was accepted, want it refused")
 			}

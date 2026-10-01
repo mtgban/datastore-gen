@@ -1,6 +1,9 @@
 // Package validate re-reads a builder's encoded output and refuses one a
-// consumer would misread: what every builder whose cards sit at the top of
-// its document checks, with the game's own rules handed in.
+// consumer would misread: what every builder checks, with the game's own
+// rules handed in. A document whose cards sit at its top, one entry per
+// printing, is read by Flat; a game whose document holds them otherwise
+// reads its own into a Document, one Card per printing, and hands it to
+// Check.
 //
 // The checks every game shares are here once - a set without a name or with
 // a code a query cannot carry, a card without an id, a name or a finish, an
@@ -85,10 +88,30 @@ type Counts struct {
 	Sets, Cards, Sealed int
 }
 
-// Datastore checks an encoded datastore against the shared rules and the
-// game's, and against the finishes each catalog card product sells.
+// Document is a datastore as the checks read it: its game, its sets' names
+// by code, one Card per printing, and its sealed products.
+type Document struct {
+	Game   string
+	Sets   map[string]string
+	Cards  []Card
+	Sealed []Sealed
+}
+
+// Datastore checks an encoded datastore whose cards sit at the top of the
+// document against the shared rules and the game's, and against the
+// finishes each catalog card product sells.
 func Datastore(data []byte, wantFinishes map[int][]string, rules Rules) (Counts, error) {
-	var out Counts
+	doc, err := Flat(data)
+	if err != nil {
+		return Counts{}, err
+	}
+	return Check(doc, wantFinishes, rules)
+}
+
+// Flat reads an encoded datastore whose cards sit at the top of the
+// document, one entry per printing.
+func Flat(data []byte) (Document, error) {
+	var out Document
 	data, err := emit.Unwrap(data)
 	if err != nil {
 		return out, err
@@ -111,32 +134,47 @@ func Datastore(data []byte, wantFinishes map[int][]string, rules Rules) (Counts,
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return out, err
 	}
-	if doc.Game != rules.Game {
-		return out, fmt.Errorf("game is %q, not %s", doc.Game, rules.Game)
-	}
-	setNames := map[string]string{}
+	out.Game = doc.Game
+	out.Sets = map[string]string{}
 	for code, set := range doc.Sets {
-		if set.Name == "" {
-			return out, fmt.Errorf("set %s missing its name", code)
-		}
-		if !codeShape.MatchString(code) {
-			return out, fmt.Errorf("set code %q holds what a query cannot carry", code)
-		}
-		setNames[code] = set.Name
+		out.Sets[code] = set.Name
 	}
-
-	cards := make([]Card, len(doc.Cards))
+	out.Cards = make([]Card, len(doc.Cards))
 	for i, entry := range doc.Cards {
-		cards[i] = Card{
+		out.Cards[i] = Card{
 			ID: say(entry["id"]), Name: say(entry["name"]), Number: say(entry["number"]),
 			SetCode: say(entry["setCode"]), Finish: say(entry["finish"]), Entry: entry,
 		}
 		if links, ok := entry["externalLinks"].(map[string]any); ok {
 			if id, ok := links["tcgPlayerId"].(float64); ok {
-				cards[i].TcgPlayerID = int(id)
+				out.Cards[i].TcgPlayerID = int(id)
 			}
 		}
 	}
+	out.Sealed = make([]Sealed, len(doc.Sealed))
+	for i, product := range doc.Sealed {
+		out.Sealed[i] = Sealed{ID: product.ID, Name: product.Name, SetCode: product.SetCode, TcgPlayerID: product.ExternalLinks.TcgPlayerID}
+	}
+	return out, nil
+}
+
+// Check checks a document against the shared rules and the game's, and
+// against the finishes each catalog card product sells.
+func Check(doc Document, wantFinishes map[int][]string, rules Rules) (Counts, error) {
+	var out Counts
+	if doc.Game != rules.Game {
+		return out, fmt.Errorf("game is %q, not %s", doc.Game, rules.Game)
+	}
+	setNames := doc.Sets
+	for code, name := range setNames {
+		if name == "" {
+			return out, fmt.Errorf("set %s missing its name", code)
+		}
+		if !codeShape.MatchString(code) {
+			return out, fmt.Errorf("set code %q holds what a query cannot carry", code)
+		}
+	}
+	cards := doc.Cards
 	if rules.Prepare != nil {
 		rules.Prepare(cards)
 	}
@@ -222,11 +260,10 @@ func Datastore(data []byte, wantFinishes map[int][]string, rules Rules) (Counts,
 		}
 	}
 
-	sealed := make([]Sealed, len(doc.Sealed))
+	sealed := doc.Sealed
 	sealedIDs := map[string]bool{}
-	for i, product := range doc.Sealed {
-		sealed[i] = Sealed{ID: product.ID, Name: product.Name, SetCode: product.SetCode, TcgPlayerID: product.ExternalLinks.TcgPlayerID}
-		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
+	for _, product := range sealed {
+		if product.ID == "" || product.Name == "" || product.TcgPlayerID == 0 {
 			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
 		}
 		if !idShape.MatchString(product.ID) {
