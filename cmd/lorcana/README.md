@@ -41,9 +41,10 @@ publishes the real card its own entry claims the product and the minted one
 stops being minted.
 
 The result is the union of both sources: every card LorcanaJSON publishes,
-and every product the catalog types as a card. `validate` re-reads the
-encoded output and refuses to publish if any catalog card product carries
-no card.
+and every product the catalog types as a card. The encoded output is read
+back one printing at a time and held to the checks every game shares
+(`internal/validate`), which refuse to publish if any catalog card product
+carries no card or a printing other than the ones its skus sell.
 
 The finishes a card is sold in are named the way TCGplayer names them
 ("Normal", "Cold Foil", "Holofoil"), as the other games name theirs, and

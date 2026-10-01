@@ -80,6 +80,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
@@ -90,6 +91,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/validate"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-cardmarket"
 	"github.com/mtgban/go-tcgplayer"
@@ -1652,8 +1654,15 @@ func main() {
 	// download must fail here, not in every consumer. The types mirror
 	// what go-mtgban's mtgmatcher/lorcana reads, duplicated so this
 	// repository depends on nothing.
-	counted, err := validate(buf.Bytes(), cardProducts)
+	wantFinishes := map[int][]string{}
+	for id := range cardProducts {
+		wantFinishes[id] = printings[id]
+	}
+	document, counted, err := readDocument(buf.Bytes(), wantFinishes)
 	if err != nil {
+		log.Fatalln("validation:", err)
+	}
+	if _, err := validate.Check(document, wantFinishes, validationRules()); err != nil {
 		log.Fatalln("validation:", err)
 	}
 	log.Printf("validated: %d sets, %d cards, %d tcgplayer ids, %d sealed",
@@ -1706,45 +1715,24 @@ type counts struct {
 	sets, cards, sealed, identified, carried int
 }
 
-// validate decodes an encoded datastore and checks its shape: sets and
-// cards present, every card and sealed product carrying its identity,
-// every id unique within its namespace, every sealed set existing, and
-// every product the catalog types as a card claimed by a card — the
-// zero-skip invariant, checked on the encoded output so a product no rule
-// above carried stops the publish instead of leaving the datastore.
-// codeShape is what a set code has to look like to be asked for: a search
-// query is split on whitespace before a filter sees it and on the colon that
-// names the filter, so a code holding either can never be typed after "is:".
-// Folded up, because every reader of a code folds the spelling it is asked
-// with before the lookup - an unfolded code is listed everywhere and found
-// nowhere, which is what Gundam's "GD01-b" was.
-var codeShape = regexp.MustCompile(`^[A-Z0-9-]+$`)
-
-func validate(data []byte, cardProducts map[int]bool) (counts, error) {
+// readDocument reads the encoded output as the shared checks read a
+// datastore: one Card per printing, each priced by whichever of its card's
+// products sells its finish, the card's own before its foil extras. What
+// only a card can be asked is checked here: its id, name and set, and an id
+// no other card has. It returns the counts of the cards themselves beside
+// the document.
+func readDocument(data []byte, wantFinishes map[int][]string) (validate.Document, counts, error) {
+	var out validate.Document
+	var counted counts
 	data, err := emit.Unwrap(data)
 	if err != nil {
-		return counts{}, err
+		return out, counted, err
 	}
-
 	var doc struct {
 		Sets map[string]struct {
-			Name        string `json:"name"`
-			ReleaseDate string `json:"releaseDate"`
+			Name string `json:"name"`
 		} `json:"sets"`
-		Cards []struct {
-			ID       int    `json:"id"`
-			FullName string `json:"fullName"`
-			SetCode  string `json:"setCode"`
-			// A string, as §2.2 spells it and the other seven games write
-			// it. Declaring the type here is the whole of the guard: this
-			// re-reads the encoded output, so a build that went back to
-			// publishing an integer could not get past the decode.
-			Number        string `json:"number"`
-			ExternalLinks struct {
-				TcgPlayerID     int   `json:"tcgPlayerId"`
-				TcgPlayerExtras []int `json:"tcgPlayerExtraIds"`
-			} `json:"externalLinks"`
-		} `json:"cards"`
+		Cards  []map[string]any `json:"cards"`
 		Sealed []struct {
 			ID            string `json:"id"`
 			Name          string `json:"name"`
@@ -1754,94 +1742,111 @@ func validate(data []byte, cardProducts map[int]bool) (counts, error) {
 			} `json:"externalLinks"`
 		} `json:"sealed"`
 	}
-	var out counts
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return out, err
+		return out, counted, err
 	}
-
-	// The date is not required: upstream lists future sets before their
-	// release date is announced.
+	out.Game = "lorcana"
+	out.Sets = map[string]string{}
 	for code, set := range doc.Sets {
-		if set.Name == "" {
-			return out, fmt.Errorf("set %s missing its name", code)
-		}
-		if !codeShape.MatchString(code) {
-			return out, fmt.Errorf("set code %q holds what a query cannot carry", code)
-		}
+		out.Sets[code] = set.Name
 	}
 	cardIDs := map[int]bool{}
-	// A product is one printing sold under one listing, so it belongs to one
-	// card: two cards claiming it merge their price histories into whichever
-	// of them a consumer happens to load last, which flips the day upstream
-	// reorders its array. Extra ids name products in the same namespace and
-	// are checked against the same claims.
-	claimedBy := map[int]string{}
-	for _, card := range doc.Cards {
-		if card.ID == 0 || card.FullName == "" || card.SetCode == "" {
-			return out, fmt.Errorf("card %q (%d) missing identity", card.FullName, card.ID)
+	claimed := map[int]bool{}
+	var foreign []int
+	for _, entry := range doc.Cards {
+		id, _ := cardID(entry["id"])
+		name, _ := entry["fullName"].(string)
+		setCode, _ := entry["setCode"].(string)
+		// A string, as §2.2 spells it and the other seven games write it:
+		// a build that went back to publishing an integer is refused here.
+		number, isString := entry["number"].(string)
+		if id == 0 || name == "" || setCode == "" || (entry["number"] != nil && !isString) {
+			return out, counted, fmt.Errorf("card %q (%d) missing identity", name, id)
 		}
-		if cardIDs[card.ID] {
-			return out, fmt.Errorf("duplicate card id %d", card.ID)
+		if cardIDs[id] {
+			return out, counted, fmt.Errorf("duplicate card id %d", id)
 		}
-		cardIDs[card.ID] = true
-		if _, found := doc.Sets[card.SetCode]; !found {
-			return out, fmt.Errorf("card %q in unknown set %s", card.FullName, card.SetCode)
+		cardIDs[id] = true
+		links, _ := entry["externalLinks"].(map[string]any)
+		products := []int{intOf(links["tcgPlayerId"])}
+		extras, _ := links["tcgPlayerExtraIds"].([]any)
+		for _, extra := range extras {
+			products = append(products, intOf(extra))
 		}
-		claimant := fmt.Sprintf("%q (%d)", card.FullName, card.ID)
-		for _, id := range append([]int{card.ExternalLinks.TcgPlayerID}, card.ExternalLinks.TcgPlayerExtras...) {
-			if id == 0 {
+		if products[0] != 0 {
+			counted.identified++
+		}
+		for _, product := range products {
+			if product == 0 {
 				continue
 			}
-			if previous, found := claimedBy[id]; found {
-				return out, fmt.Errorf("tcgplayer product %d claimed by both %s and %s", id, previous, claimant)
+			// A claim naming no card product is upstream's to make, not
+			// this build's: the dump can lag a day behind a product
+			// upstream already links, so it is said out loud rather than
+			// refused, and read as pricing nothing.
+			if _, card := wantFinishes[product]; !card {
+				foreign = append(foreign, product)
+				continue
 			}
-			claimedBy[id] = claimant
+			claimed[product] = true
 		}
-		if card.ExternalLinks.TcgPlayerID != 0 {
-			out.identified++
+		printings, _ := entry["printings"].([]any)
+		for _, raw := range printings {
+			printing, _ := raw.(map[string]any)
+			finish, _ := printing["finish"].(string)
+			product := 0
+			for _, candidate := range products {
+				if slices.Contains(wantFinishes[candidate], finish) {
+					product = candidate
+					break
+				}
+			}
+			if product == 0 && claimed[products[0]] {
+				product = products[0]
+			}
+			printed := maps.Clone(entry)
+			printed["id"] = printing["id"]
+			printed["finish"] = finish
+			out.Cards = append(out.Cards, validate.Card{
+				ID: fmt.Sprint(printing["id"]), Name: name, Number: number, SetCode: setCode,
+				Finish: finish, TcgPlayerID: product, Entry: printed,
+			})
 		}
 	}
-	var missing, foreign []int
-	for id := range claimedBy {
-		if !cardProducts[id] {
-			foreign = append(foreign, id)
-			continue
-		}
-		out.carried++
-	}
-	for id := range cardProducts {
-		if _, found := claimedBy[id]; !found {
-			missing = append(missing, id)
-		}
-	}
-	sort.Ints(missing)
 	sort.Ints(foreign)
-	if len(missing) > 0 {
-		return out, fmt.Errorf("%d catalog card products carry no card, first is %d",
-			len(missing), missing[0])
-	}
-	// A claim naming no card product is upstream's to make, not this
-	// build's: the dump can lag a day behind a product upstream already
-	// links, so it is said out loud rather than refused.
 	if len(foreign) > 0 {
 		log.Printf("%d claimed product ids the catalog types as no card, first is %d",
 			len(foreign), foreign[0])
 	}
-	sealedIDs := map[string]bool{}
 	for _, product := range doc.Sealed {
-		if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
-			return out, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
-		}
-		if sealedIDs[product.ID] {
-			return out, fmt.Errorf("duplicate sealed id %s", product.ID)
-		}
-		sealedIDs[product.ID] = true
-		if _, found := doc.Sets[product.SetCode]; !found {
-			return out, fmt.Errorf("sealed %q in unknown set %s", product.Name, product.SetCode)
-		}
+		out.Sealed = append(out.Sealed, validate.Sealed{
+			ID: product.ID, Name: product.Name, SetCode: product.SetCode, TcgPlayerID: product.ExternalLinks.TcgPlayerID,
+		})
 	}
-	out.sets = len(doc.Sets)
-	out.cards = len(doc.Cards)
-	out.sealed = len(doc.Sealed)
-	return out, nil
+	counted.sets = len(doc.Sets)
+	counted.cards = len(doc.Cards)
+	counted.sealed = len(doc.Sealed)
+	counted.carried = len(claimed)
+	return out, counted, nil
+}
+
+// intOf reads a JSON number as an int, 0 where it is none.
+func intOf(value any) int {
+	id, _ := cardID(value)
+	return id
+}
+
+// validationRules is what Lorcana adds to the shared checks. A printing is
+// resolved by its card's full name, number, variant ("4a" to "4e" are five
+// Dalmatian Puppies) and set, and by its finish, since a card's foil can be
+// a product of its own; a printing no product sells is told apart by its
+// card.
+func validationRules() validate.Rules {
+	return validate.Rules{
+		Game:     "lorcana",
+		Identity: []string{"fullName", "number", "variant", "setCode", "finish"},
+		Minted: func(card validate.Card) string {
+			return "card " + strings.SplitN(card.ID, "_", 2)[0]
+		},
+	}
 }

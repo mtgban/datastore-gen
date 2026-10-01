@@ -36,6 +36,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
@@ -46,6 +47,7 @@ import (
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
 	"github.com/mtgban/datastore-gen/internal/handtable"
+	"github.com/mtgban/datastore-gen/internal/validate"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -532,20 +534,17 @@ func splitQualifiers(name string) (string, []string) {
 // checked on the encoded output so a product no rule above knew what to do
 // with stops the publish instead of quietly leaving the datastore. It
 // returns the set, printing, sealed and identified-printing counts.
-// codeShape is what a set code has to look like to be asked for: a search
-// query is split on whitespace before a filter sees it and on the colon that
-// names the filter, so a code holding either can never be typed after "is:".
-// Folded up, because every reader of a code folds the spelling it is asked
-// with before the lookup - an unfolded code is listed everywhere and found
-// nowhere, which is what Gundam's "GD01-b" was.
-var codeShape = regexp.MustCompile(`^[A-Z0-9-]+$`)
-
-func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, identified int, err error) {
+// readDocument reads the encoded output as the shared checks read a
+// datastore: one Card per printing, each priced by its card's product. What
+// only the gallery can be asked is checked here: that its card blade is
+// there, that each set names an id and a name and no id twice, and that each
+// card carries its id, name and public code. It returns the counts of the
+// gallery's own sets, cards and sealed beside the document.
+func readDocument(data []byte) (out validate.Document, sets, cards, sealed, identified int, err error) {
 	data, err = emit.Unwrap(data)
 	if err != nil {
-		return 0, 0, 0, 0, err
+		return out, 0, 0, 0, 0, err
 	}
-
 	var doc struct {
 		PageProps struct {
 			Page struct {
@@ -553,20 +552,12 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 					Type string `json:"type"`
 					Sets struct {
 						Items []struct {
-							ID          string `json:"id"`
-							Name        string `json:"name"`
-							ReleaseDate string `json:"releaseDate"`
+							ID   string `json:"id"`
+							Name string `json:"name"`
 						} `json:"items"`
 					} `json:"sets"`
 					Cards struct {
-						Items []struct {
-							ID            string `json:"id"`
-							Name          string `json:"name"`
-							PublicCode    string `json:"publicCode"`
-							ExternalLinks struct {
-								TcgPlayerID int `json:"tcgPlayerId"`
-							} `json:"externalLinks"`
-						} `json:"items"`
+						Items []map[string]any `json:"items"`
 					} `json:"cards"`
 					Sealed struct {
 						Items []struct {
@@ -583,87 +574,93 @@ func validate(data []byte, cardProducts map[int]bool) (sets, cards, sealed, iden
 		} `json:"pageProps"`
 	}
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return 0, 0, 0, 0, err
+		return out, 0, 0, 0, 0, err
 	}
-
 	for _, blade := range doc.PageProps.Page.Blades {
 		if blade.Type != "riftboundCardGallery" {
 			continue
 		}
-		ids := map[string]bool{}
+		out.Game = "riftbound"
+		out.Sets = map[string]string{}
 		// A set id is the gallery's own code and every printing names its
 		// set by it, so two sets wearing one id are one set to the loader:
 		// whichever it indexes last answers for both, and the other's name
 		// and release date are gone. The gallery cannot be asked to rename
 		// a set, so a collision - two catalog groups sharing an
 		// abbreviation - stops the publish rather than being repaired here.
-		setIDs := map[string]bool{}
 		for _, set := range blade.Sets.Items {
 			// The date is not demanded: a gallery set the catalog has no
 			// group for yet - Riot lists a set the morning before
 			// TCGplayer opens it - has none to give, and refusing the
 			// build over it would lose the nightly for every other set.
 			if set.ID == "" || set.Name == "" {
-				return 0, 0, 0, 0, fmt.Errorf("set %q (%s) missing identity", set.Name, set.ID)
+				return out, 0, 0, 0, 0, fmt.Errorf("set %q (%s) missing identity", set.Name, set.ID)
 			}
-			if !codeShape.MatchString(set.ID) {
-				return 0, 0, 0, 0, fmt.Errorf("set code %q holds what a query cannot carry", set.ID)
+			if _, taken := out.Sets[set.ID]; taken {
+				return out, 0, 0, 0, 0, fmt.Errorf("duplicate set id %s", set.ID)
 			}
-			if setIDs[set.ID] {
-				return 0, 0, 0, 0, fmt.Errorf("duplicate set id %s", set.ID)
-			}
-			setIDs[set.ID] = true
+			out.Sets[set.ID] = set.Name
 		}
-		carried := map[int]bool{}
-		for _, card := range blade.Cards.Items {
-			if card.ID == "" || card.Name == "" || card.PublicCode == "" {
-				return 0, 0, 0, 0, fmt.Errorf("printing %q (%s) missing identity", card.Name, card.ID)
+		for _, item := range blade.Cards.Items {
+			id, _ := item["id"].(string)
+			name, _ := item["name"].(string)
+			if code, _ := item["publicCode"].(string); id == "" || name == "" || code == "" {
+				return out, 0, 0, 0, 0, fmt.Errorf("printing %q (%s) missing identity", name, id)
 			}
-			if ids[card.ID] {
-				return 0, 0, 0, 0, fmt.Errorf("duplicate id %s", card.ID)
+			links, _ := item["externalLinks"].(map[string]any)
+			product, _ := links["tcgPlayerId"].(float64)
+			if product != 0 {
+				identified++
 			}
-			ids[card.ID] = true
-			if card.ExternalLinks.TcgPlayerID == 0 {
-				continue
+			number, _ := item["number"].(string)
+			setCode, _ := item["setCode"].(string)
+			printings, _ := item["printings"].([]any)
+			for _, raw := range printings {
+				printing, _ := raw.(map[string]any)
+				finish, _ := printing["finish"].(string)
+				printed := maps.Clone(item)
+				printed["id"] = printing["id"]
+				printed["finish"] = finish
+				out.Cards = append(out.Cards, validate.Card{
+					ID: fmt.Sprint(printing["id"]), Name: name, Number: number, SetCode: setCode,
+					Finish: finish, TcgPlayerID: int(product), Entry: printed,
+				})
 			}
-			identified++
-			// A product resolves to one printing: two printings claiming
-			// it would split its price history between them.
-			if carried[card.ExternalLinks.TcgPlayerID] {
-				return 0, 0, 0, 0, fmt.Errorf("product %d claimed by two printings", card.ExternalLinks.TcgPlayerID)
-			}
-			if !cardProducts[card.ExternalLinks.TcgPlayerID] {
-				return 0, 0, 0, 0, fmt.Errorf("printing %q (%s) names product %d, which the catalog does not type as a card",
-					card.Name, card.ID, card.ExternalLinks.TcgPlayerID)
-			}
-			carried[card.ExternalLinks.TcgPlayerID] = true
-		}
-		var missing []int
-		for productID := range cardProducts {
-			if !carried[productID] {
-				missing = append(missing, productID)
-			}
-		}
-		sort.Ints(missing)
-		if len(missing) > 0 {
-			return 0, 0, 0, 0, fmt.Errorf("%d catalog card products carry no printing, first is %d",
-				len(missing), missing[0])
 		}
 		for _, product := range blade.Sealed.Items {
-			if product.ID == "" || product.Name == "" || product.ExternalLinks.TcgPlayerID == 0 {
-				return 0, 0, 0, 0, fmt.Errorf("sealed %q (%s) missing identity", product.Name, product.ID)
-			}
-			if !setIDs[product.SetCode] {
-				return 0, 0, 0, 0, fmt.Errorf("sealed %q (%s) names set %q, which the file does not carry", product.Name, product.ID, product.SetCode)
-			}
-			if ids[product.ID] {
-				return 0, 0, 0, 0, fmt.Errorf("duplicate id %s", product.ID)
-			}
-			ids[product.ID] = true
+			out.Sealed = append(out.Sealed, validate.Sealed{
+				ID: product.ID, Name: product.Name, SetCode: product.SetCode, TcgPlayerID: product.ExternalLinks.TcgPlayerID,
+			})
 		}
-		return len(blade.Sets.Items), len(blade.Cards.Items), len(blade.Sealed.Items), identified, nil
+		return out, len(blade.Sets.Items), len(blade.Cards.Items), len(blade.Sealed.Items), identified, nil
 	}
-	return 0, 0, 0, 0, errors.New("no card gallery blade in the output")
+	return out, 0, 0, 0, 0, errors.New("no card gallery blade in the output")
+}
+
+// validationRules is what Riftbound adds to the shared checks. A printing is
+// resolved by its card's name, number, variant and set; one no product sells
+// is told apart by its card. A sealed product and a printing share the
+// gallery's one id space, so neither may wear the other's id.
+func validationRules() validate.Rules {
+	return validate.Rules{
+		Game:     "riftbound",
+		Identity: []string{"name", "number", "variant", "setCode"},
+		Minted: func(card validate.Card) string {
+			return "card " + strings.SplitN(card.ID, "_", 2)[0]
+		},
+		Finally: func(cards []validate.Card, sealed []validate.Sealed, _ map[string]string) error {
+			printings := map[string]bool{}
+			for _, card := range cards {
+				printings[card.ID] = true
+			}
+			for _, product := range sealed {
+				if printings[product.ID] {
+					return fmt.Errorf("duplicate id %s", product.ID)
+				}
+			}
+			return nil
+		},
+	}
 }
 
 func countDatastore(data []byte) (baseline.Counts, error) {
@@ -1221,8 +1218,15 @@ func main() {
 	// download must fail here, not in every consumer. The types mirror
 	// what go-mtgban's mtgmatcher/riftbound reads, duplicated so this
 	// repository depends on nothing.
-	sets2, cards2, sealed2, identified, err := validate(buf.Bytes(), cardProducts)
+	wantFinishes := map[int][]string{}
+	for id := range cardProducts {
+		wantFinishes[id] = finishes[id]
+	}
+	document, sets2, cards2, sealed2, identified, err := readDocument(buf.Bytes())
 	if err != nil {
+		log.Fatalln("validation:", err)
+	}
+	if _, err := validate.Check(document, wantFinishes, validationRules()); err != nil {
 		log.Fatalln("validation:", err)
 	}
 	log.Printf("validated: %d sets, %d printings, %d tcgplayer ids, %d sealed",
