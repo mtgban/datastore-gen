@@ -58,9 +58,11 @@ internal/vocabulary    the promo-type rules, checked against a built file
 internal/datastorediff the comparison behind cmd/datastorediff
 internal/handtable     the tables carried by hand, which report the rows a
                        build used nothing of
-.github/workflows      ci.yml, publish.yml, tag-output-changes.yml
-.github/scripts        fetch-datastores.sh, the palworld and riftbound
-                       upstream fetches, tag-output-changes.sh
+.github/workflows      ci.yml, publish.yml, tag-output-changes.yml, measure.yml
+.github/scripts        measure-lib.sh (the games, their inputs, a build at
+                       a commit), pr-measure.sh, tag-output-changes.sh,
+                       fetch-datastores.sh, the palworld and riftbound
+                       upstream fetches
 docs/                  evidence too long for a comment or a commit
 ```
 
@@ -125,7 +127,11 @@ files still across every build you compare.
 ## How to verify a change
 
 Every behaviour change to a builder is measured, not argued. The method,
-which every PR body in the history reports:
+which every PR body in the history reports, follows. The `measure` workflow
+runs its first five steps on every pull request that reaches a builder
+(`.github/scripts/pr-measure.sh`, runnable locally with the bucket key) and
+puts the table in the job summary; reading the rows behind each number is
+still yours.
 
 1. **Build master and the branch on identical inputs.** Build the master
    binary once, build the branch, run both against the same catalog and the
