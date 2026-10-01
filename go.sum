@@ -10,8 +10,8 @@ github.com/mattn/go-colorable v0.1.13 h1:fFA4WZxdEF4tXPZVKMLwD8oUnCTTo08duU7wxec
 github.com/mattn/go-colorable v0.1.13/go.mod h1:7S9/ev0klgBDR4GtXTXX8a3vIGJpMovkB8vQcUbaXHg=
 github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWEY=
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
-github.com/mtgban/go-cardmarket v0.1.1 h1:GsORdtKeSVUdx1XXgf9KgAajY7NqfXY5lhESJp9OSII=
-github.com/mtgban/go-cardmarket v0.1.1/go.mod h1:D12YVNZp42knhqn4w6bl/jX5av5jCDmzGyjAoRmHhfk=
+github.com/mtgban/go-cardmarket v0.3.0 h1:xO1GPZbGvoS0duGiIzA7NkeOvFqn4FNF5A0+Hg57/8g=
+github.com/mtgban/go-cardmarket v0.3.0/go.mod h1:D12YVNZp42knhqn4w6bl/jX5av5jCDmzGyjAoRmHhfk=
 github.com/mtgban/go-tcgplayer v0.2.0 h1:n9/vE9yHDhJk0jI0xWddQaJxKlOOzUyfZJ4JJN+ubhc=
 github.com/mtgban/go-tcgplayer v0.2.0/go.mod h1:R27t98OFgcBtz4SnKqoOvYx31UNZi1tGWmH1Hmu/SYI=
 golang.org/x/sync v0.23.0 h1:KameEIfc1IkluZyXWLn39Wd4tURc6GbCiISGiZm2bQk=
