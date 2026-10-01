@@ -1,7 +1,7 @@
 package main
 
 import (
-	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -140,7 +140,7 @@ func TestPromoTypesOfReadsTheFactsOffALabel(t *testing.T) {
 		kept, left, year, found, _ := promoTypesOf(s, facts, test.onShelf, test.own, test.finish, "")
 		// An empty list and none are the same answer here.
 		same := func(got, want []string) bool {
-			return len(got) == 0 && len(want) == 0 || reflect.DeepEqual(got, want)
+			return len(got) == 0 && len(want) == 0 || slices.Equal(got, want)
 		}
 		if !same(kept, test.kept) {
 			t.Errorf("%s: promo types = %q, want %q", test.desc, kept, test.kept)
