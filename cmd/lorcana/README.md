@@ -10,9 +10,10 @@ enriched with what our TCGplayer catalog dump for category 71 knows and it
 does not:
 
 - the product id on cards upstream publishes none for, when exactly one
-  unclaimed catalog product matches by name and collector number, and the
-  removal of one upstream put on two cards from the card the product does
-  not identify, since two cards sharing an id merge their price histories;
+  unclaimed catalog product matches by name and collector number and no
+  other card would take it; a product id upstream puts on two cards is
+  dropped from both and left to that match, since two cards sharing an id
+  merge their price histories;
 - the extra product ids TCGplayer uses for a card's foil, which it sells as
   a separate product (`tcgPlayerExtraIds`);
 - the TCGplayer printing names each card is sold under, as each
@@ -24,10 +25,9 @@ does not:
 - every sealed product the catalog carries, in a top-level `sealed` array a
   stock LorcanaJSON reader ignores, with a set entry minted for the groups
   LorcanaJSON has no set for;
-- a handful of cardmarketId/cardTraderId corrections LorcanaJSON is known to
-  get wrong, carried by hand in `handExternalLinks` (a card given a
-  regional-market name copies another card's ids rather than naming its
-  own) and reported once upstream stops needing the correction.
+- one card per printing: a card upstream lists under the `fullIdentifier`
+  of another is the same printing under another name (Vaiana is Moana's in
+  Europe), and only the card with the lower id is carried.
 
 The promotional printings TCGplayer files in their own groups (DLPC, D23,
 D100) are matched onto upstream's own cards wherever the id fill can do it

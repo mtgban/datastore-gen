@@ -44,3 +44,16 @@ func TestOneCardPerID(t *testing.T) {
 		t.Error("the first card under an id must keep it")
 	}
 }
+
+// TestOneCardPerPrintingKeepsTheLowerID pins that two cards under one
+// fullIdentifier are one printing, as Moana and Vaiana are, and that the
+// card with the lower id is kept whichever comes first.
+func TestOneCardPerPrintingKeepsTheLowerID(t *testing.T) {
+	vaiana := map[string]any{"id": 1663.0, "fullName": "Vaiana - Adventurer of Land and Sea", "fullIdentifier": "26/P2 • EN • 7"}
+	moana := map[string]any{"id": 1433.0, "fullName": "Moana - Adventurer of Land and Sea", "fullIdentifier": "26/P2 • EN • 7"}
+	other := map[string]any{"id": 1434.0, "fullName": "Maui", "fullIdentifier": "27/P2 • EN • 7"}
+	kept, skipped := oneCardPerPrinting([]any{vaiana, moana, other})
+	if len(kept) != 2 || kept[0].(map[string]any)["id"] != 1433.0 || len(skipped) != 1 {
+		t.Errorf("kept %v, skipped %q; want Moana and Maui kept, Vaiana skipped", kept, skipped)
+	}
+}
