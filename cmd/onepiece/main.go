@@ -136,15 +136,6 @@ const (
 // catalog names them for this game; everything else is sealed by exclusion.
 var tcgSingles = tcgplayer.SinglesProductTypes(onepieceCategory)
 
-// tcgplayer.CatalogDump is the dump tcgdumper (github.com/mtgban/go-tcgplayer) writes
-// for a category, published next to the datastore it describes.
-//
-// The printing names come from the dump's own CatalogDump.PrintingNames,
-// which orders them as the category lists its printings. Nothing downstream
-// reads that order — the loader tells a product's finishes apart by the
-// "_foil" suffix on the id, which derives from the printing name alone — so
-// the order is the dump's to choose.
-
 // punkCard is the slice of a punk-records printing this build reads: the
 // _pN-suffixed card id is Bandai's own printing identity, mirrored from
 // the official card list.
@@ -1734,6 +1725,8 @@ func main() {
 	}
 	codes := setCodes(catalog.Groups)
 
+	// In the order the category lists its printings, which nothing reads:
+	// the loader tells a product's finishes apart by the "_foil" on the id.
 	printings := catalog.PrintingNames()
 
 	// Split the products: every single becomes printings, the non-single
