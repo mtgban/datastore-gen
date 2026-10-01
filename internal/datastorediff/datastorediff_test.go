@@ -169,6 +169,30 @@ func TestGalleryCardsAreFound(t *testing.T) {
 	}
 }
 
+// TestLorcanaCardsKeyOnTheirNumber is Lorcana's shape: a card's id is
+// LorcanaJSON's integer. Keyed by position, one card leaving the middle
+// read as every card after it reworded.
+func TestLorcanaCardsKeyOnTheirNumber(t *testing.T) {
+	card := func(id, name string) string {
+		return `{"id":` + id + `,"fullName":"` + name + `","printings":[{"finish":"Normal","id":"` + id + `_normal"}]}`
+	}
+	a, b, c, minted := card("1", "A"), card("2", "B"), card("3", "C"), card("-674692", "M")
+	before := doc(`[`+a+`,`+b+`,`+c+`]`, noSets, noSealed)
+
+	got := compare(t, before, doc(`[`+a+`,`+c+`]`, noSets, noSealed))
+	if got.String() != "ids +0/-1" {
+		t.Errorf("one card removed: String() = %q, want %q", got, "ids +0/-1")
+	}
+	if len(got.ValuesChanged) != 0 {
+		t.Errorf("one card removed: reported %v as reworded", got.ValuesChanged)
+	}
+
+	got = compare(t, before, doc(`[`+a+`,`+minted+`,`+b+`,`+c+`]`, noSets, noSealed))
+	if got.String() != "ids +1/-0" {
+		t.Errorf("one card minted: String() = %q, want %q", got, "ids +1/-0")
+	}
+}
+
 // TestNoCardsKeyFallsBackToLeaves is a shape with cards nowhere this knows
 // to look. A document that
 // publishes the upstream payload has no cards key to compare, and reporting

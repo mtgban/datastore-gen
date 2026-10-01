@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mtgban/datastore-gen/internal/emit"
@@ -34,7 +35,7 @@ import (
 // Change is what one build did to the one before it. The zero value is no
 // change at all, which is what most commits produce.
 type Change struct {
-	// IDsAdded and IDsRemoved count entries by their uuid: cards this
+	// IDsAdded and IDsRemoved count entries by their id: cards this
 	// build publishes that the last did not, and the other way round.
 	IDsAdded, IDsRemoved int
 
@@ -261,7 +262,14 @@ func entries(doc map[string]any) (map[string]any, bool) {
 		for i, entry := range cards {
 			id := ""
 			if fields, ok := entry.(map[string]any); ok {
-				id, _ = fields["id"].(string)
+				switch v := fields["id"].(type) {
+				case string:
+					id = v
+				case float64:
+					// Lorcana's ids are LorcanaJSON's integers, a minted
+					// card's the negated product id.
+					id = strconv.FormatFloat(v, 'f', -1, 64)
+				}
 				if id == "" {
 					// A gallery card is named by the code printed on it.
 					id, _ = fields["publicCode"].(string)
