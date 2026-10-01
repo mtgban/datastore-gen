@@ -1655,17 +1655,9 @@ func main() {
 	if *cardmarketCatalogPath == "" {
 		log.Fatalln("-cardmarket-catalog is required: nothing else lists the pre-errata printings, and their loss is too small for the baseline guard to catch")
 	}
-	catalogData, err := os.ReadFile(*catalogPath)
+	catalog, err := emit.ReadCatalog(*catalogPath, onepieceCategory)
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
-	}
-	var catalog tcgplayer.CatalogDump
-	if err := json.Unmarshal(catalogData, &catalog); err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
-	if catalog.Category.CategoryID != onepieceCategory {
-		log.Fatalf("tcg catalog: category %d, want %d (wrong game's dump)",
-			catalog.Category.CategoryID, onepieceCategory)
 	}
 
 	punkData, err := emit.Fetch(*punkCards)
@@ -2078,7 +2070,7 @@ func main() {
 					rest = append(rest, s)
 				}
 			}
-			if len(plain) == 1 && sliceContains(pool, num) {
+			if len(plain) == 1 && slices.Contains(pool, num) {
 				bandaiIDs[plain[0].product.ProductID] = num
 				used[num] = true
 				byBare++
@@ -2533,38 +2525,6 @@ type counts struct {
 	sets, cards, sealed int
 }
 
-// coverage is the zero-skip invariant: the products the emitted entries
-// cover must be exactly the products the catalog types as cards. Checked on
-// the encoded output, so a card product no rule above knew what to do with
-// stops the publish instead of quietly leaving the datastore. The offender
-// is named lowest id first, so the same data always reports the same one.
-func coverage(got, want map[int][]string) error {
-	var missing, extra []int
-	for productID := range want {
-		_, found := got[productID]
-		if !found {
-			missing = append(missing, productID)
-		}
-	}
-	for productID := range got {
-		_, found := want[productID]
-		if !found {
-			extra = append(extra, productID)
-		}
-	}
-	sort.Ints(missing)
-	sort.Ints(extra)
-	if len(missing) > 0 {
-		return fmt.Errorf("%d catalog card products carry no entry, first is %d",
-			len(missing), missing[0])
-	}
-	if len(extra) > 0 {
-		return fmt.Errorf("%d entries name a product the catalog does not type as a card, first is %d",
-			len(extra), extra[0])
-	}
-	return nil
-}
-
 // validate decodes an encoded datastore and checks its shape: every card
 // and sealed product carrying its identity, every id unique within its
 // namespace, no two entries wearing the same identity, every referenced
@@ -2696,7 +2656,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// pile every one of its finishes under product 0, which the
 		// coverage check would then have to explain.
 		if productID := card.ExternalLinks.TcgPlayerID; productID != 0 {
-			if sliceContains(gotFinishes[productID], card.Finish) {
+			if slices.Contains(gotFinishes[productID], card.Finish) {
 				return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 			}
 			gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
@@ -2705,7 +2665,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	if err := shared.Check(); err != nil {
 		return out, err
 	}
-	err = coverage(gotFinishes, wantFinishes)
+	err = emit.Coverage(gotFinishes, wantFinishes)
 	if err != nil {
 		return out, err
 	}
@@ -2738,13 +2698,4 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	out.cards = len(doc.Cards)
 	out.sealed = len(doc.Sealed)
 	return out, nil
-}
-
-func sliceContains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
 }

@@ -453,8 +453,10 @@ Per-game notes an agent needs:
 
 **`internal/emit`** — `FinishSlug`, `FinishSuffix`, `PlainPrinting`,
 `OrderedFinishes`, `PromoSlug`, `PlainQuotes`, `ImageURL`, `Fetch`,
-`StringsOf`. The nine helpers every builder used to carry; one spelling
-each. `PromoSlug` and `FinishSlug` are one function under two names.
+`StringsOf`, `ReadCatalog`, `Coverage`. The helpers every builder used to
+carry; one spelling each. `ReadCatalog` reads the tcgdumper dump and
+refuses another game's; `Coverage` is the zero-skip invariant. `PromoSlug`
+and `FinishSlug` are one function under two names.
 `Envelope`, `Today` and the `SchemaVersion` constant spell §2's wrapper;
 `Unwrap`, `UnwrapDocument` and `ErrUnknownSchema` read it back. One
 spelling each, for all eight builders and for every reader of a built

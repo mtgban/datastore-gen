@@ -703,17 +703,9 @@ func main() {
 	if *catalogPath == "" {
 		log.Fatalln("-tcg-catalog is required: the dump carries the product ids and the finishes")
 	}
-	catalogData, err := os.ReadFile(*catalogPath)
+	catalog, err := emit.ReadCatalog(*catalogPath, riftboundCategory)
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
-	}
-	var catalog tcgplayer.CatalogDump
-	if err := json.Unmarshal(catalogData, &catalog); err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
-	if catalog.Category.CategoryID != riftboundCategory {
-		log.Fatalf("tcg catalog: category %d, want %d (wrong game's dump)",
-			catalog.Category.CategoryID, riftboundCategory)
 	}
 	finishes := finishesByProduct(&catalog)
 	bothFinishes := catalogFinishes(&catalog)

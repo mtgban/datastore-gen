@@ -352,3 +352,51 @@ func StringsOf(value any) []string {
 	}
 	return nil
 }
+
+// ReadCatalog reads a tcgdumper catalog dump, refusing one dumped for another
+// game's category.
+func ReadCatalog(path string, category int) (tcgplayer.CatalogDump, error) {
+	var catalog tcgplayer.CatalogDump
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return catalog, err
+	}
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		return catalog, err
+	}
+	if catalog.Category.CategoryID != category {
+		return catalog, fmt.Errorf("category %d, want %d (wrong game's dump)",
+			catalog.Category.CategoryID, category)
+	}
+	return catalog, nil
+}
+
+// Coverage is the zero-skip invariant: the products the emitted entries
+// cover, read off the encoded output, must be exactly the products the
+// catalog types as cards, so a card product no rule knew what to do with
+// stops the publish instead of quietly leaving the datastore. The offender
+// is named lowest id first, so the same data always reports the same one.
+func Coverage(got, want map[int][]string) error {
+	var missing, extra []int
+	for productID := range want {
+		if _, found := got[productID]; !found {
+			missing = append(missing, productID)
+		}
+	}
+	for productID := range got {
+		if _, found := want[productID]; !found {
+			extra = append(extra, productID)
+		}
+	}
+	sort.Ints(missing)
+	sort.Ints(extra)
+	if len(missing) > 0 {
+		return fmt.Errorf("%d catalog card products carry no entry, first is %d",
+			len(missing), missing[0])
+	}
+	if len(extra) > 0 {
+		return fmt.Errorf("%d entries name a product the catalog does not type as a card, first is %d",
+			len(extra), extra[0])
+	}
+	return nil
+}

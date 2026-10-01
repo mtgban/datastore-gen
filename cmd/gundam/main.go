@@ -650,17 +650,9 @@ func main() {
 	if *catalogPath == "" {
 		log.Fatalln("-tcg-catalog is required: the dump carries the printings and the ids")
 	}
-	catalogData, err := os.ReadFile(*catalogPath)
+	catalog, err := emit.ReadCatalog(*catalogPath, gundamCategory)
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
-	}
-	var catalog tcgplayer.CatalogDump
-	if err := json.Unmarshal(catalogData, &catalog); err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
-	if catalog.Category.CategoryID != gundamCategory {
-		log.Fatalf("tcg catalog: category %d, want %d (wrong game's dump)",
-			catalog.Category.CategoryID, gundamCategory)
 	}
 	log.Printf("catalog: %d groups, %d products", len(catalog.Groups), len(catalog.Products))
 
@@ -1218,36 +1210,6 @@ type counts struct {
 	sets, cards, sealed int
 }
 
-// coverage is the zero-skip invariant: the products the emitted entries
-// cover must be exactly the products the catalog types as cards. Checked on
-// the encoded output, so a card product no rule above knew what to do with
-// stops the publish instead of quietly leaving the datastore. The offender
-// is named lowest id first, so the same data always reports the same one.
-func coverage(got, want map[int][]string) error {
-	var missing, extra []int
-	for productID := range want {
-		if _, found := got[productID]; !found {
-			missing = append(missing, productID)
-		}
-	}
-	for productID := range got {
-		if _, found := want[productID]; !found {
-			extra = append(extra, productID)
-		}
-	}
-	sort.Ints(missing)
-	sort.Ints(extra)
-	if len(missing) > 0 {
-		return fmt.Errorf("%d catalog card products carry no entry, first is %d",
-			len(missing), missing[0])
-	}
-	if len(extra) > 0 {
-		return fmt.Errorf("%d entries name a product the catalog does not type as a card, first is %d",
-			len(extra), extra[0])
-	}
-	return nil
-}
-
 // codeShape is what a set code has to look like to be asked for: a search
 // query is split on whitespace before a filter sees it and on the colon that
 // names the filter, so a code holding either can never be typed after "is:".
@@ -1371,7 +1333,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 		// finish under product 0, which coverage would then have to
 		// explain.
 		if productID := card.ExternalLinks.TcgPlayerID; productID != 0 {
-			if sliceContains(gotFinishes[productID], card.Finish) {
+			if slices.Contains(gotFinishes[productID], card.Finish) {
 				return out, fmt.Errorf("product %d carries finish %q twice", productID, card.Finish)
 			}
 			gotFinishes[productID] = append(gotFinishes[productID], card.Finish)
@@ -1380,7 +1342,7 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	if err := shared.Check(); err != nil {
 		return out, err
 	}
-	if err := coverage(gotFinishes, wantFinishes); err != nil {
+	if err := emit.Coverage(gotFinishes, wantFinishes); err != nil {
 		return out, err
 	}
 	for productID, want := range wantFinishes {
@@ -1414,15 +1376,6 @@ func validate(data []byte, wantFinishes map[int][]string) (counts, error) {
 	return out, nil
 }
 
-func sliceContains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
-}
-
 // printingDisplayOrder is where each of a category's printings sits in the
 // order TCGplayer displays them.
 func printingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
@@ -1441,7 +1394,7 @@ func printingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
 // 22 is the longest token this game has that is already the right name
 // ("starterdeckbattleevent"), so the rule reaches past what is right and no
 // further.
-const promoTypeLimit = 22
+const promoTypeLimit = vocabulary.TokenLimit
 
 // foldPromoTypes spells every promo type as its slug, once the whole
 // vocabulary is in hand, and folds two things a card cannot see on its own.

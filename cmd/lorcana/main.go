@@ -133,7 +133,7 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 		var names []string
 		for _, sku := range product.Skus {
 			n := name[sku.PrintingID]
-			if n == "" || sliceContains(names, n) {
+			if n == "" || slices.Contains(names, n) {
 				continue
 			}
 			names = append(names, n)
@@ -142,15 +142,6 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 		out[product.ProductID] = names
 	}
 	return out
-}
-
-func sliceContains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
 }
 
 // foilOnly reports whether every printing a product is sold in is a foil
@@ -1049,17 +1040,9 @@ func main() {
 		log.Fatalln("cardmarket catalog:", err)
 	}
 
-	catalogData, err := os.ReadFile(*catalogPath)
+	catalog, err := emit.ReadCatalog(*catalogPath, lorcanaCategory)
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
-	}
-	var catalog tcgplayer.CatalogDump
-	if err := json.Unmarshal(catalogData, &catalog); err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
-	if catalog.Category.CategoryID != lorcanaCategory {
-		log.Fatalf("tcg catalog: category %d, want %d (wrong game's dump)",
-			catalog.Category.CategoryID, lorcanaCategory)
 	}
 	productByID := map[int]tcgplayer.Product{}
 	// The coverage contract: every product the catalog types as a card.
@@ -1280,7 +1263,7 @@ func main() {
 		if extraIDs, ok := c.links["tcgPlayerExtraIds"].([]int); ok {
 			for _, id := range extraIDs {
 				for _, n := range printings[id] {
-					if !sliceContains(names, n) {
+					if !slices.Contains(names, n) {
 						names = append(names, n)
 					}
 				}

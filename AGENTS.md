@@ -50,7 +50,8 @@ cmd/datastorediff      reads two built datastores, prints what the second did
                        to the first (used by the tagging workflow)
 internal/emit          what every builder spells the same way: finish suffix,
                        plain printing, finish order, promo slug, quote
-                       normalisation, image link, Fetch, StringsOf
+                       normalisation, image link, Fetch, StringsOf, the
+                       catalog read and the coverage check
 internal/baseline      the guard that refuses a build which lost too much
 internal/vocabulary    the promo-type rules, checked against a built file
 internal/datastorediff the comparison behind cmd/datastorediff
