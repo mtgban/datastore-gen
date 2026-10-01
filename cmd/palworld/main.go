@@ -61,6 +61,7 @@ import (
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
 	"github.com/mtgban/datastore-gen/internal/handtable"
+	"github.com/mtgban/datastore-gen/internal/naming"
 	"github.com/mtgban/datastore-gen/internal/validate"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 
@@ -189,8 +190,6 @@ func fetchCards(location string) ([]palworldCard, error) {
 // catalog names them for this game; everything else is sealed by exclusion.
 var tcgSingles = tcgplayer.SinglesProductTypes(palworldCategory)
 
-var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
-
 // soulCardName is what every Soul card is called, which is why the label on
 // one has to be read rather than joined to it. Ten of them carry the name
 // and nothing else, so a qualifier on one either says which Pal is drawn on
@@ -251,95 +250,11 @@ type single struct {
 // decompose splits a product name into the base name and its
 // parentheticals, dropping the collector number worn as decoration.
 func decompose(p tcgplayer.Product, num string) single {
-	name := p.Name
-	if num != "" {
-		name = strings.ReplaceAll(name, " - "+num, "")
-	}
-
-	var quals []string
-	name = parenRe.ReplaceAllStringFunc(name, func(m string) string {
-		q := strings.TrimSpace(strings.Trim(strings.TrimSpace(m), "()"))
-		if q == "" || strings.EqualFold(q, num) {
-			return ""
-		}
-		quals = append(quals, q)
-		return ""
-	})
-	return single{
-		product:  p,
-		number:   num,
-		baseName: strings.Join(strings.Fields(name), " "),
-		quals:    quals,
-	}
+	base, quals := naming.Split(p.Name, num)
+	return single{product: p, number: num, baseName: base, quals: quals}
 }
 
 var nonAlnumRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
-
-// initialsOf is the rarity read as the shorthand a product name writes it
-// with: "Over Super Rare" is the "(OSR)" a name carries.
-func initialsOf(s string) string {
-	var b strings.Builder
-	for _, word := range strings.Fields(s) {
-		for _, r := range word {
-			b.WriteRune(r)
-			break
-		}
-	}
-	return strings.ToUpper(b.String())
-}
-
-// redundant reports whether a qualifier says only what another field on the
-// entry already says. Two fields say it: the rarity, which a name restates
-// outright ("(C+)" on a C+ printing), spells with "Rare" elided, or
-// shorthands to its initials; and the collector number, whose own suffix
-// some of these games repeat in the name ("...-001TSR" beside "(TSR)").
-// Either way the entry keeps the field and drops the echo, so a query for
-// the card's name is not asked to carry the rarity too.
-func redundant(qual, rarity, number string) bool {
-	q := strings.ToUpper(nonAlnumRe.ReplaceAllString(qual, ""))
-	if q == "" {
-		return false
-	}
-	r := strings.ToUpper(nonAlnumRe.ReplaceAllString(rarity, ""))
-	if q == r || q+"RARE" == r || q == initialsOf(rarity) {
-		return true
-	}
-	n := strings.ToUpper(nonAlnumRe.ReplaceAllString(number, ""))
-	return n != "" && q != n && strings.HasSuffix(n, q)
-}
-
-// provenanceWords name a product rather than a card: the pack, set, box or
-// event a printing was handed out in.
-var provenanceWords = map[string]bool{
-	"pack": true, "packs": true, "set": true, "sets": true,
-	"collection": true, "championship": true, "championships": true,
-	"tournament": true, "regionals": true, "promotion": true,
-	"prize": true, "campaign": true, "box": true, "expo": true,
-}
-
-// provenance reports whether a qualifier says where a printing came from
-// rather than which card it is. Such a qualifier may never be elected into
-// a name, however many printings of a number carry it.
-//
-// The election reads a qualifier every printing of a number carries as part
-// of the card's name, and a promo whose only printing came out of one box
-// would have the box elected into the card's name - a name no storefront
-// writes and no search for the card finds. Every number in this game holds
-// a single product, so that is the shape the election would meet here
-// every time it fired. A word list rather than a table of spellings,
-// because the spellings are open-ended - every season brings another
-// promotional box - while the words they are built from are not. Whole
-// words only: a card named "(Full Package)" is not a pack.
-func provenance(qual string) bool {
-	for _, word := range wordRe.FindAllString(strings.ToLower(qual), -1) {
-		if provenanceWords[word] {
-			return true
-		}
-	}
-	return false
-}
-
-var wordRe = regexp.MustCompile(`[a-z0-9']+`)
 
 // idStem spells a collector number for the inside of a uuid: every run of
 // anything but a letter or a digit becomes one dash, because a slash is a
@@ -502,7 +417,7 @@ func main() {
 		rarity := s.product.Extended("Rarity")
 		var kept []string
 		for _, q := range s.quals {
-			if redundant(q, rarity, s.number) {
+			if naming.Redundant(q, rarity, s.number) {
 				echoes++
 				continue
 			}
@@ -537,7 +452,7 @@ func main() {
 			}
 		}
 		for q, n := range common {
-			if n == len(bucket) && !provenance(q) {
+			if n == len(bucket) && !naming.Provenance(q) {
 				nameParens[q] = true
 			}
 		}
