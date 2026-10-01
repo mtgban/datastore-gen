@@ -588,6 +588,34 @@ const gameName = "one piece card game "
 // are known.
 var setNameHeads []string
 
+// cutHead reads a set's name off the front of a label by its letters and
+// digits alone, ending on a word: a label keeps the wording the set had when
+// it was printed ("Starter Deck 11: Uta Deck Battle") after TCGplayer
+// renames the set ("ST-11: Starter Deck 11 Uta", 40 groups on 2026-09-29).
+func cutHead(label, head string) (rest string, opens bool) {
+	want := emit.PromoSlug(head)
+	if want == "" {
+		return "", false
+	}
+	matched := 0
+	for i, r := range label {
+		if matched == len(want) {
+			if r != ' ' {
+				return "", false
+			}
+			return strings.TrimSpace(label[i:]), true
+		}
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			continue
+		}
+		if byte(r) != want[matched] {
+			return "", false
+		}
+		matched++
+	}
+	return "", matched == len(want)
+}
+
 // splitLabel cuts a label at its seam: the promotions it names, and the
 // issue it names them for. This replaced a cut at a length, which took a
 // promotion's first two words whatever they were and left the rest as a
@@ -603,13 +631,15 @@ func splitLabel(label string) (stems []string, issue string) {
 		// product reprinted the card - "Ultra Deck: The Three Captains" on
 		// a Romance Dawn card - which is which copy of the number this is,
 		// a mark, and promoted nothing.
-		if label == name {
+		rest, opens := cutHead(label, name)
+		if !opens {
+			continue
+		}
+		if rest == "" {
 			return nil, label
 		}
-		if strings.HasPrefix(label, name+" ") {
-			label = strings.TrimPrefix(label, name+" ")
-			break
-		}
+		label = rest
+		break
 	}
 	if rest := strings.TrimPrefix(label, releaseEvent+" "); rest != label && rest != "" {
 		if rest == "pack" {
@@ -2149,6 +2179,10 @@ func main() {
 		set, _ := entry.(map[string]any)
 		if name, _ := set["name"].(string); name != "" {
 			setNameHeads = append(setNameHeads, strings.ToLower(name))
+			// The name behind the code, the one a label says.
+			if _, behind, coded := strings.Cut(name, ": "); coded && behind != "" {
+				setNameHeads = append(setNameHeads, strings.ToLower(behind))
+			}
 		}
 	}
 	sort.Slice(setNameHeads, func(i, j int) bool {
