@@ -89,3 +89,16 @@ func TestRespellSharedIDs(t *testing.T) {
 		})
 	}
 }
+
+// TestDropExactRepeats pins that a row the gallery serves twice in every
+// field is carried once, while a different row under the same id stays for
+// respellSharedIDs to give an id of its own.
+func TestDropExactRepeats(t *testing.T) {
+	viktor := map[string]any{"id": "ogn-117-298", "name": "Viktor", "publicCode": "OGN-117/298"}
+	signature := map[string]any{"id": "ven-192-166", "name": "Nasus", "publicCode": "VEN-192/166"}
+	overnumbered := map[string]any{"id": "ven-192-166", "name": "Nasus", "publicCode": "VEN-192/166", "rarity": "overnumbered"}
+	kept, dropped := dropExactRepeats([]any{viktor, signature, map[string]any{"publicCode": "OGN-117/298", "name": "Viktor", "id": "ogn-117-298"}, overnumbered})
+	if len(kept) != 3 || len(dropped) != 1 || dropped[0] != "ogn-117-298" {
+		t.Errorf("kept %d, dropped %q; want 3 kept and ogn-117-298 dropped", len(kept), dropped)
+	}
+}
