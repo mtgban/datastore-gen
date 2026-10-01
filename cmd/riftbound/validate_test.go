@@ -12,7 +12,7 @@ import (
 // that otherwise passes.
 func TestSharedChecksReadRiftbound(t *testing.T) {
 	const (
-		jinx = `{"id":"ogn-001-298","name":"Jinx","publicCode":"OGN-001/298","number":"1","setCode":"OGN","externalLinks":{"tcgPlayerId":100},` +
+		jinx = `{"id":"ogn-001-298","name":"Jinx","publicCode":"OGN-001/298","number":"1","setCode":"OGN","image":"https://example.test/jinx.png","externalLinks":{"tcgPlayerId":100},` +
 			`"printings":[{"finish":"Normal","id":"ogn-001-298"},{"finish":"Foil","id":"ogn-001-298_foil"}]}`
 		box = `{"id":"ogn-box","name":"Booster Box","setCode":"OGN","externalLinks":{"tcgPlayerId":900}}`
 	)

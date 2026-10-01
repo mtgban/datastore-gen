@@ -4589,12 +4589,8 @@ func numeratorKey(s string) string {
 // output. The total is in the identity, which is what tells 8/102 from
 // 8/130, and a minted entry is keyed by its set and number, so a minted
 // card's own finishes pass together the way a product's do. A number holds
-// no total, and a set nothing is filed in is dead weight in every consumer.
-// A priced entry without the catalog's image is a gap rather than a card to
-// refuse; every one without is a broken link.
+// no total.
 func validationRules() validate.Rules {
-	var priced int
-	var imageless []string
 	return validate.Rules{
 		Game:     "pokemon",
 		Identity: []string{"name", "number", "total", "setCode", "variant", "rarity"},
@@ -4605,23 +4601,8 @@ func validationRules() validate.Rules {
 			if card.SetCode == "" {
 				return fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
 			}
-			if card.TcgPlayerID != 0 {
-				priced++
-				if card.Field("image") == "" {
-					imageless = append(imageless, card.ID)
-				}
-			}
 			if strings.Contains(card.Number, "/") {
 				return fmt.Errorf("card %q (%s) carries the set total inside its number: %q", card.Name, card.ID, card.Number)
-			}
-			return nil
-		},
-		Finally: func([]validate.Card, []validate.Sealed, map[string]string) error {
-			if len(imageless) > 0 && len(imageless) == priced {
-				return errors.New("no priced card carries an image: the image link is broken")
-			}
-			if len(imageless) > 0 {
-				log.Printf("images: %d priced cards carry no image yet, first is %s", len(imageless), imageless[0])
 			}
 			return nil
 		},

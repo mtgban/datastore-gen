@@ -12,9 +12,9 @@ import (
 // file that otherwise passes.
 func TestSharedChecksReadLorcana(t *testing.T) {
 	const (
-		ariel = `{"id":1,"fullName":"Ariel - On Human Legs","setCode":"1","number":"1","externalLinks":{"tcgPlayerId":100},` +
+		ariel = `{"id":1,"fullName":"Ariel - On Human Legs","setCode":"1","number":"1","image":"https://example.test/1.png","externalLinks":{"tcgPlayerId":100},` +
 			`"printings":[{"finish":"Normal","id":"1"},{"finish":"Cold Foil","id":"1_coldfoil"}]}`
-		panorama = `{"id":2,"fullName":"Dopey - Drawn to Music","setCode":"1","number":"2","externalLinks":{"tcgPlayerId":200,"tcgPlayerExtraIds":[201]},` +
+		panorama = `{"id":2,"fullName":"Dopey - Drawn to Music","setCode":"1","number":"2","image":"https://example.test/2.png","externalLinks":{"tcgPlayerId":200,"tcgPlayerExtraIds":[201]},` +
 			`"printings":[{"finish":"Normal","id":"2"},{"finish":"Cold Foil","id":"2_coldfoil"}]}`
 		box = `{"id":"tfc-box","name":"Booster Box","setCode":"1","externalLinks":{"tcgPlayerId":900}}`
 	)
