@@ -69,6 +69,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -324,7 +325,7 @@ func isYear(digits string) bool {
 // the catalog never reuses. A group holding several years of one program
 // carries the day the program began, so it sorts where its oldest cards
 // belong.
-var handDates = map[int]string{
+var handDates = handtable.New("handDates", map[int]string{
 	// Pharaoh Tour promotional cards: PT1 released December 17, 2005 in
 	// Europe (Yugipedia, "Pharaoh Tour 2005 promotional cards"); the
 	// group also holds the later PT02 and PT03 tours.
@@ -371,7 +372,7 @@ var handDates = map[int]string{
 	// Shonen Jump magazine promos, the SJC prize cards) already has a
 	// group of its own. A date here would be a guess wearing a citation -
 	// and while the group stays empty it emits no set anyway.
-}
+})
 
 // handNames correct the names the catalog transcribed short, keyed by the
 // product id, which the catalog never reuses. Only a character the catalog
@@ -386,7 +387,7 @@ var handDates = map[int]string{
 // from YGOPRODeck and all but this one are that other thing - a rename, a
 // storefront's disambiguating suffix - so the table is one line rather
 // than a rule.
-var handNames = map[int]string{
+var handNames = handtable.New("handNames", map[int]string{
 	// Kuwagata α, the only card in the game whose name carries a Greek
 	// letter. Tournament Pack 1 dropped it and left "Kuwagata"; OTS
 	// Tournament Pack 19 writes the same passcode (60802233) out as
@@ -394,7 +395,7 @@ var handNames = map[int]string{
 	// letter itself normalizes to a third key nothing else in the
 	// datastore uses, and no other entry spells a Greek letter at all.
 	22721: "Kuwagata Alpha",
-}
+})
 
 // treatments are the qualifiers that name how a printing was made rather
 // than which card it is, and so may never be elected into a name however
@@ -409,12 +410,12 @@ var handNames = map[int]string{
 // a Field Center Token shows are genuinely part of a name and stay elected;
 // a treatment becomes the variant label it always was, and the rarity goes
 // on telling the printings apart, which is what it was already doing.
-var treatments = map[string]bool{
+var treatments = handtable.New("treatments", map[string]bool{
 	"alternate art": true,
-}
+})
 
 func isTreatment(qualifier string) bool {
-	return treatments[strings.ToLower(strings.TrimSpace(qualifier))]
+	return treatments.Has(strings.ToLower(strings.TrimSpace(qualifier)))
 }
 
 // isPromoGroup reports whether a catalog group hands out promotional
@@ -1159,7 +1160,7 @@ func main() {
 				group.Name, setCodes[group.GroupID], dates[0], how)
 			continue
 		}
-		if date, found := handDates[group.GroupID]; found {
+		if date, found := handDates.Get(group.GroupID); found {
 			releaseDates[group.GroupID] = date
 			filled++
 			log.Printf("%s (%s): release date %s filled by hand",
@@ -1481,7 +1482,7 @@ func main() {
 		}
 		productID := s.product.ProductID
 		name := s.baseName
-		if corrected, hand := handNames[productID]; hand {
+		if corrected, hand := handNames.Get(productID); hand {
 			name = corrected
 		}
 		for _, finish := range printings[productID] {
@@ -1593,6 +1594,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
+	handtable.Report()
 	emit.PlainQuotes(doc)
 
 	envelope := emit.Envelope(emit.Today(), doc)
@@ -1861,16 +1863,16 @@ var numberish = regexp.MustCompile(`^[a-z]$|^[0-9]{1,4}$|^[a-z0-9]{1,5}(en|de|fr
 // is which release rather than what promoted it - and the variant keeps the
 // title whole. ROD is one game's own shelf, "Reshef of Destruction", whose
 // three cards the catalog decorates with the title all the same.
-var videoGameSets = map[string]bool{"VDP": true, "VBX": true, "ROD": true}
+var videoGameSets = handtable.New("videoGameSets", map[string]bool{"VDP": true, "VBX": true, "ROD": true})
 
 // videoGamePromo is the token a release title is carried under.
 const videoGamePromo = "videogame"
 
 // promoTypeNames folds the spellings the catalog writes one promotion under.
-var promoTypeNames = map[string]string{
+var promoTypeNames = handtable.New("promoTypeNames", map[string]string{
 	"japanese artwork": "japanese art",
 	"new artwork":      "new art",
-}
+})
 
 // initials is a rarity said as its capitals, the way the catalog abbreviates
 // one in a product name: "GMR" beside a Grand Master Rare.
@@ -2060,12 +2062,12 @@ var (
 //
 // A subject is kept where dropping it would leave two printings identical,
 // which is what a promo type is for; foldPromoTypes puts those back.
-var subjects = map[string]bool{
+var subjects = handtable.New("subjects", map[string]bool{
 	// Who is drawn on it.
 	"arkana": true, "akiza": true, "crow": true, "yusei": true, "sho": true,
 	// Words a product name carries that say nothing about the printing.
 	"card": true, "magic": true,
-}
+})
 
 // promoTypeLimit is how long a promo type may read before only its first two
 // words are kept. A token is what a query carries, and the whole of a name is
@@ -2127,7 +2129,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 			setDate = fmt.Sprint(held["releaseDate"])
 		}
 		for _, tag := range emit.StringsOf(item["promoTypes"]) {
-			if name, found := promoTypeNames[tag]; found {
+			if name, found := promoTypeNames.Get(tag); found {
 				tag = name
 			}
 			// Not in the sets whose qualifiers name a release: "Azure-Eyes
@@ -2143,12 +2145,12 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 			// of what tells the siblings apart and the pass below hands it
 			// back, and it is the artwork's colour on "Token: Ojama" in
 			// yellow, green and black at three numbers, where it is not.
-			if mark, rest := printMark(tag); mark != "" && printColors[mark] && !videoGameSets[set] {
+			if mark, rest := printMark(tag); mark != "" && printColors[mark] && !videoGameSets.Has(set) {
 				row.marks = append(row.marks, mark)
 				if tag = rest; tag == "" {
 					continue
 				}
-			} else if mark != "" && !videoGameSets[set] {
+			} else if mark != "" && !videoGameSets.Has(set) {
 				if held, worn := item["watermark"]; worn && held != mark {
 					// Nothing wears two marks today. If a catalog ever
 					// says otherwise, the second stays a promo type
@@ -2183,7 +2185,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 			case numberish.MatchString(slug) || numberSays(number, slug),
 				slug == emit.PromoSlug(rarity) || slug == initials(rarity),
 				namesARarity(tag, rarity, rarities) == normRarity(rarity),
-				subjects[tag]:
+				subjects.Has(tag):
 				row.dropped = append(row.dropped, slug)
 			case !slices.Contains(row.kept, tag):
 				row.kept = append(row.kept, tag)
@@ -2202,7 +2204,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 	for slug, sets := range seenIn {
 		release := true
 		for set := range sets {
-			if !videoGameSets[set] {
+			if !videoGameSets.Has(set) {
 				release = false
 				break
 			}

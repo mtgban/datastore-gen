@@ -108,6 +108,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-cardmarket"
 	"github.com/mtgban/go-tcgplayer"
@@ -281,7 +282,7 @@ func foldQualKey(qual string) string {
 // the other - that test takes "Double Pack Set Vol. 5" along with Luffy -
 // and a label shared with a normal card is a treatment only by luck: "Gold"
 // escapes it on the strength of one Buggy carrying it.
-var donSubjects = map[string]bool{
+var donSubjects = handtable.New("donSubjects", map[string]bool{
 	"2y":                        true,
 	"ace":                       true,
 	"ace, luffy, sabo":          true,
@@ -331,7 +332,7 @@ var donSubjects = map[string]bool{
 	"yellow":       true,
 	"young luffy":  true,
 	"zoro":         true,
-}
+})
 
 // donCardName is what every DON!! card is called, which is why the label
 // on one has to say which it is.
@@ -354,7 +355,7 @@ var placings = map[string]bool{
 
 // qualSpellings name a label the catalog spells two ways that fold to two
 // keys, so nothing else here can pair them.
-var qualSpellings = map[string]string{
+var qualSpellings = handtable.New("qualSpellings", map[string]string{
 	"finals":        "World Final",
 	"serial number": "Serial Numbered",
 	// A treatment named with and without the surface it is on, and a pack
@@ -366,17 +367,17 @@ var qualSpellings = map[string]string{
 	// reprinting is the label; that it was a promo is what the set it came
 	// from says.
 	"promo reprint": "Reprint",
-}
+})
 
 // qualSplits name a label the catalog wrote as one and every other card
 // writes as two. A dash is not enough on its own to say so: this category
 // hangs deck ranges off one - "Beginners Deck Party [ST-23] - [ST-28]",
 // "ST15 - ST20 Release Event Pack" - and cutting there would halve a range.
-var qualSplits = map[string][]string{
+var qualSplits = handtable.New("qualSplits", map[string][]string{
 	"leader pack - live action":                  {"Leader Pack", "Live Action"},
 	"pre-errata demo deck":                       {"Pre-Errata", "Demo Deck"},
 	"3rd anniversary tournament 3 brothers pack": {"3rd Anniversary Tournament", "3 Brothers Pack"},
-}
+})
 
 // cutPlacing splits a label that ends in one, longest tail first so "2nd
 // Place" is taken whole rather than "Place" alone.
@@ -567,16 +568,16 @@ const releaseEvent = "release event"
 // Vol. 1" and "Premium Card Collection Live Action Edition" are one
 // collection, and which issue it was is the mark's to say, like any other
 // instalment.
-var shelfHeads = []string{
+var shelfHeads = handtable.NewList("shelfHeads",
 	"premium card collection", "official playmat", "sound loader",
 	"special goods set", "illustration box", "learn together deck set",
 	"ultra deck",
-}
+)
 
 // shelfTails are the products a label names after what it collects: "Seven
 // Warlords of the Sea Binder Set" is the binder set, and the crew is the
 // issue.
-var shelfTails = []string{"binder set"}
+var shelfTails = handtable.NewList("shelfTails", "binder set")
 
 // gameName is the game's own name in front of a shelf, which every card of
 // the game could wear.
@@ -647,13 +648,15 @@ func splitLabel(label string) (stems []string, issue string) {
 		}
 		return []string{releaseEvent, rest}, ""
 	}
-	for _, shelf := range shelfHeads {
+	for _, shelf := range shelfHeads.Items() {
 		if strings.HasPrefix(label, shelf+" ") {
+			shelfHeads.Use(shelf)
 			return []string{shelf}, strings.TrimPrefix(label, shelf+" ")
 		}
 	}
-	for _, shelf := range shelfTails {
+	for _, shelf := range shelfTails.Items() {
 		if strings.HasSuffix(label, " "+shelf) {
+			shelfTails.Use(shelf)
 			return []string{shelf}, strings.TrimSuffix(label, " "+shelf)
 		}
 	}
@@ -696,13 +699,13 @@ func noteWhen(entry map[string]any, year, month, instalment, mark string) {
 // token folds - the variant keeps the catalog's wording, because that is
 // the wording a listing arrives in, and a printing whose variant no longer
 // holds it comes back as the wrong printing or as none.
-var promoSpellings = map[string]string{
+var promoSpellings = handtable.New("promoSpellings", map[string]string{
 	"offline regionals":         "offline regional",
 	"one piece anniversary set": "anniversary set",
 	"one piece film red promo":  "one piece film red",
 	"participation":             "participant",
 	"regionals":                 "regional",
-}
+})
 
 // deckMark matches a label that is a deck and whose deck it is, which says
 // which of a set's decks a copy came in rather than what promoted it.
@@ -713,7 +716,7 @@ func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool
 	// hand-carried printings are not, and a label is a label either way.
 	expanded := make([]string, 0, len(quals))
 	for _, qual := range quals {
-		if parts, hand := qualSplits[strings.ToLower(qual)]; hand {
+		if parts, hand := qualSplits.Get(strings.ToLower(qual)); hand {
 			expanded = append(expanded, parts...)
 			continue
 		}
@@ -733,7 +736,7 @@ func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool
 		// forty-five of them over 150 printings, every one also the name of
 		// a card this datastore carries. Nothing promoted a DON!! card for
 		// having Nami on it, so the character stays the variant it is.
-		if name == donCardName && (cardNames[epithetKey(qual)] || donSubjects[strings.ToLower(qual)]) {
+		if name == donCardName && (cardNames[epithetKey(qual)] || donSubjects.Has(strings.ToLower(qual))) {
 			// Published as the mark it is, and not held back for the
 			// collision guard: every DON!! card is named "DON!! Card" at
 			// one number, so the character is the only thing a listing can
@@ -797,7 +800,7 @@ func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool
 			instalments = append(instalments, of)
 		}
 		for _, stem := range stems {
-			if spelled, named := promoSpellings[stem]; named {
+			if spelled, named := promoSpellings.Get(stem); named {
 				stem = spelled
 			}
 			if slug := emit.PromoSlug(stem); slug != "" && !slices.Contains(out, slug) {
@@ -868,14 +871,14 @@ type single struct {
 // "(OP01-003)").
 // rawNames repair a product name the catalog wrote in a shape nothing can
 // read, keyed by the product id it never reuses.
-var rawNames = map[int]string{
+var rawNames = handtable.New("rawNames", map[int]string{
 	// "Tony Tony.Chopper (0070) (Parallel)" is OP08-007: 788 products write
 	// the number as three digits and this one writes four.
 	558030: "Tony Tony.Chopper (007) (Parallel)",
 	// "Monkey.D.Luffy - OP14-34" writes OP14-034 one digit short, so the
 	// tail-strip below can't match it by text.
 	671375: "Monkey.D.Luffy",
-}
+})
 
 // stripNumberTail removes a decorative number tail from name: a run of
 // spaces, a dash, an optional run of spaces, then num, wherever it sits.
@@ -908,7 +911,7 @@ func stripNumberTail(name, num string) string {
 
 func decompose(p tcgplayer.Product, num string) single {
 	name := p.Name
-	if repaired, hand := rawNames[p.ProductID]; hand {
+	if repaired, hand := rawNames.Get(p.ProductID); hand {
 		name = repaired
 	}
 	if num != "" {
@@ -1903,7 +1906,7 @@ func main() {
 	for i := range singles {
 		var out []string
 		for _, q := range singles[i].quals {
-			if parts, hand := qualSplits[strings.ToLower(q)]; hand {
+			if parts, hand := qualSplits.Get(strings.ToLower(q)); hand {
 				out = append(out, parts...)
 				continue
 			}
@@ -2007,7 +2010,7 @@ func main() {
 	var handFixed int
 	for i := range singles {
 		for j, q := range singles[i].quals {
-			if fixed, hand := qualSpellings[strings.ToLower(q)]; hand {
+			if fixed, hand := qualSpellings.Get(strings.ToLower(q)); hand {
 				singles[i].quals[j] = fixed
 				handFixed++
 			}
@@ -2452,6 +2455,7 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
+	handtable.Report()
 	emit.PlainQuotes(doc)
 
 	envelope := emit.Envelope(emit.Today(), doc)
