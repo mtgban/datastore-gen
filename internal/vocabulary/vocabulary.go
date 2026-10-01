@@ -128,12 +128,7 @@ func (p Problems) Lines() []string {
 // against: one holding a set name is a promotion with a fact stuck to it.
 func Check(printings []Printing, sets []string) Problems {
 	var found Problems
-	published := make([]string, 0, len(sets))
-	for _, name := range sets {
-		if slug := Slug(name); len(slug) > 3 {
-			published = append(published, slug)
-		}
-	}
+	published := publishedSlugs(sets)
 	seen := map[string]bool{}
 	alike := map[string][]string{}
 	var order []string
