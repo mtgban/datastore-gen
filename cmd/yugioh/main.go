@@ -1590,6 +1590,10 @@ func main() {
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
 	cards = emit.DropRepeatedFinishes(cards)
+	if kept, unknown := dropUnsold(cards); len(unknown) > 0 {
+		log.Printf("unsold: %d entries name no product and are no European first print, dropped: %s", len(unknown), strings.Join(unknown, "; "))
+		cards = kept
+	}
 	emit.DropEmptySets(sets, cards, sealed)
 	doc := map[string]any{
 		"game":   "yugioh",
@@ -1670,16 +1674,48 @@ func main() {
 	}
 }
 
+// europeanPrint is whether a card no product sells is a European first print
+// minted from YGOPRODeck: a European number, and the passcode it carries
+// instead of a product.
+func europeanPrint(number, passcode string) bool {
+	return europeanNumberRe.MatchString(number) && passcode != "" && passcode != "0"
+}
+
+// dropUnsold drops an entry naming no product that is no European first
+// print, the one kind of card this build mints, rather than publish a card
+// nothing prices and nothing explains. It returns the entries kept, in
+// order, and what it dropped.
+func dropUnsold(cards []any) ([]any, []string) {
+	kept := make([]any, 0, len(cards))
+	var dropped []string
+	for _, raw := range cards {
+		entry, _ := raw.(map[string]any)
+		links, _ := entry["externalLinks"].(map[string]any)
+		product, _ := links["tcgPlayerId"].(int)
+		number, _ := entry["number"].(string)
+		passcode := ""
+		if id, _ := links["konamiId"].(int); id != 0 {
+			passcode = fmt.Sprint(id)
+		}
+		if product == 0 && !europeanPrint(number, passcode) {
+			dropped = append(dropped, fmt.Sprintf("%v (%v %v)", entry["id"], entry["name"], number))
+			continue
+		}
+		kept = append(kept, raw)
+	}
+	return kept, dropped
+}
+
 // validationRules are what this game adds to the shared re-read of the
 // output: every card names its product, but for the European first prints
-// minted from YGOPRODeck, which carry their passcode instead.
+// minted from YGOPRODeck, which carry their passcode instead. The build
+// drops any other before encoding, so meeting one here is its own bug.
 func validationRules() validate.Rules {
 	return validate.Rules{
 		Game:     "yugioh",
 		Identity: []string{"name", "number", "setCode", "rarity", "variant"},
 		Check: func(card validate.Card) error {
-			minted := europeanNumberRe.MatchString(card.Number) && card.Link("konamiId") != "" && card.Link("konamiId") != "0"
-			if card.TcgPlayerID == 0 && !minted {
+			if card.TcgPlayerID == 0 && !europeanPrint(card.Number, card.Link("konamiId")) {
 				return fmt.Errorf("card %q (%s) missing identity", card.Name, card.ID)
 			}
 			return nil

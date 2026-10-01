@@ -1429,6 +1429,10 @@ func main() {
 	log.Printf("external links: %d cards carry their fabId under externalLinks", linked)
 
 	cards = emit.DropRepeatedFinishes(cards)
+	if kept, twins := dropMintedTwins(cards); len(twins) > 0 {
+		log.Printf("minted: %d entries are a priced card a second time, dropped: %s", len(twins), strings.Join(twins, "; "))
+		cards = kept
+	}
 	emit.DropEmptySets(sets, cards, sealed)
 	doc := map[string]any{
 		"game":   "fleshandblood",
@@ -1508,6 +1512,50 @@ func main() {
 	}
 }
 
+// twinKey is what makes a minted entry a priced card a second time: its set,
+// its number blind to the zeros the catalog pads one with, and its name.
+func twinKey(setCode, number, name string) string {
+	return setCode + "|" + foldPadding(number) + "|" + strings.ToLower(name)
+}
+
+// dropMintedTwins drops a minted entry that is a priced card a second time,
+// by the fabId it was minted from or by twinKey, rather than publish the
+// card twice with every listing of it landing on either. It returns the
+// entries kept, in order, and what it dropped.
+func dropMintedTwins(cards []any) ([]any, []string) {
+	pricedFabIDs := map[string]bool{}
+	pricedCards := map[string]bool{}
+	fields := func(raw any) (entry map[string]any, product int, fabID, key string) {
+		entry, _ = raw.(map[string]any)
+		links, _ := entry["externalLinks"].(map[string]any)
+		product, _ = links["tcgPlayerId"].(int)
+		fabID, _ = links["fabId"].(string)
+		setCode, _ := entry["setCode"].(string)
+		number, _ := entry["number"].(string)
+		name, _ := entry["name"].(string)
+		return entry, product, fabID, twinKey(setCode, number, name)
+	}
+	for _, raw := range cards {
+		if _, product, fabID, key := fields(raw); product != 0 {
+			if fabID != "" {
+				pricedFabIDs[fabID] = true
+			}
+			pricedCards[key] = true
+		}
+	}
+	kept := make([]any, 0, len(cards))
+	var dropped []string
+	for _, raw := range cards {
+		entry, product, fabID, key := fields(raw)
+		if product == 0 && (pricedFabIDs[fabID] || pricedCards[key]) {
+			dropped = append(dropped, fmt.Sprintf("%v (%v %v)", entry["id"], entry["name"], entry["number"]))
+			continue
+		}
+		kept = append(kept, raw)
+	}
+	return kept, dropped
+}
+
 // validationRules are what this game adds to the shared re-read of the
 // output. The language is in the identity because the matcher narrows on
 // it, and a minted entry is keyed by its set and number, so a minted card's
@@ -1519,12 +1567,13 @@ func main() {
 // either. A minted entry at a priced card's set, number and name is that
 // card a second time too, compared blind to the zeros the catalog pads a
 // number with: the dataset's HER156 beside the catalog's HER0156 is how this
-// was found.
+// was found. The build drops such an entry before encoding, so meeting one
+// here is the build's own bug.
 func validationRules() validate.Rules {
 	pricedFabIDs := map[string]int{}
 	pricedCards := map[string]int{}
 	cardKey := func(card validate.Card) string {
-		return card.SetCode + "|" + foldPadding(card.Number) + "|" + strings.ToLower(card.Name)
+		return twinKey(card.SetCode, card.Number, card.Name)
 	}
 	return validate.Rules{
 		Game:     "fleshandblood",

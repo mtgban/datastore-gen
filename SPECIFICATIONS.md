@@ -356,7 +356,9 @@ broken image link (one printing without is logged, not refused). Per game
 on top: a Yu-Gi-Oh card with no product id that is
 not a European first print (`konamiId` set, number shaped `<PREFIX>-E###`),
 a Flesh and Blood minted entry wearing a priced entry's
-`fabId` or its set, number and name, a Riftbound gallery with no card
+`fabId` or its set, number and name (both builders drop and log such an
+entry before encoding, so the re-read refusing one is a backstop), a
+Riftbound gallery with no card
 blade or two sets under one id, a Riftbound sealed product wearing a
 printing's id. Lorcana alone logs rather than refuses a product upstream
 links that the catalog types as no card, since the dump can lag a day
