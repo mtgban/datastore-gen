@@ -86,13 +86,6 @@ const (
 // catalog names them for this game; everything else is sealed by exclusion.
 var tcgSingles = tcgplayer.SinglesProductTypes(yugiohCategory)
 
-// hasDate reports whether the group's publishedOn is a real date: the
-// catalog stamps the request time on groups it has no date for, so a
-// genuine value is always a bare midnight timestamp.
-func hasDate(g tcgplayer.Group) bool {
-	return strings.HasSuffix(g.PublishedOn, "T00:00:00")
-}
-
 // printingNames maps each product to the distinct printing names its skus
 // carry, in the order the catalog displays them; a printing the catalog does not list for a product
 // is one that does not exist.
@@ -531,27 +524,6 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 		out[product.ProductID] = names
 	}
 	return out
-}
-
-// nonCodeRe matches the runs a set code cannot carry.
-var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
-
-// setCodeOf reduces a catalog abbreviation to what a search query can carry.
-// A set code is typed after "is:", and a query is split on whitespace before
-// a filter ever sees it and on the colon that names the filter, so a code
-// holding either cannot be asked for: "is:OP11 RE" reaches the filter as
-// "is:OP11" and "is:crz:gg" names a filter called crz. Every run of anything
-// but a letter or a digit becomes one dash, and the ends are trimmed of them.
-//
-// The result is folded up. A set code is a case-insensitive token to every
-// reader of it - the matcher's GetSet, GetUUIDsInSet and GetSealedUUIDsInSet
-// all fold the caller's spelling up before the lookup - so a code that is
-// not already folded is one nothing can find, however it is written. The
-// catalog spells an abbreviation however it likes: Gundam's Edition Beta is
-// "GD01_b", and the set code "GD01-b" it used to mint was listed everywhere
-// and found nowhere.
-func setCodeOf(abbreviation string) string {
-	return strings.ToUpper(strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-"))
 }
 
 // europeanNumberRe matches a YGOPRODeck card_sets code naming a European
@@ -1019,7 +991,7 @@ func main() {
 	// not already some set's name.
 	for _, group := range groups {
 		if carded[group.GroupID] {
-			usedCodes[setCodeOf(group.Abbreviation)] = true
+			usedCodes[emit.SetCodeOf(group.Abbreviation)] = true
 		}
 	}
 	claimed := usedCodes
@@ -1028,7 +1000,7 @@ func main() {
 		if !carded[group.GroupID] {
 			continue
 		}
-		code := setCodeOf(group.Abbreviation)
+		code := emit.SetCodeOf(group.Abbreviation)
 		if prefix := soleprefix(group.GroupID); prefix != "" &&
 			!strings.EqualFold(prefix, code) && !claimed[prefix] {
 			log.Printf("%s: abbreviated %q, but every card is numbered %s-; set code %s",
@@ -1149,7 +1121,7 @@ func main() {
 		case "name":
 			joinedByName++
 		}
-		if hasDate(group) {
+		if emit.HasDate(group) {
 			releaseDates[group.GroupID] = group.ReleaseDate()
 			continue
 		}

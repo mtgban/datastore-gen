@@ -166,41 +166,6 @@ func number(code string) string {
 	return trimmed
 }
 
-// setCodes assigns every catalog group the set code its minted cards and
-// sealed products are filed under: its own abbreviation, which is what
-// LorcanaJSON calls the set where upstream carries one, and the
-// abbreviation with the group id suffixed where an earlier group already
-// claimed it. Abbreviations repeat across groups in every other category,
-// and a second group filed under a code the first already holds had its
-// name, its date and its whole identity folded onto that first group's set
-// - silently, because the code still resolved for every card naming it.
-// Codes are claimed in group-id order, so the group that claimed one keeps
-// it bare and only the later arrival is marked.
-func setCodes(groups []tcgplayer.Group) map[int]string {
-	ordered := append([]tcgplayer.Group(nil), groups...)
-	sort.Slice(ordered, func(i, j int) bool {
-		return ordered[i].GroupID < ordered[j].GroupID
-	})
-	codes := map[int]string{}
-	used := map[string]bool{}
-	for _, group := range ordered {
-		// Folded up, because every reader of a set code folds the spelling
-		// it is asked with before the lookup: a code that is not already
-		// folded is one nothing can find. The catalog abbreviates as it
-		// likes, and no Lorcana group is mixed-case today, so this only
-		// says which spelling wins the day one is.
-		code := strings.ToUpper(group.Abbreviation)
-		if used[code] {
-			code = fmt.Sprintf("%s-%d", code, group.GroupID)
-			log.Printf("%s: abbreviation %s already taken, set code %s minted",
-				group.Name, group.Abbreviation, code)
-		}
-		used[code] = true
-		codes[group.GroupID] = code
-	}
-	return codes
-}
-
 // mintedID is the card id given to a printing upstream does not carry: the
 // negated product id. LorcanaJSON's ids are positive counting numbers, so
 // the negative half of the space is unmistakably ours and cannot collide
@@ -1272,7 +1237,9 @@ func main() {
 	sort.Slice(mintable, func(i, j int) bool {
 		return mintable[i].ProductID < mintable[j].ProductID
 	})
-	codes := setCodes(catalog.Groups)
+	// TCGplayer abbreviates a Lorcana set by LorcanaJSON's own id ("1", "Q1"),
+	// so a minted card or sealed product lands in the set upstream calls it.
+	codes := emit.SetCodes(catalog.Groups)
 	cardmarketIDs, reports := mintedCardmarket(mintable, cards)
 	log.Printf("hand-carried Cardmarket ids for minted cards: %s", strings.Join(reports, "; "))
 	mintedByGroup := map[string]int{}

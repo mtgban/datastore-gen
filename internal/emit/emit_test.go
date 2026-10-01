@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -419,5 +420,73 @@ func TestDropEmptySetsKeepsWhatHoldsSomething(t *testing.T) {
 	DropEmptySets(sets, cards, sealed)
 	if _, kept := sets["NEXT"]; kept || len(sets) != 2 {
 		t.Errorf("sets %v, want AB and BOX alone", sets)
+	}
+}
+
+// TestSetCodeOfFolds pins that a set code leaves a build folded up and in
+// the shape a query can carry. A set code is a case-insensitive token to
+// every reader of one: go-mtgban's GetSet, GetUUIDsInSet and
+// GetSealedUUIDsInSet each fold the caller's spelling before the lookup, so
+// a code that is not already folded is listed everywhere and found nowhere.
+//
+// TCGplayer abbreviates Gundam's Edition Beta "GD01_b", the one mixed-case
+// abbreviation in category 86, and the "GD01-b" once minted from it took its
+// set, its 83 cards and the two sealed products sold with them out of reach.
+func TestSetCodeOfFolds(t *testing.T) {
+	queryable := regexp.MustCompile(`^[A-Z0-9-]+$`)
+	for _, test := range []struct{ in, want string }{
+		{"GD01_b", "GD01-B"},
+		{"GD01", "GD01"},
+		{"gd01_b", "GD01-B"},
+		{"GCG PR", "GCG-PR"},
+		{"OP11 RE", "OP11-RE"},
+		{"crz:gg", "CRZ-GG"},
+		{"-EVX01-", "EVX01"},
+		{"", ""},
+	} {
+		got := SetCodeOf(test.in)
+		if got != test.want {
+			t.Errorf("SetCodeOf(%q) = %q, want %q", test.in, got, test.want)
+		}
+		if got != "" && !queryable.MatchString(got) {
+			t.Errorf("SetCodeOf(%q) = %q, which a query cannot carry", test.in, got)
+		}
+	}
+}
+
+// TestSetCodesKeepsTheFirstClaim pins that codes are claimed in group-id
+// order, a later group under a taken code is suffixed with its id, and a
+// group with no abbreviation is given one from its id.
+func TestSetCodesKeepsTheFirstClaim(t *testing.T) {
+	codes := SetCodes([]tcgplayer.Group{
+		{GroupID: 30, Abbreviation: "GD01"},
+		{GroupID: 10, Abbreviation: "gd01"},
+		{GroupID: 20, Abbreviation: " "},
+	})
+	for _, want := range []struct {
+		group int
+		code  string
+	}{
+		{10, "GD01"},
+		{20, "G20"},
+		{30, "GD01-30"},
+	} {
+		if codes[want.group] != want.code {
+			t.Errorf("group %d: %q, want %q", want.group, codes[want.group], want.code)
+		}
+	}
+}
+
+func TestHasDateReadsAMidnightStamp(t *testing.T) {
+	for _, test := range []struct {
+		publishedOn string
+		want        bool
+	}{
+		{"2024-03-22T00:00:00", true},
+		{"2026-10-01T17:14:22.183", false},
+	} {
+		if got := HasDate(tcgplayer.Group{PublishedOn: test.publishedOn}); got != test.want {
+			t.Errorf("HasDate(%q) = %v, want %v", test.publishedOn, got, test.want)
+		}
 	}
 }

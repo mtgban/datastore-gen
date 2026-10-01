@@ -52,7 +52,7 @@ cmd/datastorediff      reads two built datastores, prints what the second did
 internal/emit          what every builder spells the same way: finish suffix,
                        plain printing, finish order, promo slug, quote
                        normalisation, image link, Fetch, StringsOf, the
-                       catalog read and the coverage check
+                       catalog read and the coverage check, set codes
 internal/baseline      the guard that refuses a build which lost too much
 internal/naming        the qualifier reading Gundam and Palworld share: a
                        product name split into base and qualifiers, and the
@@ -101,7 +101,7 @@ go test -race ./...
 That is what `ci.yml` runs on every push and pull request; run all of it
 before committing. Unit tests live in `internal/*` and in the builders that
 have them (`cmd/pokemon`, `cmd/fleshandblood`, `cmd/lorcana`,
-`cmd/riftbound`, `cmd/gundam`, `cmd/onepiece`, `cmd/yugioh`); most builder behaviour is
+`cmd/riftbound`, `cmd/onepiece`, `cmd/yugioh`); most builder behaviour is
 verified by building, below.
 
 ## Inputs, and where they come from
