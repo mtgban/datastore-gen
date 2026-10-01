@@ -6,8 +6,8 @@ Facts below were read off the code on 2026-09-14, and §2's envelope on
 2026-09-24 (master at `7bdb114`, plus this branch); where a number is
 quoted it is the earlier day's.
 
-Module `github.com/mtgban/datastore-gen`, Go 1.25. Direct dependencies:
-`github.com/mtgban/go-tcgplayer` (the catalog reader) and
+Module `github.com/mtgban/datastore-gen`, Go 1.26 (toolchain go1.26.8).
+Direct dependencies: `github.com/mtgban/go-tcgplayer` (the catalog reader) and
 `github.com/mtgban/go-cardmarket` (the Cardmarket catalog reader, Pokemon
 only). Nothing from go-mtgban is imported; the consumer and the producer
 meet only at the published file.
