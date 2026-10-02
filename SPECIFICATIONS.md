@@ -163,7 +163,7 @@ Common to every game:
 | `originalReleaseDate` | a date a label stated that the set's date does not cover (§3.3) |
 | `image` | the catalog image at the 400-wide rendition; Pokemon and Lorcana also carry `images.{full,thumbnail}` |
 | `externalLinks` | `tcgPlayerId` on every priced entry; the upstream id beside it or instead of it: `fabId`, `tcgdexId`, `cardmarketId`, `bandaiId`, `konamiId`, `cardTraderId` |
-| `color`, `type`, `attribute`, `artist` | game facts where the source carries them: Flesh and Blood pitch colour, Gundam and Palworld colour and card type, Yu-Gi-Oh attribute, One Piece colour and type |
+| `color`, `type`, `attribute`, `artist` | game facts where the source carries them: Flesh and Blood pitch colour, Gundam and Palworld colour and card type, Yu-Gi-Oh attribute, One Piece colour and type, the type a Pokemon prints as its colour (tcgdex's, else the catalog's Card Type; none on a Trainer or Energy) |
 
 Per game, on top of the common keys: under `externalLinks`, `fabId`
 (fleshandblood), `tcgdexId` (pokemon), `bandaiId` (onepiece), `konamiId`

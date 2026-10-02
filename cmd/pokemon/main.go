@@ -115,7 +115,7 @@ const (
 	tcgpSerie = "tcgp"
 
 	tcgdexSetsQuery  = "{ sets { id name releaseDate symbol serie { id } } }"
-	tcgdexCardsQuery = "{ cards { id localId name rarity category image variants { normal reverse holo firstEdition } set { id } } }"
+	tcgdexCardsQuery = "{ cards { id localId name rarity category types image variants { normal reverse holo firstEdition } set { id } } }"
 )
 
 // tcgSingles are the product types single cards are filed under, as the
@@ -261,12 +261,13 @@ func tcgdexSymbolURL(raw string) string {
 
 // tcgdexCard is the slice of a tcgdex card this build reads.
 type tcgdexCard struct {
-	ID       string `json:"id"`
-	LocalID  string `json:"localId"`
-	Name     string `json:"name"`
-	Rarity   string `json:"rarity"`
-	Category string `json:"category"`
-	Image    string `json:"image"`
+	ID       string   `json:"id"`
+	LocalID  string   `json:"localId"`
+	Name     string   `json:"name"`
+	Rarity   string   `json:"rarity"`
+	Category string   `json:"category"`
+	Types    []string `json:"types"`
+	Image    string   `json:"image"`
 	Variants struct {
 		Normal       bool `json:"normal"`
 		Reverse      bool `json:"reverse"`
@@ -276,6 +277,57 @@ type tcgdexCard struct {
 	Set struct {
 		ID string `json:"id"`
 	} `json:"set"`
+}
+
+// pokemonTypes are the types a Pokemon prints, as tcgdex spells them.
+var pokemonTypes = []string{"Colorless", "Darkness", "Dragon", "Fairy", "Fighting", "Fire", "Grass", "Lightning", "Metal", "Psychic", "Water"}
+
+// typeSpellings are the catalog's other words for a type: the video games'
+// names, and its typos.
+var typeSpellings = handtable.New("typeSpellings", map[string]string{
+	"Dark":      "Darkness",
+	"Electric":  "Lightning",
+	"Lighnting": "Lightning",
+	"Normal":    "Colorless",
+})
+
+// colors elects the type a Pokemon prints, published as its colour:
+// tcgdex's where tcgdex knows the card, else the catalog's Card Type where
+// that names types and nothing else. The two agree on 29,381 of the 29,438
+// printings both type. A Trainer or an Energy card has none; tcgdex types
+// some Energy and not others.
+type colors struct {
+	fromTcgdex  int
+	fromCatalog int
+}
+
+func (c *colors) of(dex *tcgdexCard, cardType string) string {
+	if dex != nil && dex.Category != "" && dex.Category != "Pokemon" {
+		return ""
+	}
+	// A type listed twice is a typo for another, as on Dark Houndoom's
+	// Darkness and Darkness, so the catalog answers instead
+	if dex != nil && len(dex.Types) > 0 && len(slices.Compact(slices.Sorted(slices.Values(dex.Types)))) == len(dex.Types) {
+		c.fromTcgdex++
+		return strings.Join(dex.Types, ";")
+	}
+	var types []string
+	for _, word := range strings.FieldsFunc(cardType, func(r rune) bool { return r == ' ' || r == '/' }) {
+		spelled, hand := typeSpellings.Get(word)
+		if hand {
+			word = spelled
+		}
+		if !slices.Contains(pokemonTypes, word) {
+			return ""
+		}
+		if !slices.Contains(types, word) {
+			types = append(types, word)
+		}
+	}
+	if len(types) > 0 {
+		c.fromCatalog++
+	}
+	return strings.Join(types, ";")
 }
 
 // tcgdexClient bounds every tcgdex call: without a deadline a dead server
@@ -3630,6 +3682,7 @@ func main() {
 		return singles[i].product.ProductID < singles[j].product.ProductID
 	})
 	dexCards := map[int]*tcgdexCard{}
+	cardColors := &colors{}
 	var ambiguousLocal int
 	crossCheck := map[string]int{}
 	for i := range singles {
@@ -4065,6 +4118,10 @@ func main() {
 			if cardType != "" {
 				entry["type"] = cardType
 			}
+			color := cardColors.of(dex, cardType)
+			if color != "" {
+				entry["color"] = color
+			}
 			mark := printMark(s, setCodeFor(s.product))
 			if mark != "" {
 				entry["watermark"] = mark
@@ -4337,6 +4394,10 @@ func main() {
 			if card.Category != "" {
 				entry["type"] = card.Category
 			}
+			color := cardColors.of(card, "")
+			if color != "" {
+				entry["color"] = color
+			}
 			cards = append(cards, entry)
 			mintedCards++
 		}
@@ -4461,6 +4522,8 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
+	log.Printf("colors: %d printings typed by tcgdex, %d by the catalog's Card Type",
+		cardColors.fromTcgdex, cardColors.fromCatalog)
 	handtable.Report()
 	emit.PlainQuotes(doc)
 
