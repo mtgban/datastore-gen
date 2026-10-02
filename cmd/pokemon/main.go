@@ -534,18 +534,6 @@ func sanitizeID(s string) string {
 	return strings.Trim(mapped, "-")
 }
 
-// idBase mints the id stem an entry's finish suffix hangs off: the sanitized
-// collector number and the product id, or the product id alone for the
-// unnumbered singles.
-// numberOf spells a collector number the way a query can carry it. A search
-// is split on whitespace before a filter sees it, so the two halves of a
-// double-faced number have to stay one token: "WTR040 // WTR039" is
-// "WTR040//WTR039", and "PW 1" is "PW1". The separators are already there;
-// only the spaces around them go.
-func numberOf(number string) string {
-	return strings.Join(strings.Fields(number), "")
-}
-
 // emitNumber writes a collector number onto an entry with the card's part
 // and the set total apart: the "082/167" a card face prints is the card's
 // own "082" plus the set's size, and the size is the set's fact rather
@@ -4071,7 +4059,7 @@ func main() {
 				},
 			}
 			if s.number != "" {
-				emitNumber(entry, numberOf(s.number))
+				emitNumber(entry, emit.QueryNumber(s.number))
 			}
 			cardType := s.product.Extended("Card Type")
 			if cardType != "" {
@@ -4199,7 +4187,7 @@ func main() {
 			printingsIn[set] = map[string]bool{}
 			twinsIn[set] = map[string]int{}
 		}
-		key := identityKey(card.Name, numberOf(card.LocalID))
+		key := identityKey(card.Name, emit.QueryNumber(card.LocalID))
 		if printingsIn[set][key] {
 			continue
 		}
@@ -4328,7 +4316,7 @@ func main() {
 				"tcgdexId": card.ID,
 			}
 			if card.LocalID != "" {
-				emitNumber(entry, numberOf(card.LocalID))
+				emitNumber(entry, emit.QueryNumber(card.LocalID))
 				own, _ := entry["number"].(string)
 				if width, agreed := widthBySet[mintedSetCode[card.Set.ID]]; agreed &&
 					isAllDigits(own) && len(own) < width {
