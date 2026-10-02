@@ -498,11 +498,6 @@ func initials(name string) string {
 	return b.String()
 }
 
-// setCodes assigns every group a unique, non-empty set code. Non-blank
-// abbreviations claim their codes first, in group-id order; blank ones get
-// the group name's initials; any code already claimed gets "-groupId"
-// appended. Every repair is logged, because none of it is the catalog's
-// own identity.
 // promoGroups reports which catalog groups hand out promotional printings.
 // Two things say so and they cover different ground: TCGplayer names the one
 // promo group outright, and the welcome decks give their cards away without
@@ -573,6 +568,11 @@ func setCodeOf(abbreviation string) string {
 	return strings.ToUpper(strings.Trim(nonCodeRe.ReplaceAllString(abbreviation, "-"), "-"))
 }
 
+// setCodes assigns every group a unique, non-empty set code. Non-blank
+// abbreviations claim their codes first, in group-id order; blank ones get
+// the group name's initials; any code already claimed gets "-groupId"
+// appended. Every repair is logged, because none of it is the catalog's
+// own identity.
 func setCodes(groups []tcgplayer.Group) map[int]string {
 	ordered := append([]tcgplayer.Group(nil), groups...)
 	sort.Slice(ordered, func(i, j int) bool {
