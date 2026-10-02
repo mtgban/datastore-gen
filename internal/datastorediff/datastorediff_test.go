@@ -144,6 +144,31 @@ func TestSetsAndSealed(t *testing.T) {
 	}
 }
 
+// TestPropertiesAreCompared pins that an order a document publishes beside
+// its cards is part of what a build changed, published, reordered or
+// dropped, though no card moves with it.
+func TestPropertiesAreCompared(t *testing.T) {
+	card := `[{"id":"a","name":"A","rarity":"Rare"}]`
+	with := func(properties string) []byte {
+		return []byte(`{"game":"test","properties":` + properties + `,"cards":` + card + `,"sets":{},"sealed":[]}`)
+	}
+	before := with(`{"rarity":["Rare","Common"],"colors":["Red","Blue"]}`)
+	for _, tc := range []struct {
+		desc  string
+		after []byte
+		want  string
+	}{
+		{"unchanged", before, "no change"},
+		{"reordered", with(`{"rarity":["Common","Rare"],"colors":["Red","Blue"]}`), "properties reworded: rarity"},
+		{"one added", with(`{"rarity":["Rare","Common"],"colors":["Red","Blue"],"types":["Fire"]}`), "properties reworded: types"},
+		{"all dropped", doc(card, noSets, noSealed), "properties reworded: colors, rarity"},
+	} {
+		if got := compare(t, before, tc.after).String(); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.desc, got, tc.want)
+		}
+	}
+}
+
 // TestGalleryCardsAreFound is Riftbound's shape: the builder publishes the
 // card gallery Riot serves its own site, so the cards sit under the page's
 // blades rather than at the top. Read as an unkeyed document it reported
