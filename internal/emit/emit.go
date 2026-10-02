@@ -619,6 +619,23 @@ func DropEmptySets(sets map[string]any, entries ...[]any) {
 	}
 }
 
+// AsList gives every entry carrying a value in field the same values as a
+// list under list, which is what a reader takes: the string split where it
+// joins two with a semicolon ("Green;Red"). An entry already holding the
+// list keeps it.
+func AsList(entries []any, field, list string) {
+	for _, raw := range entries {
+		entry, _ := raw.(map[string]any)
+		if _, listed := entry[list]; listed {
+			continue
+		}
+		value, _ := entry[field].(string)
+		if value != "" {
+			entry[list] = strings.Split(value, ";")
+		}
+	}
+}
+
 // DropRepeatedFinishes keeps the first entry pricing each product's finish,
 // logs the rest, and returns the entries kept in order. A product sells a
 // finish once, so a second entry for it is a printing nothing tells apart

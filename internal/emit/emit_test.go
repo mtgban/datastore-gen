@@ -585,3 +585,26 @@ func TestProductLanguageNamesTheNonEnglishOnes(t *testing.T) {
 		}
 	}
 }
+
+// TestAsList pins the list a datastore publishes beside a string field.
+func TestAsList(t *testing.T) {
+	entries := []any{
+		map[string]any{"color": "Green;Red"},
+		map[string]any{"attribute": "DARK"},
+		map[string]any{"color": "Amber-Steel", "colors": []string{"Amber", "Steel"}},
+		map[string]any{"color": ""},
+	}
+	AsList(entries[:1], "color", "colors")
+	AsList(entries[1:2], "attribute", "attributes")
+	AsList(entries[2:], "color", "colors")
+	for i, want := range [][]string{{"Green", "Red"}, nil, {"Amber", "Steel"}, nil} {
+		got, _ := entries[i].(map[string]any)["colors"].([]string)
+		if !slices.Equal(got, want) {
+			t.Errorf("entry %d lists colors %v, want %v", i, got, want)
+		}
+	}
+	got, _ := entries[1].(map[string]any)["attributes"].([]string)
+	if !slices.Equal(got, []string{"DARK"}) {
+		t.Errorf("attributes %v, want [DARK]", got)
+	}
+}
