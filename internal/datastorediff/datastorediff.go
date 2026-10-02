@@ -55,6 +55,10 @@ type Change struct {
 	SealedBefore, SealedAfter           int
 	SealedReworded                      bool
 
+	// Properties names each property whose order one build publishes
+	// and the other does not, or publishes otherwise.
+	Properties []string
+
 	// Leaves is the fallback for a datastore that publishes no top-level
 	// cards key at all. Riftbound's output is the upstream payload with
 	// the catalog merged into it, so the entries sit deep inside a
@@ -70,6 +74,7 @@ func (c Change) Empty() bool {
 		len(c.FieldsAdded) == 0 && len(c.FieldsRemoved) == 0 && len(c.ValuesChanged) == 0 &&
 		c.SetsBefore == c.SetsAfter && c.SetsReworded == 0 &&
 		c.SealedBefore == c.SealedAfter && !c.SealedReworded &&
+		len(c.Properties) == 0 &&
 		c.LeavesAdded == 0 && c.LeavesRemoved == 0 && c.LeavesChanged == 0
 }
 
@@ -104,6 +109,9 @@ func (c Change) String() string {
 		parts = append(parts, fmt.Sprintf("sealed %d->%d", c.SealedBefore, c.SealedAfter))
 	} else if c.SealedReworded {
 		parts = append(parts, "sealed reworded")
+	}
+	if len(c.Properties) > 0 {
+		parts = append(parts, "properties reworded: "+strings.Join(c.Properties, ", "))
 	}
 	return strings.Join(parts, "; ")
 }
@@ -225,6 +233,20 @@ func Compare(before, after []byte) (Change, error) {
 	if change.SealedBefore == change.SealedAfter {
 		change.SealedReworded = !sameJSON(la, lb)
 	}
+
+	pa, _ := a["properties"].(map[string]any)
+	pb, _ := b["properties"].(map[string]any)
+	for name, now := range pb {
+		if !sameJSON(pa[name], now) {
+			change.Properties = append(change.Properties, name)
+		}
+	}
+	for name := range pa {
+		if _, held := pb[name]; !held {
+			change.Properties = append(change.Properties, name)
+		}
+	}
+	sort.Strings(change.Properties)
 	return change, nil
 }
 
