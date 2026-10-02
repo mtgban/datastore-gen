@@ -1547,6 +1547,7 @@ func main() {
 	}
 	log.Printf("sealed: %d products", len(sealedItems))
 	published, _ := doc["cards"].([]any)
+	emit.AsList(published, "color", "colors")
 	emit.DropEmptySets(sets, published, sealedItems)
 
 	var buf bytes.Buffer

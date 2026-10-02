@@ -1172,7 +1172,7 @@ func main() {
 				entry["number"] = emit.QueryNumber(s.number)
 			}
 			if s.color != "" {
-				entry["color"] = s.color
+				entry["pitch"] = s.color
 			}
 			if language != "" {
 				entry["language"] = language
@@ -1305,6 +1305,7 @@ func main() {
 	}
 	log.Printf("external links: %d cards carry their fabId under externalLinks", linked)
 
+	emit.AsList(cards, "pitch", "pitches")
 	cards = emit.DropRepeatedFinishes(cards)
 	if kept, twins := dropMintedTwins(cards); len(twins) > 0 {
 		log.Printf("minted: %d entries are a priced card a second time, dropped: %s", len(twins), strings.Join(twins, "; "))
@@ -1606,7 +1607,7 @@ func foldPromoTypes(cards []any) (int, int) {
 		row.item = item
 		finish := emit.PromoSlug(fmt.Sprint(item["finish"]))
 		number := emit.PromoSlug(fmt.Sprint(item["number"]))
-		color := emit.PromoSlug(fmt.Sprint(item["color"]))
+		color := emit.PromoSlug(fmt.Sprint(item["pitch"]))
 		rarity := emit.PromoSlug(fmt.Sprint(item["rarity"]))
 		for _, tag := range emit.StringsOf(item["promoTypes"]) {
 			if name, found := promoTypeNames.Get(tag); found {
@@ -1621,8 +1622,8 @@ func foldPromoTypes(cards []any) (int, int) {
 				dropped++
 			case slug == finish || says(finish, slug):
 				dropped++
-			// The pitch value is the card's own, published as its colour,
-			// and a product name repeating it names no promotion.
+			// The pitch is the card's own, published as such, and a
+			// product name repeating it names no promotion.
 			case color != "" && slug == color:
 				dropped++
 			// Nor does one repeating the rarity. The catalog writes

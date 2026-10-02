@@ -163,7 +163,8 @@ Common to every game:
 | `originalReleaseDate` | a date a label stated that the set's date does not cover (§3.3) |
 | `image` | the catalog image at the 400-wide rendition; Pokemon and Lorcana also carry `images.{full,thumbnail}` |
 | `externalLinks` | `tcgPlayerId` on every priced entry; the upstream id beside it or instead of it: `fabId`, `tcgdexId`, `cardmarketId`, `bandaiId`, `konamiId`, `cardTraderId` |
-| `color`, `type`, `attribute`, `artist` | game facts where the source carries them: Flesh and Blood pitch colour, Gundam and Palworld colour and card type, Yu-Gi-Oh attribute, One Piece colour and type, the type a Pokemon prints as its colour (tcgdex's, else the catalog's Card Type; none on a Trainer or Energy) |
+| `color`, `pitch`, `type`, `attribute`, `artist` | game facts where the source carries them: Flesh and Blood `pitch` ("Red", "Yellow" or "Blue") in place of a colour, Gundam and Palworld colour and card type, Yu-Gi-Oh attribute, One Piece colour and type |
+| `colors`, `pitches`, `attributes`, `types` | the same facts as lists, each under the game's own name, which is what a reader takes: One Piece's, Lorcana's, Gundam's and Palworld's `colors`, Flesh and Blood's `pitches`, Yu-Gi-Oh's `attributes`, and the `types` a Pokemon prints (tcgdex's, else the catalog's Card Type; none on a Trainer or Energy). Riftbound's `domain.values` is a list already |
 
 Per game, on top of the common keys: under `externalLinks`, `fabId`
 (fleshandblood), `tcgdexId` (pokemon), `bandaiId` (onepiece), `konamiId`
