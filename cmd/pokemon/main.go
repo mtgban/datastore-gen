@@ -291,25 +291,25 @@ var typeSpellings = handtable.New("typeSpellings", map[string]string{
 	"Normal":    "Colorless",
 })
 
-// colors elects the type a Pokemon prints, published as its colour:
+// printedTypes elects the types a Pokemon prints, published as "types":
 // tcgdex's where tcgdex knows the card, else the catalog's Card Type where
 // that names types and nothing else. The two agree on 29,381 of the 29,438
 // printings both type. A Trainer or an Energy card has none; tcgdex types
 // some Energy and not others.
-type colors struct {
+type printedTypes struct {
 	fromTcgdex  int
 	fromCatalog int
 }
 
-func (c *colors) of(dex *tcgdexCard, cardType string) string {
+func (c *printedTypes) of(dex *tcgdexCard, cardType string) []string {
 	if dex != nil && dex.Category != "" && dex.Category != "Pokemon" {
-		return ""
+		return nil
 	}
 	// A type listed twice is a typo for another, as on Dark Houndoom's
 	// Darkness and Darkness, so the catalog answers instead
 	if dex != nil && len(dex.Types) > 0 && len(slices.Compact(slices.Sorted(slices.Values(dex.Types)))) == len(dex.Types) {
 		c.fromTcgdex++
-		return strings.Join(dex.Types, ";")
+		return dex.Types
 	}
 	var types []string
 	for _, word := range strings.FieldsFunc(cardType, func(r rune) bool { return r == ' ' || r == '/' }) {
@@ -318,7 +318,7 @@ func (c *colors) of(dex *tcgdexCard, cardType string) string {
 			word = spelled
 		}
 		if !slices.Contains(pokemonTypes, word) {
-			return ""
+			return nil
 		}
 		if !slices.Contains(types, word) {
 			types = append(types, word)
@@ -327,7 +327,7 @@ func (c *colors) of(dex *tcgdexCard, cardType string) string {
 	if len(types) > 0 {
 		c.fromCatalog++
 	}
-	return strings.Join(types, ";")
+	return types
 }
 
 // tcgdexClient bounds every tcgdex call: without a deadline a dead server
@@ -3682,7 +3682,7 @@ func main() {
 		return singles[i].product.ProductID < singles[j].product.ProductID
 	})
 	dexCards := map[int]*tcgdexCard{}
-	cardColors := &colors{}
+	cardTypes := &printedTypes{}
 	var ambiguousLocal int
 	crossCheck := map[string]int{}
 	for i := range singles {
@@ -4118,9 +4118,9 @@ func main() {
 			if cardType != "" {
 				entry["type"] = cardType
 			}
-			color := cardColors.of(dex, cardType)
-			if color != "" {
-				entry["color"] = color
+			types := cardTypes.of(dex, cardType)
+			if len(types) > 0 {
+				entry["types"] = types
 			}
 			mark := printMark(s, setCodeFor(s.product))
 			if mark != "" {
@@ -4394,9 +4394,9 @@ func main() {
 			if card.Category != "" {
 				entry["type"] = card.Category
 			}
-			color := cardColors.of(card, "")
-			if color != "" {
-				entry["color"] = color
+			types := cardTypes.of(card, "")
+			if len(types) > 0 {
+				entry["types"] = types
 			}
 			cards = append(cards, entry)
 			mintedCards++
@@ -4522,8 +4522,8 @@ func main() {
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
-	log.Printf("colors: %d printings typed by tcgdex, %d by the catalog's Card Type",
-		cardColors.fromTcgdex, cardColors.fromCatalog)
+	log.Printf("types: %d printings typed by tcgdex, %d by the catalog's Card Type",
+		cardTypes.fromTcgdex, cardTypes.fromCatalog)
 	handtable.Report()
 	emit.PlainQuotes(doc)
 
