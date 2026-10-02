@@ -2,7 +2,11 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"slices"
+	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -90,15 +94,52 @@ func TestRespellSharedIDs(t *testing.T) {
 	}
 }
 
-// TestDropExactRepeats pins that a row the gallery serves twice in every
-// field is carried once, while a different row under the same id stays for
-// respellSharedIDs to give an id of its own.
-func TestDropExactRepeats(t *testing.T) {
-	viktor := map[string]any{"id": "ogn-117-298", "name": "Viktor", "publicCode": "OGN-117/298"}
-	signature := map[string]any{"id": "ven-192-166", "name": "Nasus", "publicCode": "VEN-192/166"}
-	overnumbered := map[string]any{"id": "ven-192-166", "name": "Nasus", "publicCode": "VEN-192/166", "rarity": "overnumbered"}
-	kept, dropped := dropExactRepeats([]any{viktor, signature, map[string]any{"publicCode": "OGN-117/298", "name": "Viktor", "id": "ogn-117-298"}, overnumbered})
-	if len(kept) != 3 || len(dropped) != 1 || dropped[0] != "ogn-117-298" {
-		t.Errorf("kept %d, dropped %q; want 3 kept and ogn-117-298 dropped", len(kept), dropped)
+// TestCleanGallery pins that a render listing a card row twice is a failed
+// fetch: fetched again until one lists every row once, and refused when none
+// does. Two different rows under one id are not a repeat.
+func TestCleanGallery(t *testing.T) {
+	payload := func(rows ...string) string {
+		return `{"pageProps":{"page":{"blades":[{"type":"riftboundCardGallery","cards":{"items":[` +
+			strings.Join(rows, ",") + `]}}]}}}`
+	}
+	const (
+		viktor       = `{"id":"ogn-246-298","name":"Viktor","publicCode":"OGN-246/298"}`
+		leader       = `{"id":"ogn-117-298","name":"Viktor","publicCode":"OGN-117/298"}`
+		overnumbered = `{"id":"ven-192-166","name":"Nasus","rarity":"overnumbered"}`
+		signature    = `{"id":"ven-192-166","name":"Nasus","rarity":"signature"}`
+	)
+	// On 2026-10-02 a bad render served OGN-117 twice and dropped OGN-246
+	good, bad := payload(leader, viktor), payload(leader, leader)
+	shared := payload(overnumbered, signature)
+	for _, test := range []struct {
+		desc    string
+		renders []string
+		want    string
+		fetches int64
+	}{
+		{"a clean render is read once", []string{good}, good, 1},
+		{"a repeating render is fetched again", []string{bad, bad, good}, good, 3},
+		{"one that never comes back clean is refused", []string{bad, bad, bad, good}, "", 3},
+		{"two rows sharing an id are not a repeat", []string{shared}, shared, 1},
+	} {
+		t.Run(test.desc, func(t *testing.T) {
+			var fetches atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				n := fetches.Add(1)
+				fmt.Fprint(w, test.renders[min(int(n), len(test.renders))-1])
+			}))
+			defer server.Close()
+			got, err := cleanGallery(server.URL, 3, 0)
+			if test.want == "" {
+				if err == nil || !strings.Contains(err.Error(), "ogn-117-298") {
+					t.Errorf("err = %v, want a refusal naming ogn-117-298", err)
+				}
+			} else if err != nil || string(got) != test.want {
+				t.Errorf("got %s, %v; want %s", got, err, test.want)
+			}
+			if fetches.Load() != test.fetches {
+				t.Errorf("fetched %d renders, want %d", fetches.Load(), test.fetches)
+			}
+		})
 	}
 }

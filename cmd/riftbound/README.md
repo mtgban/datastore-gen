@@ -9,7 +9,9 @@ The tool merges two sources:
 
 - the official card gallery payload from playriftbound.com
   (resolving the current site build id automatically), which provides the
-  main sets;
+  main sets. A render that lists a card row twice has dropped another card
+  for it, so it is fetched again, half a minute later, and the build stops
+  when twenty never come back clean or a saved one (`-gallery`) repeats a row;
 - our own TCGplayer catalog dump for category 89, written by tcgdumper and
   published beside the datastore, passed in with `-tcg-catalog`. It provides
   the TCGplayer product id stamped onto every printing (feeding the matcher's

@@ -434,7 +434,9 @@ Per-game notes an agent needs:
   is a label the catalog writes on its own.
 - **riftbound**: a group the gallery has no set for becomes its own set,
   including a group sold only sealed, so its sealed is not orphaned; a two-faced token product keeps both faces in
-  its number; minted sets publish no size.
+  its number; minted sets publish no size. A gallery render listing a card
+  row twice is fetched again, up to twenty times, and the build refuses one
+  that never comes back clean.
 - **yugioh**: editions (`1st Edition`, `Unlimited`, `Limited`) are the
   finish; a rarity written into a name is the rarity; Speed Duel deck
   letters `(A)`…`(G)` stay in the name because the loader pins them

@@ -43,6 +43,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
@@ -59,6 +60,12 @@ const (
 	// riftboundCategory is Riftbound's TCGplayer category, the one the
 	// catalog dump is expected to carry.
 	riftboundCategory = 89
+
+	// A render of the gallery is cached for ten seconds, so a fetch that
+	// waits half a minute reads a new one. 14 of 20 read so on 2026-10-02
+	// repeated a row, which twenty attempts leave at a 0.1% refusal.
+	galleryAttempts = 20
+	galleryPause    = 30 * time.Second
 )
 
 // tcgSingles are the product types single cards are filed under, as the
@@ -72,10 +79,18 @@ var buildIDRe = regexp.MustCompile(`"buildId":"([^"]+)"`)
 
 // galleryPayload reads the card-gallery payload: a local file when one is
 // named, the live site otherwise, resolving the build id the data URL is
-// keyed by.
+// keyed by. A payload listing a card row twice is refused either way.
 func galleryPayload(location string) ([]byte, error) {
 	if location != "" {
-		return os.ReadFile(location)
+		payload, err := os.ReadFile(location)
+		if err != nil {
+			return nil, err
+		}
+		repeated := repeatedRows(payload)
+		if len(repeated) > 0 {
+			return nil, fmt.Errorf("%s lists %s twice", location, strings.Join(repeated, ", "))
+		}
+		return payload, nil
 	}
 	page, err := emit.Fetch(galleryPageURL)
 	if err != nil {
@@ -85,7 +100,75 @@ func galleryPayload(location string) ([]byte, error) {
 	if m == nil {
 		return nil, fmt.Errorf("%s: no buildId in the page", galleryPageURL)
 	}
-	return emit.Fetch(fmt.Sprintf(galleryDataURL, m[1]))
+	return cleanGallery(fmt.Sprintf(galleryDataURL, m[1]), galleryAttempts, galleryPause)
+}
+
+// cleanGallery fetches the gallery data until a render lists every card row
+// once. Each render pages Riot's card list afresh, and a bad one serves a row
+// twice in place of another card, which the build then adopted from the
+// catalog under a new uuid: 4 of 6 fetches on 2026-10-02.
+func cleanGallery(url string, attempts int, pause time.Duration) ([]byte, error) {
+	for attempt := 1; ; attempt++ {
+		payload, err := emit.Fetch(url)
+		if err != nil {
+			return nil, err
+		}
+		repeated := repeatedRows(payload)
+		if len(repeated) == 0 {
+			return payload, nil
+		}
+		if attempt >= attempts {
+			return nil, fmt.Errorf("%d renders all listed a card row twice, the last %s",
+				attempts, strings.Join(repeated, ", "))
+		}
+		log.Printf("gallery: render %d of %d lists %s twice; fetching again in %s",
+			attempt, attempts, strings.Join(repeated, ", "), pause)
+		time.Sleep(pause)
+	}
+}
+
+// repeatedRows lists the ids of the card rows a gallery payload serves more
+// than once, identical in every field. A different row under an id already
+// taken is a printing of its own, which respellSharedIDs carries.
+func repeatedRows(payload []byte) []string {
+	var doc struct {
+		PageProps struct {
+			Page struct {
+				Blades []struct {
+					Type  string `json:"type"`
+					Cards struct {
+						Items []any `json:"items"`
+					} `json:"cards"`
+				} `json:"blades"`
+			} `json:"page"`
+		} `json:"pageProps"`
+	}
+	// A payload of another shape is main's to refuse, saying what is missing
+	err := json.Unmarshal(payload, &doc)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var repeated []string
+	for _, blade := range doc.PageProps.Page.Blades {
+		if blade.Type != "riftboundCardGallery" {
+			continue
+		}
+		for _, row := range blade.Cards.Items {
+			// Map keys encode sorted, so two rows encode alike only when
+			// every field is the same.
+			encoded, err := json.Marshal(row)
+			if err != nil {
+				continue
+			}
+			if seen[string(encoded)] {
+				item, _ := row.(map[string]any)
+				repeated = append(repeated, fmt.Sprint(item["id"]))
+			}
+			seen[string(encoded)] = true
+		}
+	}
+	return repeated
 }
 
 // finishesByProduct maps each product to the finishes it is sold in, named
@@ -499,31 +582,6 @@ func printingUUID(id, finish string) string {
 	return id + "_" + canonical
 }
 
-// dropExactRepeats drops a gallery row repeated in every field. On
-// 2026-10-01 the gallery served Viktor (OGN-117) and Poppy (UNL-116a) twice,
-// the same row each time, and carried twice they were two printings nothing
-// tells apart. A different row under an id already taken is not a repeat;
-// respellSharedIDs carries it. It returns the ids of the rows it dropped.
-func dropExactRepeats(items []any) ([]any, []string) {
-	seen := map[string]bool{}
-	kept := make([]any, 0, len(items))
-	var dropped []string
-	for _, row := range items {
-		// Map keys encode sorted, so two rows encode alike only when every
-		// field is the same.
-		encoded, err := json.Marshal(row)
-		if err == nil && seen[string(encoded)] {
-			if item, ok := row.(map[string]any); ok {
-				dropped = append(dropped, fmt.Sprint(item["id"]))
-			}
-			continue
-		}
-		seen[string(encoded)] = true
-		kept = append(kept, row)
-	}
-	return kept, dropped
-}
-
 // respellSharedIDs gives every card row an id of its own. The gallery has
 // published two printings under one: from 2026-09-20 to 09-22 Vendetta's
 // Signature #192 wore the Overnumbered row's id and number, and three nightly
@@ -902,11 +960,6 @@ func main() {
 	cardItems, ok := cards["items"].([]any)
 	if !ok {
 		log.Fatalln("the gallery's cards table carries no items")
-	}
-	if kept, dropped := dropExactRepeats(cardItems); len(dropped) > 0 {
-		log.Printf("gallery: %d rows repeated exactly, the same card twice; dropped: %s",
-			len(dropped), strings.Join(dropped, ", "))
-		cardItems = kept
 	}
 	cardDomains := domainsOf(cardItems)
 
