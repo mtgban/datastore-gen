@@ -1,11 +1,14 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-// TestColorsOf pins where a Pokemon's colour comes from: tcgdex where it
+// TestTypesOf pins where a Pokemon's types come from: tcgdex where it
 // types the card cleanly, the catalog's Card Type where it names types and
 // nothing else, and nothing for a Trainer or an Energy card.
-func TestColorsOf(t *testing.T) {
+func TestTypesOf(t *testing.T) {
 	pokemon := func(types ...string) *tcgdexCard { return &tcgdexCard{Category: "Pokemon", Types: types} }
 	for _, test := range []struct {
 		desc     string
@@ -24,7 +27,7 @@ func TestColorsOf(t *testing.T) {
 		{"and tcgdex's Trainer has none whatever the catalog says", &tcgdexCard{Category: "Trainer"}, "Fire", ""},
 		{"as its typed Energy has none", &tcgdexCard{Category: "Energy", Types: []string{"Fighting"}}, "", ""},
 	} {
-		got := (&colors{}).of(test.dex, test.cardType)
+		got := strings.Join((&printedTypes{}).of(test.dex, test.cardType), ";")
 		if got != test.want {
 			t.Errorf("%s: %q, want %q", test.desc, got, test.want)
 		}
