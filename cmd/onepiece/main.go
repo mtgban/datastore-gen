@@ -420,11 +420,6 @@ var (
 	runSetCode = regexp.MustCompile(`(?i)\b(?:op|st|eb|prb)-?[0-9]{1,2}\b(?:\s*-\s*(?:op|st|eb|prb)-?[0-9]{1,2}\b)?`)
 )
 
-var months = map[string]int{
-	"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
-	"july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
-}
-
 // promoWhen takes a label apart into the two things below it: what is left
 // once the date and the count of which running this is are gone, which is
 // the promotion's own name, and the label with only the date gone, which is
@@ -488,7 +483,7 @@ func promoReleaseDate(year, month, setDate string) string {
 	if len(setDate) >= 4 && setDate[:4] == year && month == "" {
 		return ""
 	}
-	at := months[month]
+	at := emit.Month(month)
 	if at == 0 {
 		at = 1
 	}

@@ -419,15 +419,6 @@ func isPromoGroup(group tcgplayer.Group) bool {
 	return strings.Contains(strings.ToLower(group.Name), "promo")
 }
 
-// lowered folds a label list to the spelling the matcher declares tags in.
-func lowered(quals []string) []string {
-	out := make([]string, len(quals))
-	for i, q := range quals {
-		out[i] = strings.ToLower(q)
-	}
-	return out
-}
-
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
 var bareNumRe = regexp.MustCompile(`^\d{1,4}$`)
 
@@ -1507,7 +1498,7 @@ func main() {
 				// The same labels as a list: joined, "OTS Stamp Blue"
 				// cannot be read back into the two tags it holds, and the
 				// matcher needs them whole to declare and to match on.
-				entry["promoTypes"] = lowered(s.quals)
+				entry["promoTypes"] = emit.Lowered(s.quals)
 			}
 			cards = append(cards, entry)
 		}
@@ -1834,13 +1825,6 @@ func artworkLetter(slug string) bool {
 	return len(slug) == 1 && slug[0] >= 'a' && slug[0] <= 'z'
 }
 
-// months name themselves in a product name; a printing's date is otherwise
-// nowhere in the catalog, whose products carry only a modifiedOn.
-var months = map[string]int{
-	"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
-	"july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
-}
-
 // promoReleaseDate reads the date a promotion's qualifier states, which for
 // a promotional printing is the only date anyone has: TCGplayer files the
 // six Back to Duel field centres under "Yu-Gi-Oh! Tokens", a group it
@@ -1856,7 +1840,7 @@ func promoReleaseDate(tag, setDate string) string {
 	if year == "" {
 		return ""
 	}
-	month := months[strings.ToLower(runMonth.FindString(tag))]
+	month := emit.Month(runMonth.FindString(tag))
 	if len(setDate) >= 7 && setDate[:4] == year &&
 		(month == 0 || setDate[5:7] == fmt.Sprintf("%02d", month)) {
 		return ""

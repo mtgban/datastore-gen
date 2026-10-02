@@ -490,3 +490,52 @@ func TestHasDateReadsAMidnightStamp(t *testing.T) {
 		}
 	}
 }
+
+func TestQueryNumberKeepsOneToken(t *testing.T) {
+	for _, test := range []struct{ in, want string }{
+		{"WTR040 // WTR039", "WTR040//WTR039"},
+		{"PW 1", "PW1"},
+		{" 128/202 ", "128/202"},
+		{"", ""},
+	} {
+		if got := QueryNumber(test.in); got != test.want {
+			t.Errorf("QueryNumber(%q) = %q, want %q", test.in, got, test.want)
+		}
+	}
+}
+
+func TestIDBaseSpellsTheNumberIntoTheID(t *testing.T) {
+	for _, test := range []struct {
+		number  string
+		product int
+		want    string
+	}{
+		{"GD01-001", 528, "gd01-001_528"},
+		{"BP01/091", 713, "bp01-091_713"},
+		{"", 42, "42"},
+		{" -/ ", 42, "42"},
+	} {
+		if got := IDBase(test.number, test.product); got != test.want {
+			t.Errorf("IDBase(%q, %d) = %q, want %q", test.number, test.product, got, test.want)
+		}
+	}
+}
+
+func TestLoweredAndMonth(t *testing.T) {
+	if got := Lowered([]string{"Store Championship", "SDCC"}); !slices.Equal(got, []string{"store championship", "sdcc"}) {
+		t.Errorf("Lowered = %q", got)
+	}
+	for _, test := range []struct {
+		name string
+		want int
+	}{
+		{"september", 9},
+		{"September", 9},
+		{"Sept", 0},
+		{"", 0},
+	} {
+		if got := Month(test.name); got != test.want {
+			t.Errorf("Month(%q) = %d, want %d", test.name, got, test.want)
+		}
+	}
+}

@@ -279,8 +279,6 @@ func decompose(p tcgplayer.Product, num string) single {
 	return single{product: p, number: num, baseName: base, quals: quals}
 }
 
-var nonAlnumRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
-
 // tokenSubjects name what is drawn on a Resource or EX Base token: the
 // faction whose emblem it carries, the series it is illustrated from. The
 // list names every one of these tokens plainly - eleven products named
@@ -470,13 +468,6 @@ var (
 	runYear = regexp.MustCompile(`\s+\d{2}-\d{2}\b|\s+(?:19|20)\d{2}\b`)
 )
 
-// idStem spells a collector number for the inside of a uuid: every run of
-// anything but a letter or a digit becomes one dash, because a slash is a
-// path separator wherever a uuid is written down.
-func idStem(number string) string {
-	return strings.ToLower(strings.Trim(nonAlnumRe.ReplaceAllString(number, "-"), "-"))
-}
-
 // isPromoGroup reports whether a catalog group hands its cards out rather
 // than selling them in packs of its own. The group name is the only thing
 // that says so in this category, the way it is the only thing in Yu-Gi-Oh's:
@@ -489,18 +480,6 @@ func idStem(number string) string {
 // asserted twice, in the place that cannot see the catalog.
 func isPromoGroup(group tcgplayer.Group) bool {
 	return strings.Contains(strings.ToLower(group.Name), "promo")
-}
-
-// idBase is the id stem an entry carries before its finish suffix: the
-// collector number and the product id, so two products sharing a number
-// still mint different ids. A product the game gives no number is carried
-// on its product id alone.
-func idBase(number string, productID int) string {
-	stem := idStem(number)
-	if stem == "" {
-		return fmt.Sprintf("%d", productID)
-	}
-	return fmt.Sprintf("%s_%d", stem, productID)
 }
 
 func main() {
@@ -783,7 +762,7 @@ func main() {
 		productID := s.product.ProductID
 		for _, finish := range emit.OrderedFinishes(printings[productID], displayOrder) {
 			entry := map[string]any{
-				"id":      idBase(s.number, productID) + emit.FinishSuffix(finish),
+				"id":      emit.IDBase(s.number, productID) + emit.FinishSuffix(finish),
 				"name":    s.baseName,
 				"setCode": codes[s.product.GroupID],
 				"rarity":  s.product.Extended("Rarity"),
@@ -841,7 +820,7 @@ func main() {
 				u.Number, u.Name, u.SetCode)
 			continue
 		}
-		id := idStem(u.Number)
+		id := emit.IDStem(u.Number)
 		if id == "" || mintedIDs[id] {
 			unplaced++
 			log.Printf("gcg-api: %s (%s) mints no usable id; not minted", u.Number, u.Name)
@@ -939,7 +918,7 @@ func main() {
 			log.Printf("hand-carried: %s names no plain printing to read from; not carried", printing.number)
 			continue
 		}
-		id := idStem(printing.number + "-" + printing.label)
+		id := emit.IDStem(printing.number + "-" + printing.label)
 		if id == "" || carriedIdentity[printing.number+"|"+promoSetCode+"|"+printing.label] {
 			log.Printf("hand-carried: %s %q mints no usable id; not carried", printing.number, printing.label)
 			continue

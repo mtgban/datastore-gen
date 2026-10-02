@@ -195,15 +195,6 @@ var fabFinish = map[string]string{
 	"U|R": "Unlimited Edition Rainbow Foil",
 }
 
-// numberOf spells a collector number the way a query can carry it. A search
-// is split on whitespace before a filter sees it, so the two halves of a
-// double-faced number have to stay one token: "WTR040 // WTR039" is
-// "WTR040//WTR039", and "PW 1" is "PW1". The separators are already there;
-// only the spaces around them go.
-func numberOf(number string) string {
-	return strings.Join(strings.Fields(number), "")
-}
-
 // mintedIDBase is idBase for a printing that names no product: the
 // sanitized collector number alone. A catalog id always carries "_<product
 // id>" before its finish suffix and a minted one never does, so the two
@@ -255,15 +246,6 @@ func productLanguage(names map[int]string, product tcgplayer.Product) string {
 			product.Name, product.ProductID, len(ids))
 	}
 	return names[ids[0]]
-}
-
-// lowered folds a label list to the spelling the matcher declares tags in.
-func lowered(quals []string) []string {
-	out := make([]string, len(quals))
-	for i, q := range quals {
-		out[i] = strings.ToLower(q)
-	}
-	return out
 }
 
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
@@ -356,7 +338,7 @@ type pitchIndex struct {
 var setPrefix = regexp.MustCompile(`^[A-Z]+`)
 
 func pitchAtKey(number, name string) string {
-	return foldPadding(strings.ToUpper(numberOf(number))) + "|" + strings.ToLower(name)
+	return foldPadding(strings.ToUpper(emit.QueryNumber(number))) + "|" + strings.ToLower(name)
 }
 
 func numberAtKey(number, name, color string) string {
@@ -367,7 +349,7 @@ func newPitchIndex(rows []fabRow) pitchIndex {
 	idx := pitchIndex{pitchAt: map[string]string{}, numberAt: map[string]string{}}
 	for _, row := range rows {
 		color := pitchColors[strings.TrimSpace(row.Pitch)]
-		number := strings.ToUpper(numberOf(row.ID))
+		number := strings.ToUpper(emit.QueryNumber(row.ID))
 		if color == "" || number == "" {
 			continue
 		}
@@ -866,7 +848,7 @@ func main() {
 		if !cardProducts[productID] {
 			continue
 		}
-		if number := strings.ToUpper(numberOf(row.ID)); number != "" {
+		if number := strings.ToUpper(emit.QueryNumber(row.ID)); number != "" {
 			if _, held := productByNumber[number]; !held {
 				productByNumber[foldPadding(number)] = productID
 			}
@@ -974,7 +956,7 @@ func main() {
 		if s.number == "" {
 			continue
 		}
-		number := foldPadding(strings.ToUpper(numberOf(s.number)))
+		number := foldPadding(strings.ToUpper(emit.QueryNumber(s.number)))
 		catalogNumbers[number] = true
 		if faces := strings.Split(number, "//"); len(faces) > 1 {
 			for _, face := range faces {
@@ -1021,7 +1003,7 @@ func main() {
 	var mintableOrder []string
 	var coveredByFace, coveredByProduct, coveredByName int
 	for _, row := range fabRows {
-		number := strings.ToUpper(numberOf(row.ID))
+		number := strings.ToUpper(emit.QueryNumber(row.ID))
 		// Compared blind to padding, so a number the catalog spells with
 		// a zero more than the dataset is still the number it sells.
 		key := foldPadding(number)
@@ -1268,7 +1250,7 @@ func main() {
 				},
 			}
 			if s.number != "" {
-				entry["number"] = numberOf(s.number)
+				entry["number"] = emit.QueryNumber(s.number)
 			}
 			if s.color != "" {
 				entry["color"] = s.color
@@ -1282,7 +1264,7 @@ func main() {
 				// where one ends and the next begins: "Cold Foil Extended
 				// Art" cannot be read back into its two tags, and the
 				// matcher needs them whole to declare and to match on.
-				entry["promoTypes"] = lowered(s.quals)
+				entry["promoTypes"] = emit.Lowered(s.quals)
 			}
 			if id, found := fabIDs[productID]; found {
 				entry["fabId"] = id
@@ -1341,7 +1323,7 @@ func main() {
 			entry := map[string]any{
 				"id":      mintedIDBase(number) + emit.FinishSuffix(finish),
 				"name":    row.Name,
-				"number":  numberOf(row.ID),
+				"number":  emit.QueryNumber(row.ID),
 				"setCode": code,
 				"rarity":  rarity,
 				"finish":  finish,

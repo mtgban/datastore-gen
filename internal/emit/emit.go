@@ -58,6 +58,25 @@ func FinishSuffix(name string) string {
 	return ""
 }
 
+// IDStem spells a collector number for the inside of a uuid: every run of
+// anything but a letter or a digit becomes one dash, because a slash is a
+// path separator wherever a uuid is written down.
+func IDStem(number string) string {
+	return strings.ToLower(strings.Trim(nonCodeRe.ReplaceAllString(number, "-"), "-"))
+}
+
+// IDBase is the id stem an entry carries before its finish suffix: the
+// collector number and the product id, so two products sharing a number
+// still mint different ids. A product the game gives no number is carried
+// on its product id alone.
+func IDBase(number string, productID int) string {
+	stem := IDStem(number)
+	if stem == "" {
+		return fmt.Sprintf("%d", productID)
+	}
+	return fmt.Sprintf("%s_%d", stem, productID)
+}
+
 // PlainPrinting is the catalog's name for the printing a bare id belongs to,
 // or "" where the category has none - Yu-Gi-Oh prices its cards by print run
 // and sells no printing it calls plain.
@@ -68,6 +87,15 @@ func PlainPrinting(c *tcgplayer.CatalogDump) string {
 		}
 	}
 	return ""
+}
+
+// QueryNumber spells a collector number the way a query can carry it. A
+// search is split on whitespace before a filter sees it, so the two halves
+// of a double-faced number have to stay one token: "WTR040 // WTR039" is
+// "WTR040//WTR039", and "PW 1" is "PW1". The separators are already there;
+// only the spaces around them go.
+func QueryNumber(number string) string {
+	return strings.Join(strings.Fields(number), "")
 }
 
 // OrderedFinishes fixes the order a product's entries are emitted in: the
@@ -333,6 +361,28 @@ func holdsObject(value json.RawMessage) bool {
 		}
 	}
 	return false
+}
+
+// Lowered folds a label list to the spelling the matcher declares tags in.
+func Lowered(labels []string) []string {
+	out := make([]string, len(labels))
+	for i, label := range labels {
+		out[i] = strings.ToLower(label)
+	}
+	return out
+}
+
+// months name themselves in a product name; a printing's date is otherwise
+// nowhere in the catalog, whose products carry only a modifiedOn.
+var months = map[string]int{
+	"january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+	"july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+}
+
+// Month is the number of the month a name spells, in any case, or 0 for a
+// name that spells none.
+func Month(name string) int {
+	return months[strings.ToLower(name)]
 }
 
 // StringsOf reads a list of strings back off an entry, which holds them as
