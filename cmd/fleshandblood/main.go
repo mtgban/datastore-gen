@@ -1318,6 +1318,7 @@ func main() {
 		"cards":  cards,
 		"sealed": sealed,
 	}
+	doc["properties"] = properties
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
@@ -1434,6 +1435,17 @@ func dropMintedTwins(cards []any) ([]any, []string) {
 	return kept, dropped
 }
 
+// properties orders the values of the fields a consumer ranks cards by:
+// rarities rarest first, with tokens and the art cards and counters last,
+// and pitches by value.
+var properties = map[string][]string{
+	"rarity": {
+		"Promo", "Pirate Booty", "Gold", "Marvel", "Fabled", "Legendary",
+		"Majestic", "Super Rare", "Rare", "Common", "Basic", "Token", "None",
+	},
+	"pitch": {"Red", "Yellow", "Blue"},
+}
+
 // validationRules are what this game adds to the shared re-read of the
 // output. The language is in the identity because the matcher narrows on
 // it, and a minted entry is keyed by its set and number, so a minted card's
@@ -1455,6 +1467,7 @@ func validationRules() validate.Rules {
 	}
 	return validate.Rules{
 		Game:     "fleshandblood",
+		Fields:   map[string]string{"pitch": "pitches"},
 		Identity: []string{"name", "number", "setCode", "variant", "language"},
 		Minted: func(card validate.Card) string {
 			return "minted:" + card.SetCode + "|" + card.Number

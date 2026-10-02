@@ -698,7 +698,8 @@ func readDocument(data []byte) (out validate.Document, sets, cards, sealed, iden
 		return out, 0, 0, 0, 0, err
 	}
 	var doc struct {
-		PageProps struct {
+		Properties map[string][]string `json:"properties"`
+		PageProps  struct {
 			Page struct {
 				Blades []struct {
 					Type string `json:"type"`
@@ -733,6 +734,7 @@ func readDocument(data []byte) (out validate.Document, sets, cards, sealed, iden
 			continue
 		}
 		out.Game = "riftbound"
+		out.Properties = doc.Properties
 		out.Sets = map[string]string{}
 		// A set id is the gallery's own code and every printing names its
 		// set by it, so two sets wearing one id are one set to the loader:
@@ -789,6 +791,15 @@ func readDocument(data []byte) (out validate.Document, sets, cards, sealed, iden
 	return out, 0, 0, 0, 0, errors.New("no card gallery blade in the output")
 }
 
+// properties orders the values of the fields a consumer ranks cards by: the
+// gallery's rarities rarest first, with the two only the catalog names,
+// "promo" first and "none", the tokens, last; and the domains as Riot pairs
+// them, Fury and Calm, Mind and Body, Chaos and Order.
+var properties = map[string][]string{
+	"rarity": {"promo", "showcase", "epic", "rare", "uncommon", "common", "none"},
+	"domain": {"fury", "calm", "mind", "body", "chaos", "order", "colorless"},
+}
+
 // validationRules is what Riftbound adds to the shared checks. A printing is
 // resolved by its card's name, number, variant and set; one no product sells
 // is told apart by its card. A sealed product and a printing share the
@@ -812,7 +823,27 @@ func validationRules() validate.Rules {
 			}
 			return nil
 		},
+		Values: galleryValues,
 	}
+}
+
+// galleryValues reads a property off a printing as the gallery holds it: the
+// id of its one value ("rarity") or of each of its values ("domain").
+func galleryValues(card validate.Card, property string) []string {
+	field, _ := card.Entry[property].(map[string]any)
+	held, _ := field["values"].([]any)
+	if value, found := field["value"]; found {
+		held = []any{value}
+	}
+	var ids []string
+	for _, raw := range held {
+		value, _ := raw.(map[string]any)
+		id, _ := value["id"].(string)
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func countDatastore(data []byte) (baseline.Counts, error) {
@@ -1376,6 +1407,7 @@ func main() {
 	}
 	sets["items"] = setItems
 	cards["items"] = cardItems
+	doc["properties"] = properties
 
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the

@@ -642,6 +642,7 @@ func main() {
 		"cards":  cards,
 		"sealed": sealed,
 	}
+	doc["properties"] = properties
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
@@ -711,12 +712,27 @@ func main() {
 	}
 }
 
+// properties orders the values of the fields a consumer ranks cards by:
+// rarities rarest first, the trial-deck ones beside the booster ones rather
+// than under them, since a deck's cards are its own run, and the prototype
+// cards last; and colours in the card list's order.
+var properties = map[string][]string{
+	"rarity": {
+		"Promo", "Super Special Soul", "Super Special Parallel",
+		"Trial Deck Super Parallel", "Super Parallel", "Over Super Rare",
+		"Trial Deck Super Rare", "Super Rare", "Double Rare", "Rare",
+		"Trial Deck Rare", "Uncommon", "Common", "Trial Deck", "None",
+	},
+	"color": {"Red", "Blue", "Green", "Purple", "Colorless"},
+}
+
 // validationRules are what this game adds to the shared re-read of the
 // output: rarity is in the identity, as it is for Gundam, because one
 // number is sold at more than one rarity.
 func validationRules() validate.Rules {
 	return validate.Rules{
 		Game:     "palworld",
+		Fields:   map[string]string{"color": "colors"},
 		Identity: []string{"name", "number", "setCode", "rarity", "variant"},
 	}
 }

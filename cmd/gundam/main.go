@@ -986,6 +986,7 @@ func main() {
 		"cards":  cards,
 		"sealed": sealed,
 	}
+	doc["properties"] = properties
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
@@ -1055,6 +1056,17 @@ func main() {
 	}
 }
 
+// properties orders the values of the fields a consumer ranks cards by:
+// rarities rarest first, each "+" parallel above its rarity and below the one
+// over it, and colours in the card list's order.
+var properties = map[string][]string{
+	"rarity": {
+		"P +", "Promo", "LR++", "LR+", "Legend Rare", "R+", "Rare", "U+",
+		"Uncommon", "C++", "C+", "Common",
+	},
+	"color": {"Blue", "Green", "Red", "Purple", "White"},
+}
+
 // validationRules are what this game adds to the shared re-read of the
 // output: rarity is in the identity because it is this game's variant axis -
 // the same number is sold as "Common" and again as "C+", one card twice, and
@@ -1063,6 +1075,7 @@ func main() {
 func validationRules() validate.Rules {
 	return validate.Rules{
 		Game:     "gundam",
+		Fields:   map[string]string{"color": "colors"},
 		Identity: []string{"name", "number", "setCode", "rarity", "variant"},
 	}
 }

@@ -4519,6 +4519,7 @@ func main() {
 		"cards":  cards,
 		"sealed": sealed,
 	}
+	doc["properties"] = properties
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
@@ -4605,6 +4606,15 @@ func numeratorKey(s string) string {
 	return key
 }
 
+// properties orders the values of the fields a consumer ranks cards by: the
+// types in the game's order, Colorless last.
+var properties = map[string][]string{
+	"type": {
+		"Grass", "Fire", "Water", "Lightning", "Psychic", "Fighting", "Darkness",
+		"Metal", "Fairy", "Dragon", "Colorless",
+	},
+}
+
 // validationRules are what this game adds to the shared re-read of the
 // output. The total is in the identity, which is what tells 8/102 from
 // 8/130, and a minted entry is keyed by its set and number, so a minted
@@ -4613,6 +4623,7 @@ func numeratorKey(s string) string {
 func validationRules() validate.Rules {
 	return validate.Rules{
 		Game:     "pokemon",
+		Fields:   map[string]string{"type": "types"},
 		Identity: []string{"name", "number", "total", "setCode", "variant", "rarity"},
 		Minted: func(card validate.Card) string {
 			return "minted:" + card.SetCode + "|" + card.Number

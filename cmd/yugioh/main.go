@@ -1521,6 +1521,7 @@ func main() {
 		"cards":  cards,
 		"sealed": sealed,
 	}
+	doc["properties"] = properties
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
@@ -1626,6 +1627,12 @@ func dropUnsold(cards []any) ([]any, []string) {
 	return kept, dropped
 }
 
+// properties orders the values of the fields a consumer ranks cards by: the
+// attributes in the game's order, then the spell and trap cards.
+var properties = map[string][]string{
+	"attribute": {"DARK", "LIGHT", "EARTH", "WATER", "FIRE", "WIND", "DIVINE", "SPELL", "TRAP"},
+}
+
 // validationRules are what this game adds to the shared re-read of the
 // output: every card names its product, but for the European first prints
 // minted from YGOPRODeck, which carry their passcode instead. The build
@@ -1633,6 +1640,7 @@ func dropUnsold(cards []any) ([]any, []string) {
 func validationRules() validate.Rules {
 	return validate.Rules{
 		Game:     "yugioh",
+		Fields:   map[string]string{"attribute": "attributes"},
 		Identity: []string{"name", "number", "setCode", "rarity", "variant"},
 		Check: func(card validate.Card) error {
 			if card.TcgPlayerID == 0 && !europeanPrint(card.Number, card.Link("konamiId")) {
