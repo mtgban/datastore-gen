@@ -30,6 +30,10 @@ Every product the catalog types as a card becomes a printing:
   promotional printings, so a set the gallery has merely not published yet
   stays a main set.
 
+An adopted or minted printing takes its card's domain: the one every gallery
+printing of its name carries, or else the catalog's `Domain`, whose "None"
+is the gallery's colorless. Without one it would read as colorless.
+
 The encoded output is read back one printing at a time and held to the
 checks every game shares (`internal/validate`), which refuse to publish if
 any catalog card product carries no printing or a printing other than the

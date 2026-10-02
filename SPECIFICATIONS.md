@@ -214,7 +214,9 @@ own fields (`id`, `name`, `publicCode`, `set.value.{id,label}`,
 `rarity.value.id`, `finishes`, `cardImage.url`) and gains `setCode`,
 `number`, `image` and `externalLinks.tcgPlayerId`, the names every game
 shares and the ones `mtgmatcher/riftbound` reads. A catalog product the
-gallery has no row for is adopted as a printing with the same shape. The
+gallery has no row for is adopted as a printing with the same shape, its
+`domain` taken from a gallery printing of the same name or else from the
+catalog's `Domain`. The
 sealed products at `blades[].sealed.items[]` are ours alone and carry only
 the shared names: `id`, `name`, `setCode`, `releaseDate`, `image` and
 `externalLinks.tcgPlayerId`. There is no `cards` key at any level;

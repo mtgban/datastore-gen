@@ -384,6 +384,94 @@ func promoPartsOf(qualifier string) []string {
 	return []string{qualifier}
 }
 
+// domains gives a printing the gallery did not publish the domain its card
+// has: the one every gallery printing of its name carries, and otherwise the
+// catalog's own, whose "None" is the gallery's colorless. The two agreed on
+// all 151 printings both answered for on 2026-10-02; without either, a
+// printing reads as colorless downstream.
+type domains struct {
+	byName      map[string]any
+	values      map[string]any
+	fromGallery int
+	fromCatalog int
+	missing     []string
+}
+
+// domainsOf reads the gallery's own domains: by card name, where every
+// printing of the name carries the same one, and each value as Riot spells
+// it.
+func domainsOf(items []any) *domains {
+	d := &domains{byName: map[string]any{}, values: map[string]any{}}
+	keys := map[string]string{}
+	for _, raw := range items {
+		item, _ := raw.(map[string]any)
+		domain, _ := item["domain"].(map[string]any)
+		values, _ := domain["values"].([]any)
+		var ids []string
+		for _, v := range values {
+			value, _ := v.(map[string]any)
+			id, _ := value["id"].(string)
+			if id == "" {
+				continue
+			}
+			ids = append(ids, id)
+			if _, found := d.values[id]; !found {
+				d.values[id] = value
+			}
+		}
+		if len(ids) == 0 {
+			continue
+		}
+		slices.Sort(ids)
+		key := strings.Join(ids, ";")
+		name, _ := item["name"].(string)
+		prior, seen := keys[name]
+		if !seen {
+			keys[name] = key
+			d.byName[name] = domain
+			continue
+		}
+		// Two cards under one name, like the two Ahris, name no domain
+		if prior != key {
+			delete(d.byName, name)
+		}
+	}
+	return d
+}
+
+// stamp gives a printing built from the catalog its card's domain.
+func (d *domains) stamp(item map[string]any, product tcgplayer.Product) {
+	name, _ := item["name"].(string)
+	if domain, found := d.byName[name]; found {
+		item["domain"] = domain
+		d.fromGallery++
+		return
+	}
+	var values []any
+	for _, word := range strings.Split(product.Extended("Domain"), ";") {
+		id := strings.ToLower(strings.TrimSpace(word))
+		if id == "none" {
+			id = "colorless"
+		}
+		if id == "" {
+			continue
+		}
+		// A domain the gallery has never shown is not one to invent
+		value, found := d.values[id]
+		if !found {
+			values = nil
+			break
+		}
+		values = append(values, value)
+	}
+	if len(values) == 0 {
+		d.missing = append(d.missing, fmt.Sprintf("%q (%d)", product.Name, product.ProductID))
+		return
+	}
+	item["domain"] = map[string]any{"label": "Domain", "values": values}
+	d.fromCatalog++
+}
+
 // printingUUID is the uuid a printing is quoted by: the card's id with the
 // finish spelled onto it, and the bare id for the plain printing.
 //
@@ -808,6 +896,7 @@ func main() {
 			len(dropped), strings.Join(dropped, ", "))
 		cardItems = kept
 	}
+	cardDomains := domainsOf(cardItems)
 
 	// Index the gallery sets so the groups can stamp their release dates
 	setByID := map[string]map[string]any{}
@@ -888,7 +977,9 @@ func main() {
 					// sells the card once under both names. Adopt it into
 					// the set on the catalog's word, the same terms the
 					// promo groups are carried on.
-					cardItems = append(cardItems, adoptedCard(group, product, number, finishes[product.ProductID]))
+					card := adoptedCard(group, product, number, finishes[product.ProductID])
+					cardDomains.stamp(card, product)
+					cardItems = append(cardItems, card)
 					adopted++
 					continue
 				}
@@ -985,6 +1076,7 @@ func main() {
 				item["promoTypes"] = promoTypes
 				item["variant"] = strings.Join(kept, " ")
 			}
+			cardDomains.stamp(item, product)
 			cardItems = append(cardItems, item)
 			added++
 		}
@@ -1016,6 +1108,8 @@ func main() {
 	if unpriced > 0 {
 		log.Printf("finishes: %d printings the catalog names none for; the gallery's stand", unpriced)
 	}
+	log.Printf("domains: %d from a gallery printing of the same name, %d from the catalog, %d from neither: %s",
+		cardDomains.fromGallery, cardDomains.fromCatalog, len(cardDomains.missing), strings.Join(cardDomains.missing, ", "))
 
 	// Sealed products: everything the catalog files outside the singles
 	// type, from every group whether the gallery knows it or not - the
