@@ -39,6 +39,8 @@ func TestDatastoreRefusesWhatAConsumerWouldMisread(t *testing.T) {
 		{"no finish", string(doc(strings.Replace(priced, `"finish":"Normal",`, "", 1)+","+foil, "")), "missing identity"},
 		{"no priced card with an image", strings.ReplaceAll(string(doc(priced+","+foil, "")), `"image":`, `"picture":`), "no priced card carries an image"},
 		{"one priced card without an image", string(doc(strings.Replace(priced, `"image":`, `"picture":`, 1)+","+foil, "")), ""},
+		{"every value ordered", string(doc(priced+","+foil, `,"properties":{"rarity":["M","R","C"]}`)), ""},
+		{"a value no order lists", string(doc(priced+","+foil, `,"properties":{"rarity":["M","C"]}`)), ""},
 		{"a set holding nothing", strings.Replace(string(doc(priced+","+foil, "")), sets, `"sets":{"AB":{"name":"Alpha"},"ZZ":{"name":"Zeta"}}`, 1), "set ZZ holds no card and no sealed product"},
 	} {
 		_, err := Datastore([]byte(test.data), want, rules)

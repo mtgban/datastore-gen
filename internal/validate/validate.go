@@ -16,6 +16,7 @@
 package validate
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +54,21 @@ func (c Card) Field(name string) string {
 	return say(c.Entry[name])
 }
 
+// Values reads one of the entry's fields as the values it holds: none where
+// it is absent or empty, the one a string holds, or each of a list's.
+func (c Card) Values(name string) []string {
+	var values []string
+	switch held := c.Entry[name].(type) {
+	case string:
+		values = []string{held}
+	case []any:
+		for _, value := range held {
+			values = append(values, say(value))
+		}
+	}
+	return slices.DeleteFunc(values, func(value string) bool { return value == "" })
+}
+
 // Link reads one of the entry's externalLinks as a string, "" where it is
 // absent.
 func (c Card) Link(name string) string {
@@ -84,6 +100,13 @@ type Rules struct {
 	Check func(Card) error
 	// Finally runs once every card and sealed product has passed.
 	Finally func([]Card, []Sealed, map[string]string) error
+	// Fields names the card field each property orders where it is not the
+	// property's own name: a property names what it sorts ("color"), and a
+	// card lists the values it holds ("colors").
+	Fields map[string]string
+	// Values reads a property's values off a card where they are not a
+	// field's; nil reads the field Fields names with Card.Values.
+	Values func(card Card, property string) []string
 }
 
 // Counts is what a validated datastore holds.
@@ -91,13 +114,15 @@ type Counts struct {
 	Sets, Cards, Sealed int
 }
 
-// Document is a datastore as the checks read it: its game, its sets' names
-// by code, one Card per printing, and its sealed products.
+// Document is a datastore as the checks read it: its game, the order of the
+// values each of its properties holds, its sets' names by code, one Card per
+// printing, and its sealed products.
 type Document struct {
-	Game   string
-	Sets   map[string]string
-	Cards  []Card
-	Sealed []Sealed
+	Game       string
+	Properties map[string][]string
+	Sets       map[string]string
+	Cards      []Card
+	Sealed     []Sealed
 }
 
 // Datastore checks an encoded datastore whose cards sit at the top of the
@@ -120,8 +145,9 @@ func Flat(data []byte) (Document, error) {
 		return out, err
 	}
 	var doc struct {
-		Game string `json:"game"`
-		Sets map[string]struct {
+		Game       string              `json:"game"`
+		Properties map[string][]string `json:"properties"`
+		Sets       map[string]struct {
 			Name string `json:"name"`
 		} `json:"sets"`
 		Cards  []map[string]any `json:"cards"`
@@ -138,6 +164,7 @@ func Flat(data []byte) (Document, error) {
 		return out, err
 	}
 	out.Game = doc.Game
+	out.Properties = doc.Properties
 	out.Sets = map[string]string{}
 	for code, set := range doc.Sets {
 		out.Sets[code] = set.Name
@@ -177,6 +204,18 @@ func Check(doc Document, wantFinishes map[int][]string, rules Rules) (Counts, er
 			return out, fmt.Errorf("set code %q holds what a query cannot carry", code)
 		}
 	}
+	// A property's order ranks every value its cards hold. A value it does
+	// not list is published all the same, sorted wherever a consumer's
+	// fallback puts it, so it is logged rather than refused, and go-mtgban's
+	// loader tests fail on it.
+	properties := slices.Sorted(maps.Keys(doc.Properties))
+	unlisted := map[string]int{}
+	values := rules.Values
+	if values == nil {
+		values = func(card Card, property string) []string {
+			return card.Values(cmp.Or(rules.Fields[property], property))
+		}
+	}
 	cards := doc.Cards
 	if rules.Prepare != nil {
 		rules.Prepare(cards)
@@ -205,6 +244,13 @@ func Check(doc Document, wantFinishes map[int][]string, rules Rules) (Counts, er
 		if rules.Check != nil {
 			if err := rules.Check(card); err != nil {
 				return out, err
+			}
+		}
+		for _, name := range properties {
+			for _, value := range values(card, name) {
+				if !slices.Contains(doc.Properties[name], value) {
+					unlisted[fmt.Sprintf("properties.%s does not list %q", name, value)]++
+				}
 			}
 		}
 		if !idShape.MatchString(card.ID) {
@@ -293,6 +339,9 @@ func Check(doc Document, wantFinishes map[int][]string, rules Rules) (Counts, er
 	}
 	if len(imageless) > 0 {
 		log.Printf("images: %d priced cards carry no image yet, first is %s", len(imageless), imageless[0])
+	}
+	for _, gap := range slices.Sorted(maps.Keys(unlisted)) {
+		log.Printf("%s, held by %d printings", gap, unlisted[gap])
 	}
 	// A set holding nothing is one no query finds anything in; the builders
 	// drop one before encoding, so meeting one here is a build's own bug.
