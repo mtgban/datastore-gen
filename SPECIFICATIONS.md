@@ -109,12 +109,9 @@ and go-mtgban's loader tests fail on it.
 | Lorcana | `rarity`, `color` (`colors`) |
 | One Piece | `rarity`, `color` (`colors`) |
 | Palworld | `rarity`, `color` (`colors`) |
-| Pokemon | `type` (`types`) |
+| Pokemon | `rarity`, `type` (`types`) |
 | Riftbound | `rarity`, `domain` (the ids of `rarity.value` and `domain.values`) |
-| Yu-Gi-Oh | `attribute` (`attributes`) |
-
-Pokemon and Yu-Gi-Oh publish no rarity order yet; a consumer sorts theirs by
-name.
+| Yu-Gi-Oh | `rarity`, `attribute` (`attributes`) |
 
 Before encoding, `emit.PlainQuotes` rewrites every typographic quote in the
 payload to its ASCII form, so the check that re-reads the file sees what is

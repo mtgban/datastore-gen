@@ -1627,9 +1627,27 @@ func dropUnsold(cards []any) ([]any, []string) {
 	return kept, dropped
 }
 
-// properties orders the values of the fields a consumer ranks cards by: the
-// attributes in the game's order, then the spell and trap cards.
+// properties orders the values of the fields a consumer ranks cards by.
+// Rarities run rarest first, promos ahead of them as in every game: each
+// parallel or prismatic print just above the rarity it reprints, the gold
+// and platinum lines with the Ultra Rares they replace. The attributes are
+// in the game's order, then the spell and trap cards.
 var properties = map[string][]string{
+	"rarity": {
+		"Promo", "10000 Secret Rare", "Starlight Rare",
+		"Quarter Century Secret Rare", "Grand Master Rare", "Ghost Rare",
+		"Ghost/Gold Rare", "Prismatic Collector's Rare", "Prismatic Ultimate Rare",
+		"Collector's Rare", "Platinum Secret Rare", "Ultimate Rare",
+		"Prismatic Secret Rare", "Secret Pharaoh's Rare", "Emblazoned Secret Rare",
+		"Gold Secret Rare", "Secret Rare", "Ultra Pharaoh's Rare",
+		"Emblazoned Ultra Rare", "Duel Terminal Technology Ultra Rare",
+		"Duel Terminal Ultra Parallel Rare", "Premium Gold Rare", "Gold Rare",
+		"Platinum Rare", "Ultra Rare", "Duel Terminal Super Parallel Rare",
+		"Super Rare", "Duel Terminal Rare Parallel Rare", "Rare", "Starfoil Rare",
+		"Shatterfoil Rare", "Mosaic Rare", "Parallel Rare",
+		"Duel Terminal Normal Parallel Rare", "Duel Terminal Technology Common",
+		"Common",
+	},
 	"attribute": {"DARK", "LIGHT", "EARTH", "WATER", "FIRE", "WIND", "DIVINE", "SPELL", "TRAP"},
 }
 
