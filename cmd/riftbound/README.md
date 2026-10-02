@@ -30,7 +30,10 @@ Every product the catalog types as a card becomes a printing:
   promotional printings, so a set the gallery has merely not published yet
   stays a main set.
 
-An adopted or minted printing takes its card's domain: the one every gallery
+An adopted printing goes by the gallery's name for its card where the
+gallery carries another printing of it (Riot's payload skips one of Viktor's
+rows on each fetch), and by the catalog's otherwise. An adopted or minted
+printing takes its card's domain: the one every gallery
 printing of its name carries, or else the catalog's `Domain`, whose "None"
 is the gallery's colorless. Without one it would read as colorless.
 
