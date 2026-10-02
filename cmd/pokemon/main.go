@@ -4606,9 +4606,22 @@ func numeratorKey(s string) string {
 	return key
 }
 
-// properties orders the values of the fields a consumer ranks cards by: the
-// types in the game's order, Colorless last.
+// properties orders the values of the fields a consumer ranks cards by.
+// Rarities run rarest first across the eras: the current symbols' ladder,
+// each older or one-set rarity beside the tier it pulls like, promos first
+// and the code cards and unconfirmed rows last. Types are in the game's
+// order, Colorless last.
 var properties = map[string][]string{
+	"rarity": {
+		"Promo", "RGB Rare", "Mega Hyper Rare", "Black White Rare",
+		"Hyper Rare", "Futuristic Rare", "Secret Rare", "Rainbow Rare",
+		"Special Illustration Rare", "Mega Attack Rare", "Shiny Ultra Rare",
+		"Illustration Rare", "Shiny Rare", "Ultra Rare", "ACE SPEC Rare",
+		"Amazing Rare", "Radiant Rare", "Shiny Holo Rare", "Prism Rare",
+		"Rare Ace", "Rare BREAK", "Double Rare", "Classic Collection",
+		"Pikachu Rare", "Holo Rare", "Rare", "Uncommon", "Common", "Code Card",
+		"Unconfirmed", "None",
+	},
 	"type": {
 		"Grass", "Fire", "Water", "Lightning", "Psychic", "Fighting", "Darkness",
 		"Metal", "Fairy", "Dragon", "Colorless",
