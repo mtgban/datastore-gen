@@ -332,13 +332,9 @@ func canonicalNumber(number string) string {
 // stays whole.
 // adoptedCard builds a gallery card entry for a printing only the catalog
 // knows about, so a set carries every printing sold under its name rather
-// than only those the gallery published. It goes by name, the gallery's for
-// the card where there is one, and otherwise by the catalog's.
-func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string, printings []string, name string) map[string]any {
-	base, qualifiers := splitQualifiers(product.Name)
-	if name == "" {
-		name = base
-	}
+// than only those the gallery published.
+func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string, printings []string) map[string]any {
+	name, qualifiers := splitQualifiers(product.Name)
 	qualifiers = unnamedQualifiers(qualifiers, name)
 	kept := keptQualifiers(qualifiers, number)
 	promoTypes := promoTypesOf(qualifiers, number)
@@ -557,14 +553,6 @@ func (d *domains) stamp(item map[string]any, product tcgplayer.Product) {
 	}
 	item["domain"] = map[string]any{"label": "Domain", "values": values}
 	d.fromCatalog++
-}
-
-// sameCard keys a product by the card it prints: the catalog's name for it
-// and the ordinal its number counts, so 246 and 246a are one card and 246
-// and 247 are two.
-func sameCard(product tcgplayer.Product) string {
-	name, _ := splitQualifiers(product.Name)
-	return name + "|" + strings.TrimRight(numberOf(numberFor(product)), "abcdefghijklmnopqrstuvwxyz")
 }
 
 // printingUUID is the uuid a printing is quoted by: the card's id with the
@@ -1057,12 +1045,6 @@ func main() {
 			// landing on a number already stamped is adopted rather than
 			// overwriting the first and losing itself.
 			stampedBy := map[string]int{}
-			// What the gallery calls each card it published a printing of,
-			// for the printings of it the payload skipped: Riot's serves one
-			// of Viktor's four rows twice and drops another, a different
-			// one on each fetch.
-			galleryNames := map[string]string{}
-			var pending []tcgplayer.Product
 			var stamped, adopted int
 			for _, product := range products {
 				if !slices.Contains(tcgSingles, product.ProductType) {
@@ -1078,21 +1060,15 @@ func main() {
 					// gallery files one row per face of while the catalog
 					// sells the card once under both names. Adopt it into
 					// the set on the catalog's word, the same terms the
-					// promo groups are carried on, once every stamp has
-					// named its card.
-					pending = append(pending, product)
+					// promo groups are carried on.
+					card := adoptedCard(group, product, number, finishes[product.ProductID])
+					cardDomains.stamp(card, product)
+					cardItems = append(cardItems, card)
+					adopted++
 					continue
 				}
 				stampedBy[key] = product.ProductID
 				item["tcgplayerProductId"] = product.ProductID
-				named, _ := item["name"].(string)
-				card := sameCard(product)
-				if prior, seen := galleryNames[card]; !seen {
-					galleryNames[card] = named
-				} else if prior != named {
-					// Two names for one card: the catalog's stands
-					galleryNames[card] = ""
-				}
 				// The qualifiers the catalog writes on the product, which
 				// the gallery row has none of: Riot publishes a card under
 				// its plain name, and what tells one printing of it from
@@ -1125,13 +1101,6 @@ func main() {
 						product.Name, product.ProductID)
 				}
 				stamped++
-			}
-			for _, product := range pending {
-				number := numberFor(product)
-				card := adoptedCard(group, product, number, finishes[product.ProductID], galleryNames[sameCard(product)])
-				cardDomains.stamp(card, product)
-				cardItems = append(cardItems, card)
-				adopted++
 			}
 			log.Printf("%s (%s): %d printings stamped, %d adopted",
 				group.Name, group.Abbreviation, stamped, adopted)
