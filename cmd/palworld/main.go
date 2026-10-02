@@ -291,7 +291,7 @@ func main() {
 	}
 	codes := emit.SetCodes(catalog.Groups)
 	printings := catalog.PrintingNames()
-	displayOrder := printingDisplayOrder(&catalog)
+	displayOrder := emit.PrintingDisplayOrder(&catalog)
 
 	// Split the products: every single becomes printings, the non-single
 	// types become sealed.
@@ -715,14 +715,4 @@ func validationRules() validate.Rules {
 		Game:     "palworld",
 		Identity: []string{"name", "number", "setCode", "rarity", "variant"},
 	}
-}
-
-// printingDisplayOrder is where each of a category's printings sits in the
-// order TCGplayer displays them.
-func printingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
-	rank := map[string]int{}
-	for _, p := range c.Printings {
-		rank[p.Name] = p.DisplayOrder
-	}
-	return rank
 }

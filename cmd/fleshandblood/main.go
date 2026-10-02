@@ -94,10 +94,6 @@ import (
 const (
 	fabCategory = 62
 
-	// englishLanguage is the catalog's language id for English, the one a
-	// product needs a sku in to be part of the English program.
-	englishLanguage = 1
-
 	fabCardsURL = "https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card-flattened.json"
 	fabSetsURL  = "https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/set.json"
 )
@@ -105,10 +101,6 @@ const (
 // tcgSingles are the product types single cards are filed under, as the
 // catalog names them for this game; everything else is sealed by exclusion.
 var tcgSingles = tcgplayer.SinglesProductTypes(fabCategory)
-
-// printingNames maps each product to the distinct printing names its skus
-// carry, in the order the catalog displays them; a printing the catalog does not list for a product
-// is one that does not exist.
 
 // fabRow is the slice of a the-fab-cube printing this build reads: the
 // game's own printing id, the TCGplayer product the row maps it to, and
@@ -213,39 +205,6 @@ func idBase(num string, productID int) string {
 		return strconv.Itoa(productID)
 	}
 	return strings.ToLower(num) + "_" + strconv.Itoa(productID)
-}
-
-// languageTags spells TCGplayer's language names the way go-mtgban's
-// matcher tags a printing, where the two differ.
-var languageTags = map[string]string{
-	"Chinese (S)": "Chinese Simplified",
-	"Chinese (T)": "Chinese Traditional",
-}
-
-// productLanguage names the language a product is printed in, empty for
-// the English program: a product TCGplayer prices in no English sku is
-// sold in another language, and the catalog's own language list spells out
-// which. Several non-English languages on one product would be a shape
-// this has never seen, so it is said out loud and the lowest id wins.
-func productLanguage(names map[int]string, product tcgplayer.Product) string {
-	var ids []int
-	for _, sku := range product.Skus {
-		if sku.LanguageID == englishLanguage {
-			return ""
-		}
-		if !slices.Contains(ids, sku.LanguageID) {
-			ids = append(ids, sku.LanguageID)
-		}
-	}
-	if len(ids) == 0 {
-		return ""
-	}
-	sort.Ints(ids)
-	if len(ids) > 1 {
-		log.Printf("%q (%d) prices skus in %d languages, filed under the first",
-			product.Name, product.ProductID, len(ids))
-	}
-	return names[ids[0]]
 }
 
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
@@ -570,43 +529,6 @@ func setCodes(groups []tcgplayer.Group) map[int]string {
 	return codes
 }
 
-func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
-	name := map[int]string{}
-	for _, p := range c.Printings {
-		name[p.PrintingID] = p.Name
-	}
-
-	// The order TCGplayer displays a category's printings in, which is the
-	// catalog's to decide: a list written here would be a second opinion
-	// about somebody else's data. Two printings can share a displayOrder -
-	// Flesh and Blood has three at 2 - so the name settles a tie and the
-	// order stays fixed for unchanged data.
-	rank := map[string]int{}
-	for _, p := range c.Printings {
-		rank[p.Name] = p.DisplayOrder
-	}
-
-	out := map[int][]string{}
-	for _, product := range c.Products {
-		var names []string
-		for _, sku := range product.Skus {
-			n := name[sku.PrintingID]
-			if n == "" || slices.Contains(names, n) {
-				continue
-			}
-			names = append(names, n)
-		}
-		sort.SliceStable(names, func(i, j int) bool {
-			if ri, rj := rank[names[i]], rank[names[j]]; ri != rj {
-				return ri < rj
-			}
-			return names[i] < names[j]
-		})
-		out[product.ProductID] = names
-	}
-	return out
-}
-
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 62 (required)")
@@ -656,8 +578,8 @@ func main() {
 	}
 	codes := setCodes(catalog.Groups)
 	checkFabFinishNames(&catalog)
-	printings := printingNames(&catalog)
-	displayOrder := printingDisplayOrder(&catalog)
+	printings := emit.PrintingNames(&catalog)
+	displayOrder := emit.PrintingDisplayOrder(&catalog)
 
 	// Split the products: every single becomes printings, the non-single
 	// types become sealed.
@@ -1223,16 +1145,13 @@ func main() {
 		catalogFinishes[product.ProductID] = printings[product.ProductID]
 	}
 
-	languageNames := map[int]string{}
-	for _, language := range catalog.Languages {
-		languageNames[language.LanguageID] = cmp.Or(languageTags[language.Name], language.Name)
-	}
+	languageNames := emit.LanguageNames(&catalog)
 
 	var cards []any
 	var nonEnglish int
 	for _, s := range singles {
 		productID := s.product.ProductID
-		language := productLanguage(languageNames, s.product)
+		language := emit.ProductLanguage(languageNames, s.product)
 		if language != "" {
 			nonEnglish++
 		}
@@ -1582,16 +1501,6 @@ func checkFabFinishNames(c *tcgplayer.CatalogDump) {
 			log.Fatalf("fabFinish maps %q to printing %q, which the catalog does not list", code, name)
 		}
 	}
-}
-
-// printingDisplayOrder is where each of a category's printings sits in the
-// order TCGplayer displays them.
-func printingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
-	rank := map[string]int{}
-	for _, p := range c.Printings {
-		rank[p.Name] = p.DisplayOrder
-	}
-	return rank
 }
 
 // pitchColors are the colours a pitch value names. The card prints the

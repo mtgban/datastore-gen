@@ -18,6 +18,7 @@
 package emit
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -96,6 +97,96 @@ func PlainPrinting(c *tcgplayer.CatalogDump) string {
 // only the spaces around them go.
 func QueryNumber(number string) string {
 	return strings.Join(strings.Fields(number), "")
+}
+
+// PrintingDisplayOrder is where each of a category's printings sits in the
+// order TCGplayer displays them.
+func PrintingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
+	rank := map[string]int{}
+	for _, p := range c.Printings {
+		rank[p.Name] = p.DisplayOrder
+	}
+	return rank
+}
+
+// PrintingNames maps each product to the distinct printing names its skus
+// carry, in the order the catalog displays them; a printing the catalog does
+// not list for a product is one that does not exist. The order is the
+// catalog's to decide, and two printings can share a displayOrder - Flesh
+// and Blood has three at 2 - so the name settles a tie and the order stays
+// fixed for unchanged data.
+func PrintingNames(c *tcgplayer.CatalogDump) map[int][]string {
+	name := map[int]string{}
+	for _, p := range c.Printings {
+		name[p.PrintingID] = p.Name
+	}
+	rank := PrintingDisplayOrder(c)
+	out := map[int][]string{}
+	for _, product := range c.Products {
+		var names []string
+		for _, sku := range product.Skus {
+			n := name[sku.PrintingID]
+			if n == "" || slices.Contains(names, n) {
+				continue
+			}
+			names = append(names, n)
+		}
+		sort.SliceStable(names, func(i, j int) bool {
+			if ri, rj := rank[names[i]], rank[names[j]]; ri != rj {
+				return ri < rj
+			}
+			return names[i] < names[j]
+		})
+		out[product.ProductID] = names
+	}
+	return out
+}
+
+// englishLanguage is the catalog's language id for English, the one a
+// product needs a sku in to be part of the English program.
+const englishLanguage = 1
+
+// languageTags spells TCGplayer's language names the way go-mtgban's
+// matcher tags a printing, where the two differ.
+var languageTags = map[string]string{
+	"Chinese (S)": "Chinese Simplified",
+	"Chinese (T)": "Chinese Traditional",
+}
+
+// LanguageNames names each of the catalog's languages by its id, spelled the
+// way the matcher tags a printing.
+func LanguageNames(c *tcgplayer.CatalogDump) map[int]string {
+	names := map[int]string{}
+	for _, language := range c.Languages {
+		names[language.LanguageID] = cmp.Or(languageTags[language.Name], language.Name)
+	}
+	return names
+}
+
+// ProductLanguage names the language a product is printed in, empty for
+// the English program: a product TCGplayer prices in no English sku is
+// sold in another language, and the catalog's own language list spells out
+// which. Several non-English languages on one product would be a shape
+// this has never seen, so it is said out loud and the lowest id wins.
+func ProductLanguage(names map[int]string, product tcgplayer.Product) string {
+	var ids []int
+	for _, sku := range product.Skus {
+		if sku.LanguageID == englishLanguage {
+			return ""
+		}
+		if !slices.Contains(ids, sku.LanguageID) {
+			ids = append(ids, sku.LanguageID)
+		}
+	}
+	if len(ids) == 0 {
+		return ""
+	}
+	sort.Ints(ids)
+	if len(ids) > 1 {
+		log.Printf("%q (%d) prices skus in %d languages, filed under the first",
+			product.Name, product.ProductID, len(ids))
+	}
+	return names[ids[0]]
 }
 
 // OrderedFinishes fixes the order a product's entries are emitted in: the

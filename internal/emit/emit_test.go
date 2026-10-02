@@ -539,3 +539,49 @@ func TestLoweredAndMonth(t *testing.T) {
 		}
 	}
 }
+
+// TestPrintingNamesFollowTheCatalogsOrder pins that a product's printings
+// come in the order the catalog displays them, a shared displayOrder broken
+// by name, each once however many skus carry it.
+func TestPrintingNamesFollowTheCatalogsOrder(t *testing.T) {
+	c := &tcgplayer.CatalogDump{
+		Printings: []tcgplayer.Printing{
+			{PrintingID: 1, Name: "Unlimited Edition Normal", DisplayOrder: 2},
+			{PrintingID: 2, Name: "1st Edition Normal", DisplayOrder: 2},
+			{PrintingID: 3, Name: "Normal", DisplayOrder: 1},
+		},
+		Products: []tcgplayer.Product{{ProductID: 7, Skus: []tcgplayer.SKU{
+			{PrintingID: 1}, {PrintingID: 2}, {PrintingID: 1}, {PrintingID: 3}, {PrintingID: 99},
+		}}},
+	}
+	want := []string{"Normal", "1st Edition Normal", "Unlimited Edition Normal"}
+	if got := PrintingNames(c)[7]; !slices.Equal(got, want) {
+		t.Errorf("PrintingNames = %q, want %q", got, want)
+	}
+}
+
+// TestProductLanguageNamesTheNonEnglishOnes pins that a product with an
+// English sku is the English program, and another is named by its
+// language, spelled the way the matcher tags it.
+func TestProductLanguageNamesTheNonEnglishOnes(t *testing.T) {
+	names := LanguageNames(&tcgplayer.CatalogDump{Languages: []tcgplayer.Language{
+		{LanguageID: 1, Name: "English"}, {LanguageID: 5, Name: "Chinese (S)"}, {LanguageID: 7, Name: "Japanese"},
+	}})
+	for _, test := range []struct {
+		skus []int
+		want string
+	}{
+		{[]int{1, 7}, ""},
+		{[]int{5}, "Chinese Simplified"},
+		{[]int{7}, "Japanese"},
+		{nil, ""},
+	} {
+		var skus []tcgplayer.SKU
+		for _, id := range test.skus {
+			skus = append(skus, tcgplayer.SKU{LanguageID: id})
+		}
+		if got := ProductLanguage(names, tcgplayer.Product{Skus: skus}); got != test.want {
+			t.Errorf("ProductLanguage(%v) = %q, want %q", test.skus, got, test.want)
+		}
+	}
+}

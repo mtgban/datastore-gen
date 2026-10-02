@@ -75,7 +75,6 @@ package main
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -101,10 +100,6 @@ const (
 	// lorcanaCategory is Lorcana's TCGplayer category, the one the catalog
 	// dump is expected to carry.
 	lorcanaCategory = 71
-
-	// englishLanguage is the catalog's language id for English, the one a
-	// product needs a sku in to be part of the English program.
-	englishLanguage = 1
 )
 
 // tcgSingles are the product types single cards are filed under, as the
@@ -627,39 +622,6 @@ func canonicalFinish(name string) string {
 	default:
 		return folded
 	}
-}
-
-// languageTags spells TCGplayer's language names the way go-mtgban's
-// matcher tags a printing, where the two differ.
-var languageTags = map[string]string{
-	"Chinese (S)": "Chinese Simplified",
-	"Chinese (T)": "Chinese Traditional",
-}
-
-// productLanguage names the language a product is printed in, empty for the
-// English program: a product TCGplayer prices in no English sku is sold in
-// another language, and the catalog's own language list spells out which.
-// Several non-English languages on one product would be a shape this has
-// never seen, so it is said out loud and the lowest id wins.
-func productLanguage(names map[int]string, product tcgplayer.Product) string {
-	var ids []int
-	for _, sku := range product.Skus {
-		if sku.LanguageID == englishLanguage {
-			return ""
-		}
-		if !slices.Contains(ids, sku.LanguageID) {
-			ids = append(ids, sku.LanguageID)
-		}
-	}
-	if len(ids) == 0 {
-		return ""
-	}
-	sort.Ints(ids)
-	if len(ids) > 1 {
-		log.Printf("%q (%d) prices skus in %d languages, filed under the first",
-			product.Name, product.ProductID, len(ids))
-	}
-	return names[ids[0]]
 }
 
 // latinAccents spell the accented letters upstream writes the way the
@@ -1220,10 +1182,7 @@ func main() {
 	for _, group := range catalog.Groups {
 		groupByID[group.GroupID] = group
 	}
-	languageNames := map[int]string{}
-	for _, language := range catalog.Languages {
-		languageNames[language.LanguageID] = cmp.Or(languageTags[language.Name], language.Name)
-	}
+	languageNames := emit.LanguageNames(&catalog)
 	var mintable []tcgplayer.Product
 	for _, product := range catalog.Products {
 		if !slices.Contains(tcgSingles, product.ProductType) {
@@ -1290,7 +1249,7 @@ func main() {
 		// language; the catalog's own language list says which. The
 		// matcher drops a non-English candidate from a query that named no
 		// language, so the row exists without English matching changing.
-		if language := productLanguage(languageNames, product); language != "" {
+		if language := emit.ProductLanguage(languageNames, product); language != "" {
 			item["language"] = language
 		}
 		items = append(items, item)

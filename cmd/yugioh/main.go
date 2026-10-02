@@ -86,10 +86,6 @@ const (
 // catalog names them for this game; everything else is sealed by exclusion.
 var tcgSingles = tcgplayer.SinglesProductTypes(yugiohCategory)
 
-// printingNames maps each product to the distinct printing names its skus
-// carry, in the order the catalog displays them; a printing the catalog does not list for a product
-// is one that does not exist.
-
 // ygoSet is the slice of a YGOPRODeck cardsets entry this build reads.
 type ygoSet struct {
 	Name string `json:"set_name"`
@@ -478,43 +474,6 @@ func decompose(p tcgplayer.Product, num string, rarities map[string]string) sing
 		rarity:      rarity,
 		rarityNamed: rarityNamed,
 	}
-}
-
-func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
-	name := map[int]string{}
-	for _, p := range c.Printings {
-		name[p.PrintingID] = p.Name
-	}
-
-	// The order TCGplayer displays a category's printings in, which is the
-	// catalog's to decide: a list written here would be a second opinion
-	// about somebody else's data. Two printings can share a displayOrder -
-	// Flesh and Blood has three at 2 - so the name settles a tie and the
-	// order stays fixed for unchanged data.
-	rank := map[string]int{}
-	for _, p := range c.Printings {
-		rank[p.Name] = p.DisplayOrder
-	}
-
-	out := map[int][]string{}
-	for _, product := range c.Products {
-		var names []string
-		for _, sku := range product.Skus {
-			n := name[sku.PrintingID]
-			if n == "" || slices.Contains(names, n) {
-				continue
-			}
-			names = append(names, n)
-		}
-		sort.SliceStable(names, func(i, j int) bool {
-			if ri, rj := rank[names[i]], rank[names[j]]; ri != rj {
-				return ri < rj
-			}
-			return names[i] < names[j]
-		})
-		out[product.ProductID] = names
-	}
-	return out
 }
 
 // europeanNumberRe matches a YGOPRODeck card_sets code naming a European
@@ -1139,7 +1098,7 @@ func main() {
 		joinedByCode+joinedByName, len(groups), joinedByCode, joinedByName,
 		placeholders, filled, unfilled)
 
-	printings := printingNames(&catalog)
+	printings := emit.PrintingNames(&catalog)
 
 	// The rarities the category prints at, as the catalog spells them, so
 	// a qualifier naming one is read as the rarity it is.
