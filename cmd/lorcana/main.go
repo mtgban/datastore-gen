@@ -1549,6 +1549,7 @@ func main() {
 	published, _ := doc["cards"].([]any)
 	emit.AsList(published, "color", "colors")
 	emit.DropEmptySets(sets, published, sealedItems)
+	doc["properties"] = properties
 
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
@@ -1652,7 +1653,8 @@ func readDocument(data []byte, wantFinishes map[int][]string) (validate.Document
 		return out, counted, err
 	}
 	var doc struct {
-		Sets map[string]struct {
+		Properties map[string][]string `json:"properties"`
+		Sets       map[string]struct {
 			Name string `json:"name"`
 		} `json:"sets"`
 		Cards  []map[string]any `json:"cards"`
@@ -1669,6 +1671,7 @@ func readDocument(data []byte, wantFinishes map[int][]string) (validate.Document
 		return out, counted, err
 	}
 	out.Game = "lorcana"
+	out.Properties = doc.Properties
 	out.Sets = map[string]string{}
 	for code, set := range doc.Sets {
 		out.Sets[code] = set.Name
@@ -1759,6 +1762,20 @@ func intOf(value any) int {
 	return id
 }
 
+// properties orders the values of the fields a consumer ranks cards by.
+// Rarities run rarest first: from Fabled on, a set's collector numbers run
+// epic, then enchanted, then the two iconic cards that close it out.
+// "Special", LorcanaJSON's word for promos and quest cards, leads with the
+// catalog's own "Promo" and "Quest", and "None", the catalog's puzzle
+// inserts, is last. Inks are in the game's order.
+var properties = map[string][]string{
+	"rarity": {
+		"Special", "Promo", "Quest", "Iconic", "Enchanted", "Epic", "Legendary",
+		"Super Rare", "Rare", "Uncommon", "Common", "None",
+	},
+	"color": {"Amber", "Amethyst", "Emerald", "Ruby", "Sapphire", "Steel"},
+}
+
 // validationRules is what Lorcana adds to the shared checks. A printing is
 // resolved by its card's full name, number, variant ("4a" to "4e" are five
 // Dalmatian Puppies) and set, and by its finish, since a card's foil can be
@@ -1767,6 +1784,7 @@ func intOf(value any) int {
 func validationRules() validate.Rules {
 	return validate.Rules{
 		Game:     "lorcana",
+		Fields:   map[string]string{"color": "colors"},
 		Identity: []string{"fullName", "number", "variant", "setCode", "finish"},
 		Minted: func(card validate.Card) string {
 			return "card " + strings.SplitN(card.ID, "_", 2)[0]

@@ -2383,6 +2383,7 @@ func main() {
 		"cards":  cards,
 		"sealed": sealed,
 	}
+	doc["properties"] = properties
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
@@ -2456,6 +2457,14 @@ func main() {
 	}
 }
 
+// properties orders the values of the fields a consumer ranks cards by:
+// rarities rarest first, with DON!! and the one trophy card last, and colours
+// in the card list's order.
+var properties = map[string][]string{
+	"rarity": {"PR", "TR", "SEC", "L", "SR", "R", "UC", "C", "DON!!", "None"},
+	"color":  {"Red", "Green", "Blue", "Purple", "Black", "Yellow"},
+}
+
 // validationRules are what this game adds to the shared re-read of the
 // output: the language is in the identity because the matcher narrows on
 // it, and a hand-carried printing, which names no product, has to carry the
@@ -2463,6 +2472,7 @@ func main() {
 func validationRules() validate.Rules {
 	return validate.Rules{
 		Game:     "onepiece",
+		Fields:   map[string]string{"color": "colors"},
 		Identity: []string{"name", "number", "setCode", "variant", "language"},
 		Check: func(card validate.Card) error {
 			if card.Number == "" && card.TcgPlayerID == 0 {

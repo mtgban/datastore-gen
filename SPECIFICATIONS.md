@@ -68,10 +68,11 @@ schema it is, `data` holds the document. The shape is MTGJSON's own idiom
     "version": "1"
   },
   "data": {
-    "game":   "pokemon",
-    "sets":   { "<setCode>": { ...set } },
-    "cards":  [ { ...card } ],
-    "sealed": [ { ...sealed } ]
+    "game":       "pokemon",
+    "properties": { "<property>": [ "<value>", ... ] },
+    "sets":       { "<setCode>": { ...set } },
+    "cards":      [ { ...card } ],
+    "sealed":     [ { ...sealed } ]
   }
 }
 ```
@@ -92,6 +93,28 @@ putting it in `meta` would split one fact across two places and buy nothing.
 that unwraps `data` decodes what it always did. Every game but Riftbound
 and Lorcana writes the `game`/`sets`/`cards`/`sealed` shape above; those
 two put their upstream payload there whole, and are in §2.5.
+
+`properties` orders the values a consumer sorts cards by, one list per
+property, named in the singular for what it sorts and spelled as the cards
+spell its values: rarities rarest first, colours in the game's own order.
+Every game publishes it at `data.properties`, Riftbound and Lorcana beside
+their payload. No upstream publishes an order, so each builder writes its
+own table; a card holding a value its field's list lacks is logged (§4),
+and go-mtgban's loader tests fail on it.
+
+| game | properties (the card field each orders) |
+|---|---|
+| Flesh and Blood | `rarity`, `pitch` (`pitches`) |
+| Gundam | `rarity`, `color` (`colors`) |
+| Lorcana | `rarity`, `color` (`colors`) |
+| One Piece | `rarity`, `color` (`colors`) |
+| Palworld | `rarity`, `color` (`colors`) |
+| Pokemon | `type` (`types`) |
+| Riftbound | `rarity`, `domain` (the ids of `rarity.value` and `domain.values`) |
+| Yu-Gi-Oh | `attribute` (`attributes`) |
+
+Pokemon and Yu-Gi-Oh publish no rarity order yet; a consumer sorts theirs by
+name.
 
 Before encoding, `emit.PlainQuotes` rewrites every typographic quote in the
 payload to its ASCII form, so the check that re-reads the file sees what is
@@ -364,7 +387,9 @@ a Flesh and Blood minted entry wearing a priced entry's
 entry before encoding, so the re-read refusing one is a backstop), a
 Riftbound gallery with no card
 blade or two sets under one id, a Riftbound sealed product wearing a
-printing's id. Lorcana alone logs rather than refuses a product upstream
+printing's id. Logged in every game rather than refused: a value of a
+field `properties` orders that its list lacks, which publishes sorted
+last by name. Lorcana alone logs rather than refuses a product upstream
 links that the catalog types as no card, since the dump can lag a day
 behind upstream.
 
@@ -571,6 +596,9 @@ what a change here must keep true:
 - **`finish`** maps onto the loader's finish vocabulary (`Holofoil`,
   `Reverse Holofoil`, `1st Edition`…); a printing name it has not been
   taught passes through as itself.
+- **`properties`** is the order a loader lists a set's rarities and colours
+  in. A value its list lacks loads all the same, sorted last by name, and
+  fails `internal/vocabulary.TestLoaderContracts` there.
 - **`originalReleaseDate`** is preferred over the set's date wherever the
   loader dates a card; `language` refuses a listing in another language.
 - **Riftbound** is read as the gallery payload and **Lorcana** as
