@@ -48,6 +48,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -98,20 +99,19 @@ type palworldPage struct {
 	} `json:"meta"`
 }
 
-// upstreamRarity spells the upstream's rarity codes the way the catalog
-// spells the same rarities, so a minted entry's rarity reads like every
-// other entry's rather than in a second vocabulary. Each pairing was
-// checked against the counts: the catalog files exactly 12 Double Rare to
-// the upstream's 12 RR, 34 Common to its 34 C, and one Super Special Soul
-// to its one SSS.
-var upstreamRarity = map[string]string{
-	"C":   "Common",
-	"U":   "Uncommon",
-	"R":   "Rare",
-	"RR":  "Double Rare",
-	"PR":  "Promo",
-	"TD":  "Trial Deck",
-	"SSS": "Super Special Soul",
+// rarityNames spells each rarity code the catalog's rarity table lists as
+// the name that table gives it. The catalog files the booster cards under
+// the name ("Super Rare") and the trial-deck ones under the code ("TSR"),
+// and upstream writes the codes throughout, so every entry's rarity is read
+// through this to come out in one vocabulary.
+func rarityNames(rarities []tcgplayer.Rarity) map[string]string {
+	names := map[string]string{}
+	for _, r := range rarities {
+		if len(r.DisplayText) > len(r.DBValue) {
+			names[r.DBValue] = r.DisplayText
+		}
+	}
+	return names
 }
 
 // upstreamSet maps the set code the upstream writes onto the catalog
@@ -290,6 +290,8 @@ func main() {
 		groupByID[group.GroupID] = group
 	}
 	codes := emit.SetCodes(catalog.Groups)
+	spelled := rarityNames(catalog.Rarities)
+	rarityOf := func(code string) string { return cmp.Or(spelled[code], code) }
 	printings := catalog.PrintingNames()
 	displayOrder := emit.PrintingDisplayOrder(&catalog)
 
@@ -483,10 +485,10 @@ func main() {
 			continue
 		}
 		code := codes[s.product.GroupID]
-		rarity := s.product.Extended("Rarity")
+		rarity := rarityOf(s.product.Extended("Rarity"))
 		var matches []palworldCard
 		for _, u := range upstream {
-			if upstreamSetCode(u) != code || !strings.EqualFold(u.Name, s.baseName) || upstreamRarity[u.Rarity] != rarity {
+			if upstreamSetCode(u) != code || !strings.EqualFold(u.Name, s.baseName) || rarityOf(u.Rarity) != rarity {
 				continue
 			}
 			matches = append(matches, u)
@@ -513,7 +515,7 @@ func main() {
 				"id":      emit.IDBase(s.number, productID) + emit.FinishSuffix(finish),
 				"name":    s.baseName,
 				"setCode": codes[s.product.GroupID],
-				"rarity":  s.product.Extended("Rarity"),
+				"rarity":  rarityOf(s.product.Extended("Rarity")),
 				"finish":  finish,
 				"image":   emit.ImageURL(s.product.ImageURL),
 				"externalLinks": map[string]any{
@@ -580,8 +582,8 @@ func main() {
 		}
 		mintedIDs[id] = true
 		rarity := u.Rarity
-		if spelled, known := upstreamRarity[rarity]; known {
-			rarity = spelled
+		if name, known := spelled[rarity]; known {
+			rarity = name
 		} else if rarity != "" {
 			unrated++
 		}
