@@ -619,6 +619,34 @@ func DropEmptySets(sets map[string]any, entries ...[]any) {
 	}
 }
 
+// RarityNames maps each rarity code a catalog's rarity table lists to the
+// name it gives that rarity, "SR" to "Super Rare". The table lists most
+// rarities both ways round and some only once, and a product carries the
+// stored half of whichever row it is filed under: the name for one game,
+// the code for another, and for Palworld both.
+func RarityNames(rarities []tcgplayer.Rarity) map[string]string {
+	names := map[string]string{}
+	for _, r := range rarities {
+		if len(r.DisplayText) > len(r.DBValue) {
+			names[r.DBValue] = r.DisplayText
+		}
+	}
+	return names
+}
+
+// SpellRarities publishes every entry's rarity by its name where it holds a
+// code names spells out. A builder runs it last, so whatever compared the
+// codes on the way still read them.
+func SpellRarities(entries []any, names map[string]string) {
+	for _, raw := range entries {
+		entry, _ := raw.(map[string]any)
+		rarity, _ := entry["rarity"].(string)
+		if name, found := names[rarity]; found {
+			entry["rarity"] = name
+		}
+	}
+}
+
 // AsList gives every entry carrying a value in field the same values as a
 // list under list, which is what a reader takes: the string split where it
 // joins two with a semicolon ("Green;Red"). An entry already holding the

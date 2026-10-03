@@ -2374,6 +2374,9 @@ func main() {
 	log.Printf("release dates: %d printings dated by a year their label stated, where the set states another",
 		datePrintings(cards, sets))
 
+	// The catalog files every rarity under its code ("SR"), as the cards
+	// print it; published by the name it gives, as the other games are.
+	emit.SpellRarities(cards, emit.RarityNames(catalog.Rarities))
 	emit.AsList(cards, "color", "colors")
 	cards = emit.DropRepeatedFinishes(cards)
 	emit.DropEmptySets(sets, cards, sealed)
@@ -2461,8 +2464,11 @@ func main() {
 // rarities rarest first, with DON!! and the one trophy card last, and colours
 // in the card list's order.
 var properties = map[string][]string{
-	"rarity": {"PR", "TR", "SEC", "L", "SR", "R", "UC", "C", "DON!!", "None"},
-	"color":  {"Red", "Green", "Blue", "Purple", "Black", "Yellow"},
+	"rarity": {
+		"Promo", "Treasure Rare", "Secret Rare", "Leader", "Super Rare", "Rare",
+		"Uncommon", "Common", "DON!!", "None",
+	},
+	"color": {"Red", "Green", "Blue", "Purple", "Black", "Yellow"},
 }
 
 // validationRules are what this game adds to the shared re-read of the

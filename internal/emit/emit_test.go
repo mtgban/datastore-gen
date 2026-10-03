@@ -608,3 +608,25 @@ func TestAsList(t *testing.T) {
 		t.Errorf("attributes %v, want [DARK]", got)
 	}
 }
+
+// TestSpellRarities pins the name a code publishes as, read off the
+// catalog's own table whichever way round it lists a rarity.
+func TestSpellRarities(t *testing.T) {
+	names := RarityNames([]tcgplayer.Rarity{
+		{DisplayText: "Super Rare", DBValue: "SR"},
+		{DisplayText: "SSS", DBValue: "Super Special Soul"},
+		{DisplayText: "DON!!", DBValue: "DON!!"},
+	})
+	entries := []any{
+		map[string]any{"rarity": "SR"},
+		map[string]any{"rarity": "Super Special Soul"},
+		map[string]any{"rarity": "DON!!"},
+		map[string]any{"name": "no rarity"},
+	}
+	SpellRarities(entries, names)
+	for i, want := range []any{"Super Rare", "Super Special Soul", "DON!!", nil} {
+		if got := entries[i].(map[string]any)["rarity"]; got != want {
+			t.Errorf("entry %d publishes rarity %v, want %v", i, got, want)
+		}
+	}
+}
