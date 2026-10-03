@@ -698,7 +698,7 @@ var promoSpellings = handtable.New("promoSpellings", map[string]string{
 // which of a set's decks a copy came in rather than what promoted it.
 var deckMark = regexp.MustCompile(`(?i)^([a-z][a-z.\-]*)\s+deck$`)
 
-func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool) (kept, left []string, year, month, instalment, mark string) {
+func promoTypesOf(name string, quals []string, cardNames map[string]bool) (kept, left []string, year, month, instalment, mark string) {
 	// The catalog labels are split before they reach here; the
 	// hand-carried printings are not, and a label is a label either way.
 	expanded := make([]string, 0, len(quals))
@@ -712,12 +712,6 @@ func promoTypesOf(name, rarity string, quals []string, cardNames map[string]bool
 	out := make([]string, 0, len(expanded))
 	var subjects, instalments []string
 	for _, qual := range expanded {
-		// A label that is the card's own rarity says what the rarity field
-		// says: the nine Treasure Rares are filed at rarity TR and were
-		// labelled "TR" as well.
-		if strings.EqualFold(qual, rarity) {
-			continue
-		}
 		// Every DON!! card is named "DON!! Card", so the character on one
 		// is what tells it from the others - Chopper, Crocodile, Yamato,
 		// forty-five of them over 150 printings, every one also the name of
@@ -1188,7 +1182,7 @@ func correctedEntry(src map[string]any, id, number, setCode, finish, parent, lab
 	if label != "" {
 		tags = append(tags, label)
 	}
-	labels, _, year, month, instalment, mark := promoTypesOf(fmt.Sprint(src["name"]), fmt.Sprint(src["rarity"]), tags, cardNames)
+	labels, _, year, month, instalment, mark := promoTypesOf(fmt.Sprint(src["name"]), tags, cardNames)
 	if len(labels) > 0 {
 		entry["promoTypes"] = labels
 	}
@@ -2188,7 +2182,7 @@ func main() {
 				// The same labels as a list. Joined, "Alternate Art Manga"
 				// cannot be read back into the two it holds, and the
 				// matcher declares and narrows on them one at a time.
-				tags, _, year, month, instalment, mark := promoTypesOf(s.baseName, s.product.Extended("Rarity"), s.quals, cardNames)
+				tags, _, year, month, instalment, mark := promoTypesOf(s.baseName, s.quals, cardNames)
 				if len(tags) > 0 {
 					entry["promoTypes"] = tags
 				}
