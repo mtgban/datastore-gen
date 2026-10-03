@@ -47,7 +47,7 @@ func TestDecomposeCutsJoinedLabel(t *testing.T) {
 		if got.baseName != donCardName || !slices.Equal(got.quals, []string{tt.wantQual}) {
 			t.Errorf("decompose(%q) = %q %q, want %q [%q]", tt.product, got.baseName, got.quals, donCardName, tt.wantQual)
 		}
-		kept, _, _, _, _, _ := promoTypesOf(got.baseName, "DON!!", got.quals, nil)
+		kept, _, _, _, _, _ := promoTypesOf(got.baseName, got.quals, nil)
 		if !slices.Equal(kept, tt.wantKept) {
 			t.Errorf("promoTypesOf(%q) kept %q, want %q", tt.wantQual, kept, tt.wantKept)
 		}
