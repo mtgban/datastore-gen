@@ -174,7 +174,7 @@ Common to every game:
 | `setCode` | key into `sets` |
 | `number` | the collector number as the card prints it, without the printed total (`"SWSH252"`, `"GD03-057"`, `"072"`, `"Z"`); a string in every game, because an absent number and a printed `0` are different facts and an integer spells them alike; absent on the few products the catalog files with none |
 | `total` | Pokemon and Lorcana: the printed total behind the slash (`"167"`, `"204"`, Lorcana's promo runs `"P1"`), kept apart because it is the set's fact and the only thing telling `8/102` from `8/130`, or `1/204` from `1/P1` |
-| `rarity` | the catalog's rarity, corrected where the catalog's own name says another (Yu-Gi-Oh reads a rarity written into a name as the rarity) |
+| `rarity` | the catalog's rarity by the name its rarity table gives it ("Super Rare", never the code "SR" One Piece and Palworld's trial decks are filed under), corrected where the catalog's own name says another (Yu-Gi-Oh reads a rarity written into a name as the rarity) |
 | `finish` | the catalog's printing name for the sku this entry prices: `Normal`, `Holofoil`, `Reverse Holofoil`, `1st Edition`, `Unlimited`, `Rainbow Foil`, `Cold Foil`… One entry per sku printing; the catalog decides which exist |
 | `variant` | the catalog's qualifiers, joined with spaces, wording untouched: the prose everything below is distilled from |
 | `promoTypes` | the promotions the printing wears, as lowercase slug tokens (§3.1); absent when none |

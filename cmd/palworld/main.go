@@ -99,21 +99,6 @@ type palworldPage struct {
 	} `json:"meta"`
 }
 
-// rarityNames spells each rarity code the catalog's rarity table lists as
-// the name that table gives it. The catalog files the booster cards under
-// the name ("Super Rare") and the trial-deck ones under the code ("TSR"),
-// and upstream writes the codes throughout, so every entry's rarity is read
-// through this to come out in one vocabulary.
-func rarityNames(rarities []tcgplayer.Rarity) map[string]string {
-	names := map[string]string{}
-	for _, r := range rarities {
-		if len(r.DisplayText) > len(r.DBValue) {
-			names[r.DBValue] = r.DisplayText
-		}
-	}
-	return names
-}
-
 // upstreamSet maps the set code the upstream writes onto the catalog
 // group's abbreviation where the two differ.
 var upstreamSet = handtable.New("upstreamSet", map[string]string{
@@ -290,7 +275,10 @@ func main() {
 		groupByID[group.GroupID] = group
 	}
 	codes := emit.SetCodes(catalog.Groups)
-	spelled := rarityNames(catalog.Rarities)
+	// The catalog files the booster cards under a rarity's name ("Super
+	// Rare") and the trial-deck ones under its code ("TSR"), and upstream
+	// writes codes throughout, so every rarity is read in one vocabulary.
+	spelled := emit.RarityNames(catalog.Rarities)
 	rarityOf := func(code string) string { return cmp.Or(spelled[code], code) }
 	printings := catalog.PrintingNames()
 	displayOrder := emit.PrintingDisplayOrder(&catalog)
