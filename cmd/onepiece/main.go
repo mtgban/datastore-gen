@@ -859,6 +859,9 @@ var rawNames = handtable.New("rawNames", map[int]string{
 	// "Monkey.D.Luffy - OP14-34" writes OP14-034 one digit short, so the
 	// tail-strip below can't match it by text.
 	671375: "Monkey.D.Luffy",
+	// The Heroines Campaign Dash Pack's Vivi drops the "(Dash Pack)" both of
+	// its packmates carry.
+	675745: "Nefeltari Vivi - EB02-026 (Dash Pack)",
 })
 
 // stripNumberTail removes a decorative number tail from name: a run of
