@@ -2235,6 +2235,11 @@ func decompose(p tcgplayer.Product, num, year string) (single, int) {
 			break
 		}
 		tail := strings.TrimSpace(base[idx+skip:])
+		if skip == 1 {
+			// The dash written without its space, "Ninetales -199/197"
+			// on six products.
+			tail = strings.TrimPrefix(tail, "-")
+		}
 		if !restatesNumber(tail, num) {
 			// A number-shaped tail that disagrees with the Number field is
 			// a number all the same - "Exploud - 3/106" filed at 003/109,
