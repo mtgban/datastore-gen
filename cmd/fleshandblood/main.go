@@ -599,6 +599,7 @@ func main() {
 			continue
 		}
 		num := spelledNumber(product.Name, product.Extended("Number"))
+		product, num = fixProduct(product, num)
 		if num == "" {
 			// Art cards, counters, uncut-sheet pieces: the product id is
 			// the whole id, as it is for the numberless Pokemon singles.
@@ -1560,6 +1561,60 @@ func says(field, label string) bool {
 // artworkLetter matches a label that is one letter: which drawing of the
 // number this printing carries, where the catalog files several.
 var artworkLetter = regexp.MustCompile(`^[A-Za-z]$`)
+
+// productFix is what a catalogFixes row corrects: the product's whole name,
+// its collector number, or both.
+type productFix struct {
+	name   string
+	number string
+}
+
+// catalogFixes correct the products the catalog names or numbers wrong, keyed
+// by product id. Each is the catalog contradicting the card and the other
+// sources: Tiara of Suspense is SUP272 on the card, at CardTrader and in
+// the-fab-cube, where the catalog files it at Snag's SUP271. A row counts as
+// used only while the catalog still disagrees, so the hand table report names
+// the ones TCGplayer has fixed.
+var catalogFixes = handtable.New("catalogFixes", map[int]productFix{
+	242132: {name: "Levia, Shadowborn Abomination - HER040"},
+	273924: {name: "Release the Tension (Yellow)"},
+	584674: {name: "Brush of Heavenly Rites - JDG030"},
+	584747: {name: "Four Finger Gloves - LGS322"},
+	614302: {name: "Arakni, 5L!p3d 7hRu 7h3 cR4X (Marvel)"},
+	615757: {name: "Arakni, 5L!p3d 7hRu 7h3 cR4X (Extended Art)"},
+	617199: {name: "Arakni, 5L!p3d 7hRu 7h3 cR4X - HER131"},
+	633284: {name: "Saltwater Swell (Yellow)", number: "SEA142"},
+	633285: {name: "Saltwater Swell (Blue)", number: "SEA143"},
+	646832: {number: "BDD005"},
+	647331: {number: "MPG008"},
+	647334: {number: "MPG012"},
+	653828: {number: "APS029"},
+	654089: {number: "SUP272"},
+	654090: {number: "SUP273"},
+	654091: {number: "SUP274"},
+	654092: {number: "SUP275"},
+	657794: {number: "LGS423"},
+	690687: {number: "LGS446"},
+	695227: {name: "Heaven's Claws (Yellow)", number: "OMN173"},
+	695228: {name: "Heaven's Claws (Blue)", number: "OMN174"},
+})
+
+// fixProduct applies a product's catalogFixes row, if it still changes
+// anything.
+func fixProduct(p tcgplayer.Product, num string) (tcgplayer.Product, string) {
+	fix, found := catalogFixes.Rows()[p.ProductID]
+	if !found {
+		return p, num
+	}
+	name := cmp.Or(fix.name, p.Name)
+	number := cmp.Or(fix.number, num)
+	if name == p.Name && number == num {
+		return p, num
+	}
+	catalogFixes.Use(p.ProductID)
+	p.Name = name
+	return p, number
+}
 
 // promoTypeNames folds the spellings the catalog writes one promotion under.
 // Three ways of saying a Japanese alternate art is one promotion, and a query
