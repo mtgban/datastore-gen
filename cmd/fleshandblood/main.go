@@ -491,8 +491,8 @@ func normalizeSetName(name string) string {
 // setCodes assigns every group a unique, non-empty set code. Non-blank
 // abbreviations claim their codes first, in group-id order; blank ones get
 // the group name's initials; any code already claimed gets "-groupId"
-// appended. Every repair is logged, because none of it is the catalog's
-// own identity.
+// appended, and "-2", "-3", … after that where it too is taken. Every
+// repair is logged, because none of it is the catalog's own identity.
 func setCodes(groups []tcgplayer.Group) map[int]string {
 	ordered := append([]tcgplayer.Group(nil), groups...)
 	sort.Slice(ordered, func(i, j int) bool {
@@ -503,7 +503,7 @@ func setCodes(groups []tcgplayer.Group) map[int]string {
 	taken := map[string]bool{}
 	claim := func(g tcgplayer.Group, code string) {
 		if taken[code] {
-			suffixed := fmt.Sprintf("%s-%d", code, g.GroupID)
+			suffixed := emit.FreeSetCode(taken, fmt.Sprintf("%s-%d", code, g.GroupID))
 			log.Printf("set code: %q (%s) reuses %s, using %s", g.Name, g.Abbreviation, code, suffixed)
 			code = suffixed
 		}
@@ -1104,12 +1104,10 @@ func main() {
 		}
 		code := setID
 		if takenCodes[code] {
-			code = code + "-fab"
+			code = code + "-FAB"
 			log.Printf("dataset set %s: code already taken, minted set code %s", setID, code)
 		}
-		if takenCodes[code] {
-			log.Fatalf("minted set code %s still not unique; refusing to guess further", code)
-		}
+		code = emit.FreeSetCode(takenCodes, code)
 		takenCodes[code] = true
 		mintedSetCode[setID] = code
 		upstream := fabSetByID[setID]

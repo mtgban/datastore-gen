@@ -477,6 +477,34 @@ func TestSetCodesKeepsTheFirstClaim(t *testing.T) {
 	}
 }
 
+// TestSetCodesNeverStopsOnARepairedCode pins that a group whose own code is
+// another's repaired one is still carried: group 3 finds both D23 and D23-3
+// taken, so it is given D23-3-2, and every earlier claim stands.
+func TestSetCodesNeverStopsOnARepairedCode(t *testing.T) {
+	codes := SetCodes([]tcgplayer.Group{
+		{GroupID: 1, Abbreviation: "D23"},
+		{GroupID: 2, Abbreviation: "D23-3"},
+		{GroupID: 3, Abbreviation: "D23"},
+		{GroupID: 4, Abbreviation: "D23-3-2"},
+	})
+	for _, want := range []struct {
+		group int
+		code  string
+	}{
+		{1, "D23"},
+		{2, "D23-3"},
+		{3, "D23-3-2"},
+		{4, "D23-3-2-4"},
+	} {
+		if codes[want.group] != want.code {
+			t.Errorf("group %d: %q, want %q", want.group, codes[want.group], want.code)
+		}
+	}
+	if got := FreeSetCode(map[string]bool{"X": true, "X-2": true}, "X"); got != "X-3" {
+		t.Errorf("FreeSetCode: %q, want X-3", got)
+	}
+}
+
 func TestHasDateReadsAMidnightStamp(t *testing.T) {
 	for _, test := range []struct {
 		publishedOn string
