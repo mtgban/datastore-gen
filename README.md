@@ -102,14 +102,15 @@ consumer reads the fields, never the shape of an id, and the builders are
 free to respell one. Where the upstream set has no catalog
 group at all, the set is minted too, from upstream's own code, name and
 release date, deduplicated against the codes the catalog groups already
-hold. Current counts:
+hold. Counts on the 2026-10-21 catalog (each build logs its own):
 
 | builder | upstream cards minted | sets minted |
 |---|---|---|
-| lorcana | 212 catalog products upstream has no card for | 2 |
-| fleshandblood | 205 entries over 205 collector numbers | 5 |
-| pokemon | 257 entries over 867 tcgdex cards | 38 |
-| onepiece | 58 pre-errata printings hand-carried, and the Cardmarket pre-errata shelf's others minted | 0 |
+| lorcana | 215 catalog products upstream has no card for | 3 |
+| fleshandblood | 196 entries over 196 collector numbers | 5 |
+| pokemon | 283 entries over 893 tcgdex cards, and 75 Cardmarket-only stamped promos | 18 |
+| onepiece | 58 pre-errata printings hand-carried, 39 minted from Cardmarket's pre-errata shelf | 0 |
+| gundam | 9 printings TCGplayer sells no single of, and 8 hand-carried promotional reprints | 0 |
 | yugioh | 691 European first prints, 688 joined to their North American sibling | 0 |
 
 One Piece mints from neither source: the catalog carries every number
