@@ -847,9 +847,6 @@ type single struct {
 	language string
 }
 
-// decorations strips the collector number worn as decoration: a dash
-// suffix ("Yamato - OP16-098") and the parenthetical forms ("(003)",
-// "(OP01-003)").
 // rawNames repair a product name the catalog wrote in a shape nothing can
 // read, keyed by the product id it never reuses.
 var rawNames = handtable.New("rawNames", map[int]string{
@@ -869,7 +866,8 @@ var rawNames = handtable.New("rawNames", map[int]string{
 // The catalog writes that tail as "-PRB02-004" and " -  P-088 (Reprint)"
 // - no space, or a wider one, on either side of the dash - so the match
 // tolerates any amount of either. At least one space must precede the
-// dash, or a name's own hyphen ("Neo-Marine") would strip.
+// dash, or a name's own hyphen ("Neo-Marine") would strip. The products
+// behind it are in docs/onepiece-name-tail-strip.md.
 func stripNumberTail(name, num string) string {
 	idx := strings.LastIndex(name, num)
 	if idx < 0 {
