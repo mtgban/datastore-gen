@@ -44,15 +44,15 @@ prices it, and the loader groups its printings by the upstream id it was
 minted from (`fabId`, `tcgdexId`, `cardmarketId`, the gallery id) - except
 Yu-Gi-Oh's, where a minted entry is a product of one printing and stands
 for itself; Konami's passcode travels in `Identifiers` for the matcher's
-own use, never as a join key. Minted counts today: lorcana 212 products,
-fleshandblood 203 numbers, pokemon 257 entries over 867 tcgdex cards plus
-the Cardmarket-only stamped promos, onepiece 58 pre-errata printings
-hand-carried from CardTrader and 39 minted from Cardmarket's pre-errata
-shelf, gundam 7 tokens and 8 hand-carried promotional reprints, yugioh 691
-European first prints (688 joined to their North American sibling by
-passcode, 3 minted from YGOPRODeck's own name for cards the North American
+own use, never as a join key. What is minted: lorcana the catalog products
+upstream has no card for, fleshandblood the dataset's numbers, pokemon
+tcgdex's cards and the Cardmarket-only stamped promos, onepiece pre-errata
+printings hand-carried from CardTrader or minted from Cardmarket's
+pre-errata shelf, gundam tokens and hand-carried promotional reprints,
+yugioh European first prints (joined to their North American sibling by
+passcode, or minted from YGOPRODeck's own name for cards the North American
 set never printed; a code whose sibling is not itself a plain row stands
-down instead of minting).
+down instead of minting). The README carries the counts.
 
 ## 2. The document
 
@@ -431,7 +431,10 @@ Per-game notes an agent needs:
 
 - **fleshandblood**: one entry per sku printing; pitch colour is read off
   the name (`(Red)`) before the dataset's field; `(Marvel)` stays in the
-  name because the loader pins it (paired change outstanding).
+  name because the loader pins it (paired change outstanding). A product
+  the catalog files at another pitch's number of the same card is numbered
+  where the dataset prints its own pitch; the catalog's number stands
+  wherever the dataset agrees or cannot say.
 - **gundam**: rarity is the variant axis (`C`, `C+`, `C++` at one number
   are three products); promotional reprints TCGplayer does not sell are
   hand-carried in `handCarriedPrintings` and stand down when a product
