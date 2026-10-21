@@ -7,9 +7,9 @@ import (
 	tcgplayer "github.com/mtgban/go-tcgplayer"
 )
 
-// TestDecomposeToleratesTailWhitespace pins two malformed names and one
-// correct control against a number tail wider than " - "+num, which the
-// old exact ReplaceAll left in the published name.
+// TestDecomposeToleratesTailWhitespace pins that a number tail is stripped
+// whatever the whitespace around its dash, and that a hyphen with no space
+// before it is the name's own.
 func TestDecomposeToleratesTailWhitespace(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -20,6 +20,8 @@ func TestDecomposeToleratesTailWhitespace(t *testing.T) {
 		{"no space before number", "Jewelry Bonney -PRB02-004", "PRB02-004", "Jewelry Bonney"},
 		{"double space and trailing paren", "Trafalgar Law -  P-088 (Reprint)", "P-088", "Trafalgar Law"},
 		{"single space, unaffected", "Yamato - OP16-098", "OP16-098", "Yamato"},
+		{"hyphenated name keeps its hyphen", "Neo-Marine - OP16-001", "OP16-001", "Neo-Marine"},
+		{"no space before the dash is the name's", "Neo-OP16-001", "OP16-001", "Neo-OP16-001"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
