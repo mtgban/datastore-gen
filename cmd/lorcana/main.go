@@ -707,10 +707,12 @@ func oneCardPerPrinting(items []any) ([]any, []string) {
 // A card repeated exactly is dropped: it is the same card twice, and no
 // field of it is lost. A different card under an id already taken is kept,
 // on the id spelled from its own product, the way a minted product's is;
-// one naming no product is dropped, since nothing prices it. It returns the
+// one naming no product is dropped, since nothing prices it, and so is one
+// whose product an earlier repeat was already carried on. It returns the
 // cards kept, in their order, and what it did to each repeat.
 func oneCardPerID(items []any) ([]any, []string) {
 	first := map[int][]byte{}
+	carried := map[int]bool{}
 	var kept []any
 	var repeats []string
 	for _, item := range items {
@@ -741,8 +743,14 @@ func oneCardPerID(items []any) ([]any, []string) {
 			repeats = append(repeats, fmt.Sprintf("%d named by a second card with no product, dropped", id))
 			continue
 		}
-		raw["id"] = mintedID(int(product))
-		repeats = append(repeats, fmt.Sprintf("%d named by a second card, carried as %d", id, mintedID(int(product))))
+		minted := mintedID(int(product))
+		if carried[minted] {
+			repeats = append(repeats, fmt.Sprintf("%d named by a second card already carried as %d, dropped", id, minted))
+			continue
+		}
+		carried[minted] = true
+		raw["id"] = minted
+		repeats = append(repeats, fmt.Sprintf("%d named by a second card, carried as %d", id, minted))
 		kept = append(kept, item)
 	}
 	return kept, repeats
