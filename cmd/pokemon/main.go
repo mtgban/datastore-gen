@@ -3149,9 +3149,7 @@ func main() {
 			log.Printf("%s: abbreviation %s already taken, set code %s minted",
 				group.Name, group.Abbreviation, code)
 		}
-		if usedCodes[code] {
-			log.Fatalf("set code %s not unique; refusing to guess further", code)
-		}
+		code = emit.FreeSetCode(usedCodes, code)
 		usedCodes[code] = true
 		setCodes[group.GroupID] = code
 	}
@@ -3903,9 +3901,7 @@ func main() {
 			code = code + "-DEX"
 			log.Printf("tcgdex set %s: code already taken, minted set code %s", card.Set.ID, code)
 		}
-		if usedCodes[code] {
-			log.Fatalf("minted set code %s still not unique; refusing to guess further", code)
-		}
+		code = emit.FreeSetCode(usedCodes, code)
 		usedCodes[code] = true
 		mintedSetCode[card.Set.ID] = code
 		set := map[string]any{"name": card.Set.ID, "releaseDate": ""}

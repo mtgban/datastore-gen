@@ -566,14 +566,28 @@ func SetCodes(groups []tcgplayer.Group) map[int]string {
 			log.Printf("%s: abbreviation %s already taken, set code %s minted",
 				group.Name, group.Abbreviation, code)
 		}
-		if used[code] {
-			log.Fatalf("set code %s still not unique; refusing to guess further", code)
-		}
+		code = FreeSetCode(used, code)
 		used[code] = true
 		codes[group.GroupID] = code
 	}
 	log.Printf("set codes: %d minted for blank abbreviations, %d deduplicated", minted, suffixed)
 	return codes
+}
+
+// FreeSetCode returns code when used does not hold it, and otherwise the
+// first of code-2, code-3, … that it does not, logged. It is the last repair
+// after a builder's own suffix, so one group spelling another's repaired code
+// is carried on a code of its own rather than stopping the game.
+func FreeSetCode(used map[string]bool, code string) string {
+	if !used[code] {
+		return code
+	}
+	for n := 2; ; n++ {
+		if free := fmt.Sprintf("%s-%d", code, n); !used[free] {
+			log.Printf("set code %s still taken, set code %s minted", code, free)
+			return free
+		}
+	}
 }
 
 // HasDate reports whether a group's publishedOn is a real date: the catalog

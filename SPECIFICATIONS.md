@@ -145,7 +145,8 @@ whole.
 
 Keys are set codes: the catalog group's abbreviation, upper case, repaired
 where the catalog leaves it blank or claims it twice (a derived code, or the
-abbreviation with `-<groupId>`). A code is never claimed twice; Gundam, One
+abbreviation with `-<groupId>`, then `-2`, `-3`… where that too is taken).
+A code is never claimed twice; Gundam, One
 Piece and Palworld also refuse a build whose set count differs from its
 populated group count.
 
