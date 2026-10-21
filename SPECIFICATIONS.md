@@ -218,7 +218,7 @@ the printing name (`""` for the plain printing, else `_` plus the slug:
 | palworld | `<number>_<productId><suffix>` | `<number>` alone |
 | pokemon | `<number>-<total>_<productId><suffix>` (`226-164_268081`, `sm04_147224`) | tcgdex: `<tcgdexId><suffix>`; Cardmarket: `<number>-<total>_mkm<cardmarketId><suffix>` |
 | yugioh | `<number>_<productId><suffix>` (`blgg-en116_695673_1stedition`) | `<number><suffix>`, lower-cased (`lob-e003_unlimited`, `dl1-e001_limited`) |
-| riftbound | `<abbrev>-<productId>` for every printing and sealed item | same, keyed by the product |
+| riftbound | the gallery's own id (`unl-131-219`); uuids per printing `unl-131-219`, `unl-131-219_foil` | adopted and sealed: `<abbrev>-<productId>` |
 | lorcana | integer: LorcanaJSON's card id; uuids per printing `1951`, `1951_coldfoil`, `1951_holofoil` | `-<productId>`, uuids `m-714954`, `m-714954_holofoil` |
 
 A product with no collector number takes the bare product id as its stem.
@@ -233,9 +233,11 @@ entry stand beside a priced one without a check.
 merged in, under `data`. The cards are at
 `data.pageProps.page.blades[].cards.items[]`; each item keeps the gallery's
 own fields (`id`, `name`, `publicCode`, `set.value.{id,label}`,
-`rarity.value.id`, `finishes`, `cardImage.url`) and gains `setCode`,
-`number`, `image` and `externalLinks.tcgPlayerId`, the names every game
-shares and the ones `mtgmatcher/riftbound` reads. A catalog product the
+`rarity.value.id`, `cardImage.url`) and gains `setCode`, `number`, `image`,
+`externalLinks.tcgPlayerId` and `printings` (`{finish, id}`, one per
+finish the catalog prices, or one per finish the catalog knows where it
+prices none), the names every game shares and the ones
+`mtgmatcher/riftbound` reads. A catalog product the
 gallery has no row for is adopted as a printing with the same shape, named
 as the gallery names its card where the gallery carries another printing of
 it, its `domain` taken from a gallery printing of the same name or else from
@@ -581,7 +583,8 @@ since go-mtgban's `710af946d`, nothing else. What it reads, and therefore
 what a change here must keep true:
 
 - **Identity** is `name` + `number` (+ `rarity` where the game sells one
-  number at several rarities; + `total` in Pokemon), narrowed by the
+  number at several rarities; + `total` in Pokemon, and in Lorcana where
+  the number alone answers twice), narrowed by the
   edition a storefront names. The loader folds the number's padding and
   total itself.
 - **`promoTypes`** are declared as tags and used to tier candidates: a
