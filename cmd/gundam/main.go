@@ -1061,7 +1061,7 @@ func main() {
 // over it, and colours in the card list's order.
 var properties = map[string][]string{
 	"rarity": {
-		"P +", "Promo", "LR++", "LR+", "Legend Rare", "R+", "Rare", "U+",
+		"Promo", "LR++", "LR+", "Legend Rare", "R+", "Rare", "U+",
 		"Uncommon", "C++", "C+", "Common",
 	},
 	"color": {"Blue", "Green", "Red", "Purple", "White"},
