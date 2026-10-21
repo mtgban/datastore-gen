@@ -21,6 +21,8 @@ for _ in range(200):
     page = json.load(urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=60))
     rows.extend(page["data"])
     url = page.get("meta", {}).get("next")
+if not rows:
+    sys.exit("palworld: the API listed no card")
 json.dump(rows, open(sys.argv[1], "w"))
 print(f"palworld: {len(rows)} cards")
 PY

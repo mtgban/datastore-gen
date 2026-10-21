@@ -96,10 +96,11 @@ games_in() {
 
 # One catalog and one set of upstream responses for the whole run. Only the
 # games named are fetched, which is what keeps a change touching one builder
-# from pulling a quarter of a gigabyte it will not read.
+# from pulling a quarter of a gigabyte it will not read. An HTTP error
+# fails the run, rather than leaving an error page both builds refuse alike.
 fetch_inputs() {
   local g pair name
-  fetch() { curl -sSL --retry 3 --retry-all-errors --max-time 180 -A "datastore-gen tagger" "$1" -o "$2"; }
+  fetch() { curl -fsSL --retry 3 --retry-all-errors --max-time 180 -A "datastore-gen tagger" "$1" -o "$2"; }
   bucket() { b2 file download --no-progress "b2://$BUCKET/$1" "$2.xz" >/dev/null && xz -d "$2.xz"; }
   for g in "$@"; do
     bucket "$g/tcgplayer-catalog.json.xz" "$WORK/$g-cat.json"

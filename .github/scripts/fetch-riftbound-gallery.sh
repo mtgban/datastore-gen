@@ -39,12 +39,12 @@ def repeated(data):
     return out
 
 page = urllib.request.urlopen(urllib.request.Request(
-    "https://riftbound.leagueoflegends.com/en-us/card-gallery/", headers=UA), timeout=60
+    "https://playriftbound.com/en-us/card-gallery/", headers=UA), timeout=60
 ).read().decode("utf-8", "ignore")
 build = re.search(r'"buildId":"([^"]+)"', page)
 if not build:
     sys.exit("no buildId in the card gallery page; the shape changed")
-url = f"https://riftbound.leagueoflegends.com/_next/data/{build.group(1)}/en-us/card-gallery.json"
+url = f"https://playriftbound.com/_next/data/{build.group(1)}/en-us/card-gallery.json"
 for attempt in range(1, ATTEMPTS + 1):
     data = urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=120).read()
     rows = repeated(data)
