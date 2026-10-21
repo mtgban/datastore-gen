@@ -90,6 +90,7 @@ import (
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/validate"
 	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-cardmarket"
@@ -299,8 +300,7 @@ func keptQuals(qual string) []string {
 		labels = []string{m[1], m[2]}
 	}
 	for i, label := range labels {
-		if respelled, found := qualSpellings[label]; found {
-			qualSpellingsUsed[label] = true
+		if respelled, found := qualSpellings.Get(label); found {
 			labels[i] = respelled
 		}
 	}
@@ -316,11 +316,7 @@ var placementRe = regexp.MustCompile(`^(.+?) (Participant|Top \d+)$`)
 
 // qualSpellings fold TCGplayer's odd spelling of a label into the one its
 // other products use: 1 of 8 Store Championship prizes on 2026-09-25.
-var qualSpellings = map[string]string{"Store Champion": "Store Championship"}
-
-// qualSpellingsUsed records the rows a build used, so one nothing needs
-// any more says so.
-var qualSpellingsUsed = map[string]bool{}
+var qualSpellings = handtable.New("qualSpellings", map[string]string{"Store Champion": "Store Championship"})
 
 func keptQual(qual string) string {
 	qual = strings.TrimSpace(qual)
@@ -1348,11 +1344,6 @@ func main() {
 		}
 	}
 	log.Printf("image: %d cards given the common field beside upstream's images object", imaged)
-	for spelling, respelled := range qualSpellings {
-		if !qualSpellingsUsed[spelling] {
-			log.Printf("qualifier respelling %q -> %q: no product spells it that way any more", spelling, respelled)
-		}
-	}
 
 	// The finish each printing is sold under, in TCGplayer's own words,
 	// and the uuid each of those prices.
@@ -1559,6 +1550,7 @@ func main() {
 	emit.DropEmptySets(sets, published, sealedItems)
 	doc["properties"] = properties
 
+	handtable.Report()
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
