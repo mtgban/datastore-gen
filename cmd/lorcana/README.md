@@ -17,11 +17,10 @@ does not:
 - the extra product ids TCGplayer uses for a card's foil, which it sells as
   a separate product (`tcgPlayerExtraIds`);
 - the TCGplayer printing names each card is sold under, as each
-  printing's `finish` (Normal, Holofoil, Cold Foil), beside LorcanaJSON's own
-  richer foil sub-types — and the catalog settles which of them exist, a
-  printing TCGplayer prices a sku for being one that exists, while upstream
-  keeps naming the foils, since its sub-types are what storefront wording
-  resolves against;
+  printing's `finish` (Normal, Holofoil, Cold Foil) — the catalog settles
+  which of them exist, a printing TCGplayer prices a sku for being one that
+  exists — with LorcanaJSON's richer foil sub-types published as that
+  printing's `promoTypes` in place of upstream's `foilTypes`;
 - every sealed product the catalog carries, in a top-level `sealed` array a
   stock LorcanaJSON reader ignores, with a set entry minted for the groups
   LorcanaJSON has no set for;
@@ -48,14 +47,12 @@ carries no card or a printing other than the ones its skus sell.
 
 The finishes a card is sold in are named the way TCGplayer names them
 ("Normal", "Cold Foil", "Holofoil"), as the other games name theirs, and
-LorcanaJSON's own richer foil types reach them two ways: as a promo type
-naming the treatment, and as a spelling filed under `finishAliases` so a
-storefront asking for one lands on the printing it means rather than on the
-standard foil beside it.
+LorcanaJSON's own richer foil types reach them as a promo type on the
+printing they name, so a storefront asking for one lands on that printing
+rather than on the standard foil beside it.
 
-Card identity is left entirely to LorcanaJSON: its integer card ids are the
-matcher's uuids, and its foil sub-type names are what storefront wording
-resolves against. Set codes are LorcanaJSON's too; a catalog group whose
+Card identity is left entirely to LorcanaJSON: its integer card ids spell
+the matcher's uuids, one per printing (`1951`, `1951_coldfoil`). Set codes are LorcanaJSON's too; a catalog group whose
 abbreviation another group already claimed gets its own group id suffixed,
 so two groups can never fold onto one set.
 
@@ -76,12 +73,16 @@ instead of imported.
 ```sh
 go run . -tcg-catalog tcgplayer-catalog.json \
   -lorcana https://lorcanajson.org/files/current/en/allCards.json \
+  -cardmarket-catalog cardmarket_catalog.json \
   -o lorcana.json
 ```
 
 - `-tcg-catalog` (required) — a tcgdumper dump of TCGplayer category 71,
   published nightly at `b2://mtgban-datastore/lorcana/tcgplayer-catalog.json.xz`
 - `-lorcana` (required) — the LorcanaJSON allCards file, as a path or URL
+- `-cardmarket-catalog` (required) — the published Cardmarket catalog, read
+  for the product selling each foil TCGplayer sells apart, at
+  `b2://mtgban-datastore/lorcana/cardmarket_catalog.json.xz`
 - `-o` — output file (stdout by default)
 - `-against` — the baseline to compare this build against, with
   `-against-tolerance` and `-baseline-fit`
