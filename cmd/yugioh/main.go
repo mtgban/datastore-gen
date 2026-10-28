@@ -415,7 +415,9 @@ func isPromoGroup(group tcgplayer.Group) bool {
 	return strings.Contains(strings.ToLower(group.Name), "promo")
 }
 
-var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
+// parenRe matches a qualifier, closed or left open at the end of the name:
+// the catalog drops the ")" on "Aussa the Earth Charmer (Starlight Rare".
+var parenRe = regexp.MustCompile(`\s*\(([^)]+)(?:\)|$)`)
 var bareNumRe = regexp.MustCompile(`^\d{1,4}$`)
 
 // single is one card product, its name split into the base name, the
