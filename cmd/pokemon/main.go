@@ -2120,6 +2120,9 @@ var rawNames = handtable.New("rawNames", map[int]string{
 	// A stray letter after the closing parenthesis, which stops the peel
 	// dead: "Jet Energy - 2023 (Gabriel Fernandez)a".
 	541801: "Jet Energy - 2023 (Gabriel Fernandez)",
+	// The catalog loses the slash of the number: "Makuhita - 56109" for
+	// 56/109, one digit more than a dash number may have.
+	87125: "Makuhita - 56/109",
 })
 
 // worldsGroupRe matches the catalog group that is not one set. TCGplayer
