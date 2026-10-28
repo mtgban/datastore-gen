@@ -1595,6 +1595,7 @@ var catalogFixes = handtable.New("catalogFixes", map[int]productFix{
 	690687: {number: "LGS446"},
 	695227: {name: "Heaven's Claws (Yellow)", number: "OMN173"},
 	695228: {name: "Heaven's Claws (Blue)", number: "OMN174"},
+	700890: {number: "JDG082"},
 })
 
 // fixProduct applies a product's catalogFixes row, if it still changes
