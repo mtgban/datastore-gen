@@ -161,7 +161,9 @@ populated group count.
 
 A set upstream publishes and the catalog has no group for is **minted**
 from upstream's own code, name and date (lorcana, fleshandblood, pokemon,
-riftbound). A set holding neither a card nor a sealed product is refused
+riftbound). A fleshandblood set of promos the dataset gives no date takes
+the date of the catalog's largest promotional group, the game's running
+promo series. A set holding neither a card nor a sealed product is refused
 (pokemon) or never emitted.
 
 ### 2.2 Cards
