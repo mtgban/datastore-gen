@@ -43,7 +43,9 @@
 // because there is none, and the loader groups an entry without a product
 // id by its own id with the finish suffix stripped, which is how these are
 // built. Its set is the group's where the catalog has one and the
-// dataset's own code, name and earliest release date where it does not.
+// dataset's own code, name and earliest release date where it does not;
+// a set of promos the dataset gives no date takes the date of the
+// catalog's running promo series (promoSeriesDate).
 // The finishes are the ones the dataset's edition and foiling name; a pair
 // TCGplayer has no printing for — the Gold Cold Foils, the Alpha edition —
 // mints no entry of its own, and a card whose every row wears one still
@@ -466,6 +468,18 @@ func promoGroups(catalog tcgplayer.CatalogDump) map[int]bool {
 		}
 	}
 	return out
+}
+
+// promoSeriesDate is the release date of the catalog's running promo
+// series: the promotional group holding the most products.
+func promoSeriesDate(catalog tcgplayer.CatalogDump, promoted map[int]bool, productsIn map[int]int) string {
+	var series tcgplayer.Group
+	for _, group := range catalog.Groups {
+		if promoted[group.GroupID] && productsIn[group.GroupID] > productsIn[series.GroupID] {
+			series = group
+		}
+	}
+	return series.ReleaseDate()
 }
 
 // promoRarity is what the catalog calls the rarity of a printing handed out
@@ -1075,6 +1089,18 @@ func main() {
 	for _, code := range codes {
 		takenCodes[code] = true
 	}
+	// A set the dataset gives no date is dated as the promo series only
+	// when every row minted into it is a promo, so an unannounced set
+	// stays undated.
+	notPromo := map[string]bool{}
+	for _, number := range mintableOrder {
+		for _, row := range mintable[number] {
+			if fabRarity[row.Rarity] != promoRarity {
+				notPromo[emit.SetCodeOf(row.SetID)] = true
+			}
+		}
+	}
+	seriesDate := promoSeriesDate(catalog, promoted, productsIn)
 	mintedSetCode := map[string]string{}
 	var mintedSets int
 	for _, number := range mintableOrder {
@@ -1115,9 +1141,14 @@ func main() {
 		if name == "" {
 			name = setID
 		}
+		releaseDate := upstream.releaseDate()
+		if releaseDate == "" && !notPromo[setID] {
+			releaseDate = seriesDate
+			log.Printf("dataset set %s has no release date; dated %s as the promo series", setID, releaseDate)
+		}
 		set := map[string]any{
 			"name":        name,
-			"releaseDate": upstream.releaseDate(),
+			"releaseDate": releaseDate,
 		}
 		sets[code] = set
 		mintedSets++

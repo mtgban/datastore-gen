@@ -3,6 +3,8 @@ package main
 import (
 	"slices"
 	"testing"
+
+	"github.com/mtgban/go-tcgplayer"
 )
 
 // TestDropMintedTwinsKeepsTheSoldCard pins that a minted entry is dropped
@@ -28,5 +30,23 @@ func TestDropMintedTwinsKeepsTheSoldCard(t *testing.T) {
 	}
 	if !slices.Equal(ids, []string{"her0156", "m-token"}) || len(dropped) != 2 {
 		t.Errorf("kept %v, dropped %q; want the two twins dropped", ids, dropped)
+	}
+}
+
+// TestPromoSeriesDate pins that the promo series is the promotional group
+// holding the most products, not the earliest one or a larger plain set.
+func TestPromoSeriesDate(t *testing.T) {
+	catalog := tcgplayer.CatalogDump{Groups: []tcgplayer.Group{
+		{GroupID: 1, Name: "Welcome Deck", PublishedOn: "2019-08-31T00:00:00"},
+		{GroupID: 2, Name: "Promo Cards", PublishedOn: "2019-10-11T00:00:00"},
+		{GroupID: 3, Name: "Expansion", PublishedOn: "2020-01-01T00:00:00"},
+	}}
+	promoted := map[int]bool{1: true, 2: true}
+	productsIn := map[int]int{1: 12, 2: 1235, 3: 5000}
+	if got := promoSeriesDate(catalog, promoted, productsIn); got != "2019-10-11" {
+		t.Errorf("promoSeriesDate = %q, want 2019-10-11", got)
+	}
+	if got := promoSeriesDate(catalog, map[int]bool{}, productsIn); got != "" {
+		t.Errorf("promoSeriesDate with no promotional group = %q, want none", got)
 	}
 }
