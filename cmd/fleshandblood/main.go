@@ -482,6 +482,29 @@ func promoSeriesDate(catalog tcgplayer.CatalogDump, promoted map[int]bool, produ
 	return series.ReleaseDate()
 }
 
+// promoOnlySets names the dataset sets whose every mintable row is a promo.
+// Only those take the promo series' date when the dataset gives none, so an
+// unannounced set, or one holding a rarity fabRarity does not know, stays
+// undated.
+func promoOnlySets(mintable map[string][]fabRow) map[string]bool {
+	promo := map[string]bool{}
+	notPromo := map[string]bool{}
+	for _, rows := range mintable {
+		for _, row := range rows {
+			setID := emit.SetCodeOf(row.SetID)
+			if fabRarity[row.Rarity] == promoRarity {
+				promo[setID] = true
+			} else {
+				notPromo[setID] = true
+			}
+		}
+	}
+	for setID := range notPromo {
+		delete(promo, setID)
+	}
+	return promo
+}
+
 // promoRarity is what the catalog calls the rarity of a printing handed out
 // rather than sold in a pack.
 const promoRarity = "Promo"
@@ -1089,17 +1112,7 @@ func main() {
 	for _, code := range codes {
 		takenCodes[code] = true
 	}
-	// A set the dataset gives no date is dated as the promo series only
-	// when every row minted into it is a promo, so an unannounced set
-	// stays undated.
-	notPromo := map[string]bool{}
-	for _, number := range mintableOrder {
-		for _, row := range mintable[number] {
-			if fabRarity[row.Rarity] != promoRarity {
-				notPromo[emit.SetCodeOf(row.SetID)] = true
-			}
-		}
-	}
+	promoOnly := promoOnlySets(mintable)
 	seriesDate := promoSeriesDate(catalog, promoted, productsIn)
 	mintedSetCode := map[string]string{}
 	var mintedSets int
@@ -1142,7 +1155,7 @@ func main() {
 			name = setID
 		}
 		releaseDate := upstream.releaseDate()
-		if releaseDate == "" && !notPromo[setID] {
+		if releaseDate == "" && promoOnly[setID] && seriesDate != "" {
 			releaseDate = seriesDate
 			log.Printf("dataset set %s has no release date; dated %s as the promo series", setID, releaseDate)
 		}
