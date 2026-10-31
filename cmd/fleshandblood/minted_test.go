@@ -1,6 +1,7 @@
 package main
 
 import (
+	"maps"
 	"slices"
 	"testing"
 
@@ -48,5 +49,20 @@ func TestPromoSeriesDate(t *testing.T) {
 	}
 	if got := promoSeriesDate(catalog, map[int]bool{}, productsIn); got != "" {
 		t.Errorf("promoSeriesDate with no promotional group = %q, want none", got)
+	}
+}
+
+func TestPromoOnlySets(t *testing.T) {
+	mintable := map[string][]fabRow{
+		"WIN001": {{SetID: "WIN", Rarity: "P"}},
+		"WIN002": {{SetID: "WIN", Rarity: "P"}},
+		"MIX001": {{SetID: "MIX", Rarity: "P"}},
+		"MIX002": {{SetID: "MIX", Rarity: "R"}},
+		"UNK001": {{SetID: "UNK", Rarity: "X"}},
+	}
+	got := promoOnlySets(mintable)
+	want := map[string]bool{"WIN": true}
+	if !maps.Equal(got, want) {
+		t.Errorf("promoOnlySets = %v, want %v", got, want)
 	}
 }
