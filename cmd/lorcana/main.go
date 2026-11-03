@@ -136,6 +136,40 @@ func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
 	return out
 }
 
+// pricedSingles splits the products the catalog types as a card into the
+// ones it prices a sku for, which the entries must carry exactly, and the
+// ones it prices nothing for yet, which have no printing to carry until it
+// does. The names of the second are for the log.
+func pricedSingles(products []tcgplayer.Product, printings map[int][]string) (priced, unpriced map[int]bool, names []string) {
+	priced, unpriced = map[int]bool{}, map[int]bool{}
+	for _, product := range products {
+		if !slices.Contains(tcgSingles, product.ProductType) {
+			continue
+		}
+		if len(printings[product.ProductID]) == 0 {
+			unpriced[product.ProductID] = true
+			names = append(names, fmt.Sprintf("%q (%d)", product.Name, product.ProductID))
+			continue
+		}
+		priced[product.ProductID] = true
+	}
+	return priced, unpriced, names
+}
+
+// unlinkUnpriced takes the product off an upstream card that names one
+// priced in nothing yet, so the card is carried as one TCGplayer sells none
+// of until it is, and returns that product; it returns 0 for any other card.
+func unlinkUnpriced(c *card, unpriced map[int]bool) int {
+	product := c.tcgID
+	if product == 0 || !unpriced[product] {
+		return 0
+	}
+	c.tcgID = 0
+	delete(c.links, "tcgPlayerId")
+	delete(c.links, "tcgPlayerUrl")
+	return product
+}
+
 // foilOnly reports whether every printing a product is sold in is a foil
 // one.
 func foilOnly(printings []string) bool {
@@ -947,25 +981,26 @@ func main() {
 	if err != nil {
 		log.Fatalln("tcg catalog:", err)
 	}
+	printings := printingNames(&catalog)
 	productByID := map[int]tcgplayer.Product{}
-	// The coverage contract: every product the catalog types as a card.
-	// validate reads it back off the encoded output, so a product no rule
-	// here carried fails the build instead of leaving the datastore.
-	cardProducts := map[int]bool{}
 	for _, product := range catalog.Products {
 		productByID[product.ProductID] = product
-		if slices.Contains(tcgSingles, product.ProductType) {
-			cardProducts[product.ProductID] = true
-		}
 	}
-	singles := len(cardProducts)
+	// The coverage contract. validate reads it back off the encoded output,
+	// so a product no rule here carried fails the build instead of leaving
+	// the datastore.
+	cardProducts, unpriced, unpricedNames := pricedSingles(catalog.Products, printings)
+	if len(unpricedNames) > 0 {
+		log.Printf("unpriced: %d card products TCGplayer sells no sku for yet, carried once it does: %s",
+			len(unpricedNames), strings.Join(unpricedNames, ", "))
+	}
+	singles := len(cardProducts) + len(unpriced)
 	// A dump from before the product type was recorded types nothing, and
 	// the sealed-by-exclusion rule would then file the whole catalog as
 	// sealed; a dump whose singles all vanished is equally implausible.
 	if singles == 0 {
 		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
 	}
-	printings := printingNames(&catalog)
 	finishNames := catalogFinishes(&catalog)
 	log.Printf("catalog: %d groups, %d products (%d singles)",
 		len(catalog.Groups), len(catalog.Products), singles)
@@ -1008,6 +1043,10 @@ func main() {
 		if !ok {
 			continue
 		}
+		if product := unlinkUnpriced(&c, unpriced); product != 0 {
+			log.Printf("unpriced: %s (%s %s) names product %d, which prices nothing yet; carried unlinked",
+				c.fullName, c.setCode, c.number, product)
+		}
 		cards = append(cards, c)
 		if c.tcgID != 0 {
 			claimed[c.tcgID] = true
@@ -1049,7 +1088,7 @@ func main() {
 	// that need the most help.
 	unclaimed := map[string][]tcgplayer.Product{}
 	for _, product := range catalog.Products {
-		if !slices.Contains(tcgSingles, product.ProductType) || claimed[product.ProductID] {
+		if !cardProducts[product.ProductID] || claimed[product.ProductID] {
 			continue
 		}
 		num := product.Extended("Number")
@@ -1191,7 +1230,7 @@ func main() {
 	}
 	log.Printf("printings: %d cards told which finishes the catalog sells them in", printed)
 
-	// Mint a card for every single the catalog carries that no card
+	// Mint a card for every single the catalog prices that no card
 	// claimed or matched: the printings upstream has not published, the
 	// unnumbered inserts and oversized components it has no concept for,
 	// and the listings a card's own product join refused. A product
@@ -1204,7 +1243,7 @@ func main() {
 	languageNames := emit.LanguageNames(&catalog)
 	var mintable []tcgplayer.Product
 	for _, product := range catalog.Products {
-		if !slices.Contains(tcgSingles, product.ProductType) {
+		if !cardProducts[product.ProductID] {
 			continue
 		}
 		if claimed[product.ProductID] || matched[product.ProductID] {

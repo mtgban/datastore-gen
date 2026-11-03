@@ -258,7 +258,10 @@ as a product of its own, the Panorama foils), `cardmarketExtraIds` (the
 Cardmarket product selling that same foil, the later version of the card's own
 `cardmarketId` at its number), and a `printings[]`
 array of `{finish, id, promoTypes}` with one uuid per finish the catalog sells;
-upstream's `foilTypes` is folded into it and removed. The catalog decides
+upstream's `foilTypes` is folded into it and removed, and is what names the
+finishes of a card the catalog sells none of. Upstream's card for a product
+priced in nothing yet is one of those: its `tcgPlayerId` and `tcgPlayerUrl`
+are dropped until the product is priced. The catalog decides
 which finishes exist (a card upstream calls foil-only still gets a nonfoil
 uuid when TCGplayer sells one); upstream still names the foil sub-type as a
 `promoTypes` label. A promo on a TCGplayer promo shelf also carries the label
