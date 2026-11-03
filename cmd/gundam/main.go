@@ -555,7 +555,7 @@ func main() {
 
 	groupByID := build.GroupsByID(catalog.Groups)
 	codes := emit.SetCodes(catalog.Groups)
-	printings := catalog.PrintingNames()
+	printings := emit.PrintingNames(&catalog)
 	displayOrder := emit.PrintingDisplayOrder(&catalog)
 
 	// Split the products: every single becomes printings, the non-single

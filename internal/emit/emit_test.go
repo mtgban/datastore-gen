@@ -605,6 +605,28 @@ func TestPrintingNamesFollowTheCatalogsOrder(t *testing.T) {
 	}
 }
 
+// TestEnglishPrintingNamesCountOnlyEnglishSkus pins that a printing priced
+// only in another language is not one the English product is sold in.
+func TestEnglishPrintingNamesCountOnlyEnglishSkus(t *testing.T) {
+	c := &tcgplayer.CatalogDump{
+		Printings: []tcgplayer.Printing{
+			{PrintingID: 1, Name: "Normal", DisplayOrder: 1},
+			{PrintingID: 2, Name: "Holofoil", DisplayOrder: 2},
+		},
+		Products: []tcgplayer.Product{
+			{ProductID: 7, Skus: []tcgplayer.SKU{{PrintingID: 2, LanguageID: 7}, {PrintingID: 1, LanguageID: 1}}},
+			{ProductID: 8, Skus: []tcgplayer.SKU{{PrintingID: 2, LanguageID: 7}}},
+		},
+	}
+	got := EnglishPrintingNames(c)
+	if want := []string{"Normal"}; !slices.Equal(got[7], want) {
+		t.Errorf("EnglishPrintingNames[7] = %q, want %q", got[7], want)
+	}
+	if len(got[8]) != 0 {
+		t.Errorf("EnglishPrintingNames[8] = %q, want none", got[8])
+	}
+}
+
 // TestProductLanguageNamesTheNonEnglishOnes pins that a product with an
 // English sku is the English program, and another is named by its
 // language, spelled the way the matcher tags it.

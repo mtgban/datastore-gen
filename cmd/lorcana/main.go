@@ -109,32 +109,6 @@ const (
 // sealed side where it is noticed instead of silently passing as a single.
 var tcgSingles = tcgplayer.SinglesProductTypes(lorcanaCategory)
 
-// printingNames maps each product to the sorted printing names it is sold
-// under. TCGplayer's category 71 has exactly three — Normal, Holofoil and
-// Cold Foil — and a printing it does not list for a product is one that
-// does not exist.
-func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
-	name := map[int]string{}
-	for _, p := range c.Printings {
-		name[p.PrintingID] = p.Name
-	}
-
-	out := map[int][]string{}
-	for _, product := range c.Products {
-		var names []string
-		for _, sku := range product.Skus {
-			n := name[sku.PrintingID]
-			if n == "" || slices.Contains(names, n) {
-				continue
-			}
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		out[product.ProductID] = names
-	}
-	return out
-}
-
 // pricedSingles splits the products the catalog types as a card into the
 // ones it prices a sku for, which the entries must carry exactly, and the
 // ones it prices nothing for yet, which have no printing to carry until it
@@ -970,7 +944,8 @@ func main() {
 	}
 
 	catalog := b.ReadCatalog()
-	printings := printingNames(&catalog)
+	printings := emit.PrintingNames(&catalog)
+	displayOrder := emit.PrintingDisplayOrder(&catalog)
 	productByID := map[int]tcgplayer.Product{}
 	for _, product := range catalog.Products {
 		productByID[product.ProductID] = product
@@ -1212,8 +1187,7 @@ func main() {
 		if len(names) == 0 {
 			continue
 		}
-		sort.Strings(names)
-		c.links["tcgPrintings"] = names
+		c.links["tcgPrintings"] = emit.OrderedFinishes(names, displayOrder)
 		printed++
 	}
 	log.Printf("printings: %d cards told which finishes the catalog sells them in", printed)

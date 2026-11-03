@@ -1739,9 +1739,9 @@ func main() {
 	groupByID := build.GroupsByID(catalog.Groups)
 	codes := emit.SetCodes(catalog.Groups)
 
-	// In the order the category lists its printings, which nothing reads:
+	// In the order the catalog displays its printings, which nothing reads:
 	// the loader tells a product's finishes apart by the "_foil" on the id.
-	printings := catalog.PrintingNames()
+	printings := emit.PrintingNames(&catalog)
 
 	// Split the products: every single becomes printings, the non-single
 	// types become sealed.
