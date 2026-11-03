@@ -166,6 +166,62 @@ var upstreamRarity = map[string]string{
 	"R":  "Rare",
 	"LR": "Legend Rare",
 	"P":  "Promo",
+	// RP-068's parallel, the one product the catalog has ever filed at
+	// "P +", while it sold it.
+	"P +": "P +",
+}
+
+// sortUpstream orders gcg-api's rows by number and, within one, by gcg-api's
+// id, so the base printing ("RP-068") comes before its parallels
+// ("RP-068_p1") and unchanged data keeps producing byte-identical output.
+func sortUpstream(rows []gcgCard) {
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Number != rows[j].Number {
+			return rows[i].Number < rows[j].Number
+		}
+		return rows[i].ID < rows[j].ID
+	})
+}
+
+// mints is what the mint has handed out so far: the ids, and the rarities
+// minted at each number, as the catalog spells them.
+type mints struct {
+	ids      map[string]bool
+	rarities map[string][]string
+}
+
+// claim is the id a gcg-api row of a number nothing carries mints under, or
+// "" where it mints none. The first row at a number takes the number. A
+// parallel takes gcg-api's own id for it, but only with a rarity this build
+// spells and no printing at the number already wears: of the 604 numbers
+// gcg-api lists more than once, 533 have a parallel spelled "R +" and the
+// like, and GD01-013 has four rows at Common, which would mint as twins.
+// A parallel is filed under its own set_code: ST05-010_p2, an event "P",
+// would mint as Promo under ST05, where the catalog files event promos
+// under promoSetCode.
+func (m mints) claim(u gcgCard, rarity string, spelled bool) string {
+	id := emit.IDStem(u.Number)
+	if m.ids[id] {
+		if !spelled || slices.Contains(m.rarities[u.Number], rarity) {
+			return ""
+		}
+		id = emit.IDStem(u.ID)
+	}
+	if id == "" || m.ids[id] {
+		return ""
+	}
+	m.ids[id] = true
+	m.rarities[u.Number] = append(m.rarities[u.Number], rarity)
+	return id
+}
+
+// spellRarity is a gcg-api rarity code as the catalog spells it, and whether
+// upstreamRarity knows it; a code it does not is returned as it stands.
+func spellRarity(code string) (string, bool) {
+	if spelled, known := upstreamRarity[code]; known {
+		return spelled, true
+	}
+	return code, false
 }
 
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
@@ -571,10 +627,7 @@ func main() {
 		log.Fatalln("gcg-api:", err)
 	}
 	upstream = emit.DropRepeats("gcg-api", upstream, func(c gcgCard) string { return c.ID })
-	// Stable order, so unchanged data keeps producing byte-identical output.
-	sort.Slice(upstream, func(i, j int) bool {
-		return upstream[i].Number < upstream[j].Number
-	})
+	sortUpstream(upstream)
 	upstreamNames := map[string][]string{}
 	for _, u := range upstream {
 		if u.Number != "" && u.Name != "" && !slices.Contains(upstreamNames[u.Number], u.Name) {
@@ -805,7 +858,7 @@ func main() {
 		}
 	}
 	var minted, unplaced, unrated int
-	mintedIDs := map[string]bool{}
+	claimed := mints{ids: map[string]bool{}, rarities: map[string][]string{}}
 	for _, u := range upstream {
 		if u.Number == "" || carriedNumbers[u.Number] {
 			continue
@@ -820,17 +873,20 @@ func main() {
 				u.Number, u.Name, u.SetCode)
 			continue
 		}
-		id := emit.IDStem(u.Number)
-		if id == "" || mintedIDs[id] {
+		rarity, spelled := spellRarity(u.Rarity)
+		id := claimed.claim(u, rarity, spelled)
+		if id == "" && len(claimed.rarities[u.Number]) > 0 {
+			unplaced++
+			log.Printf("gcg-api: %s (%s) is a second printing at %s, at a rarity %q unspelled or already minted there; not minted",
+				u.ID, u.Name, u.Number, u.Rarity)
+			continue
+		}
+		if id == "" {
 			unplaced++
 			log.Printf("gcg-api: %s (%s) mints no usable id; not minted", u.Number, u.Name)
 			continue
 		}
-		mintedIDs[id] = true
-		rarity := u.Rarity
-		if spelled, known := upstreamRarity[rarity]; known {
-			rarity = spelled
-		} else if rarity != "" {
+		if !spelled && rarity != "" {
 			unrated++
 		}
 		entry := map[string]any{
@@ -1061,7 +1117,7 @@ func main() {
 // over it, and colours in the card list's order.
 var properties = map[string][]string{
 	"rarity": {
-		"Promo", "LR++", "LR+", "Legend Rare", "R+", "Rare", "U+",
+		"P +", "Promo", "LR++", "LR+", "Legend Rare", "R+", "Rare", "U+",
 		"Uncommon", "C++", "C+", "Common",
 	},
 	"color": {"Blue", "Green", "Red", "Purple", "White"},
