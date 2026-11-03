@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"maps"
 	"slices"
 	"testing"
@@ -48,6 +49,39 @@ func TestPromoSeriesDate(t *testing.T) {
 	}
 	if got := promoSeriesDate(catalog, map[int]bool{}, productsIn); got != "" {
 		t.Errorf("promoSeriesDate with no promotional group = %q, want none", got)
+	}
+}
+
+// TestMintedSetDateLeavesAnUndatedSetUndated pins that a minted set of promos
+// the dataset gives no date, in a catalog with no promotional group, publishes
+// no releaseDate, that the dataset's date and the series' still apply, and
+// that the series' applies only to a set of promos.
+func TestMintedSetDateLeavesAnUndatedSetUndated(t *testing.T) {
+	catalog := tcgplayer.CatalogDump{Groups: []tcgplayer.Group{
+		{GroupID: 3, Name: "Expansion", PublishedOn: "2020-01-01T00:00:00"},
+	}}
+	seriesDate := promoSeriesDate(catalog, map[int]bool{}, map[int]int{3: 5000})
+	undated := fabSet{ID: "WIN", Name: "Win Pack"}
+	encoded, err := json.Marshal(&emit.Set{Name: undated.Name,
+		ReleaseDate: mintedSetDate("WIN", undated, true, seriesDate)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != `{"name":"Win Pack"}` {
+		t.Errorf("undated minted set encodes as %s, want no releaseDate", encoded)
+	}
+
+	if got := mintedSetDate("WIN", undated, true, "2019-10-11"); got != "2019-10-11" {
+		t.Errorf("mintedSetDate with a promo series = %q, want 2019-10-11", got)
+	}
+	if got := mintedSetDate("XXX", undated, false, "2019-10-11"); got != "" {
+		t.Errorf("mintedSetDate for a set not wholly promos = %q, want none", got)
+	}
+	dated := fabSet{ID: "WIN", Printings: []struct {
+		InitialReleaseDate string `json:"initial_release_date"`
+	}{{InitialReleaseDate: "2021-03-05T00:00:00.000Z"}}}
+	if got := mintedSetDate("WIN", dated, true, "2019-10-11"); got != "2021-03-05" {
+		t.Errorf("mintedSetDate with a dataset date = %q, want 2021-03-05", got)
 	}
 }
 
