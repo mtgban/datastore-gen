@@ -87,3 +87,13 @@ func TestDatastoreRunsTheGamesRules(t *testing.T) {
 type errText string
 
 func (e errText) Error() string { return string(e) }
+
+// TestOneFinishAgainstAnother pins the refusal of a product that sells one
+// finish and is emitted in one other, which is compared without a sort.
+func TestOneFinishAgainstAnother(t *testing.T) {
+	data := envelope(`{"game":"test",` + sets + `,"cards":[` + foil + `],` + sealed + `}`)
+	_, err := Datastore(data, map[int][]string{100: {"Normal"}}, rules)
+	if want := "product 100 emits finishes [Foil], skus carry [Normal]"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("err = %v, want %q", err, want)
+	}
+}
