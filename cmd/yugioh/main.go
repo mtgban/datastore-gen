@@ -198,16 +198,6 @@ func disambiguated(upstream, catalog string) bool {
 	return strings.HasPrefix(strings.ToLower(upstream), strings.ToLower(catalog)+" (")
 }
 
-// idBase mints the id stem an entry's edition suffix hangs off: the
-// collector number and the product id, or the product id alone for a
-// product the game gives no number.
-func idBase(num string, productID int) string {
-	if num == "" {
-		return strconv.Itoa(productID)
-	}
-	return strings.ToLower(num) + "_" + strconv.Itoa(productID)
-}
-
 // normalizeName reduces a set name to what two spellings share, so the
 // catalog's "Labyrinth_of_Nightmare" still finds YGOPRODeck's "Labyrinth
 // of Nightmare".
@@ -1393,7 +1383,7 @@ func main() {
 				}
 			}
 			entry := &emit.Card{
-				ID:            idBase(s.number, productID) + suffix,
+				ID:            emit.IDBase(s.number, productID) + suffix,
 				Name:          name,
 				SetCode:       cardSet(s),
 				Number:        s.number,
