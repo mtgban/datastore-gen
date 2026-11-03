@@ -2324,15 +2324,15 @@ func main() {
 	doc.DropRepeatedFinishes()
 	doc.DropEmptySets()
 	var buf bytes.Buffer
-	// Spell the quotes the way a query does before anything reads the
-	// document, so the check below sees what will be published.
 	handtable.Report()
-	doc.PlainQuotes()
 
 	envelope := emit.Envelope(emit.Today(), doc)
 	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
 		log.Fatalln(err)
 	}
+	// Spell the quotes the way a query does before anything reads the
+	// document, so the checks below see what will be published.
+	emit.PlainQuotes(&buf)
 
 	// A token the vocabulary refuses comes off its printing here, logged,
 	// rather than stopping every card of the game at the publish's check.

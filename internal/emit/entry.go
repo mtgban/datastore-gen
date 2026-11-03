@@ -85,55 +85,6 @@ type Links struct {
 	CardTraderID int    `json:"cardTraderId,omitempty"`
 }
 
-// PlainQuotes spells every string the document carries with plain quotes,
-// for the reason the payload walk of the same name gives.
-func (d *Datastore) PlainQuotes() {
-	for _, values := range d.Properties {
-		plainList(values)
-	}
-	for _, set := range d.Sets {
-		for _, s := range []*string{&set.Name, &set.ReleaseDate, &set.Type, &set.Abbreviation, &set.Symbol} {
-			*s = typographic.Replace(*s)
-		}
-	}
-	for _, card := range d.Cards {
-		card.PlainQuotes()
-	}
-	for _, product := range d.Sealed {
-		for _, s := range []*string{&product.ID, &product.Name, &product.SetCode, &product.ReleaseDate, &product.Image} {
-			*s = typographic.Replace(*s)
-		}
-		product.ExternalLinks.plainQuotes()
-	}
-}
-
-// PlainQuotes visits every string field of the card, its lists among them.
-func (c *Card) PlainQuotes() {
-	for _, s := range []*string{
-		&c.ID, &c.Name, &c.SetCode, &c.Number, &c.Total, &c.Rarity, &c.Finish,
-		&c.Variant, &c.Watermark, &c.Language, &c.OriginalReleaseDate,
-		&c.Type, &c.Color, &c.Pitch, &c.Attribute, &c.Artist, &c.Image,
-	} {
-		*s = typographic.Replace(*s)
-	}
-	for _, list := range [][]string{c.PromoTypes, c.Types, c.Colors, c.Pitches, c.Attributes} {
-		plainList(list)
-	}
-	c.ExternalLinks.plainQuotes()
-}
-
-func (l *Links) plainQuotes() {
-	for _, s := range []*string{&l.FabID, &l.TcgdexID, &l.BandaiID} {
-		*s = typographic.Replace(*s)
-	}
-}
-
-func plainList(list []string) {
-	for i, s := range list {
-		list[i] = typographic.Replace(s)
-	}
-}
-
 // Lists gives every card carrying a colour, a pitch or an attribute the
 // same values as the list a reader takes, split where the string joins two
 // with a semicolon ("Green;Red"). A card already holding the list keeps it.

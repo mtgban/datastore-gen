@@ -110,24 +110,30 @@ func TestPromoSlugKeepsLettersAndDigits(t *testing.T) {
 	}
 }
 
-// TestPlainQuotesWalksTheWholeDocument pins that the typographic quotes are
-// rewritten wherever they sit, in place, and that nothing else is touched.
-func TestPlainQuotesWalksTheWholeDocument(t *testing.T) {
+// TestPlainQuotesRewritesTheEncodedDocument pins that the typographic quotes
+// are rewritten wherever the encoded document holds them, a key and a list
+// among them, that the result still decodes, and that nothing else moves.
+func TestPlainQuotesRewritesTheEncodedDocument(t *testing.T) {
 	doc := map[string]any{
-		"name": "Rocket’s Hitmonchan",
-		"cards": []any{
-			map[string]any{"rarity": "Ultra Pharaoh’s Rare", "number": 7},
-			"Eustass“Captain”Kid",
-		},
+		"name":                "Rocket’s Hitmonchan",
+		"promoTypes":          []string{"‘quoted’"},
+		"Eustass“Captain”Kid": 7,
+	}
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(doc); err != nil {
+		t.Fatal(err)
+	}
+	PlainQuotes(&buf)
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("rewritten document does not decode: %v", err)
 	}
 	want := map[string]any{
-		"name": "Rocket's Hitmonchan",
-		"cards": []any{
-			map[string]any{"rarity": "Ultra Pharaoh's Rare", "number": 7},
-			`Eustass"Captain"Kid`,
-		},
+		"name":                "Rocket's Hitmonchan",
+		"promoTypes":          []any{"'quoted'"},
+		`Eustass"Captain"Kid`: float64(7),
 	}
-	if got := PlainQuotes(doc); !sameJSON(got, want) {
+	if !sameJSON(got, want) {
 		t.Errorf("PlainQuotes = %v, want %v", got, want)
 	}
 }
