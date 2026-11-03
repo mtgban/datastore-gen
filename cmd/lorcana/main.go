@@ -707,7 +707,7 @@ func oneCardPerPrinting(items []any) ([]any, []string) {
 // whose product an earlier repeat was already carried on. It returns the
 // cards kept, in their order, and what it did to each repeat.
 func oneCardPerID(items []any) ([]any, []string) {
-	first := map[int][]byte{}
+	first := map[int]map[string]any{}
 	carried := map[int]bool{}
 	var kept []any
 	var repeats []string
@@ -722,14 +722,17 @@ func oneCardPerID(items []any) ([]any, []string) {
 			kept = append(kept, item)
 			continue
 		}
-		encoded, _ := json.Marshal(raw)
 		seen, taken := first[id]
 		if !taken {
-			first[id] = encoded
+			first[id] = raw
 			kept = append(kept, item)
 			continue
 		}
-		if bytes.Equal(seen, encoded) {
+		// Only a card under an id already taken is encoded, and the first
+		// card under it with it, which nothing here has changed since.
+		seenEncoded, _ := json.Marshal(seen)
+		encoded, _ := json.Marshal(raw)
+		if bytes.Equal(seenEncoded, encoded) {
 			repeats = append(repeats, fmt.Sprintf("%d repeated, dropped", id))
 			continue
 		}
