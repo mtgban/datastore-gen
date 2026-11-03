@@ -495,16 +495,28 @@ func main() {
 	// finish nothing sells it in. Only where upstream names exactly one
 	// card of that set, name and rarity: two would be a guess.
 	var numbered int
+	// Upstream by set and rarity, built at the first unnumbered product.
+	// The name stays an EqualFold match within it, which a lower-cased key
+	// would not be.
+	type setRarity struct{ code, rarity string }
+	var bySetRarity map[setRarity][]palworldCard
 	for i := range singles {
 		s := &singles[i]
 		if s.number != "" {
 			continue
 		}
+		if bySetRarity == nil {
+			bySetRarity = map[setRarity][]palworldCard{}
+			for _, u := range upstream {
+				key := setRarity{upstreamSetCode(u), rarityOf(u.Rarity)}
+				bySetRarity[key] = append(bySetRarity[key], u)
+			}
+		}
 		code := codes[s.product.GroupID]
 		rarity := rarityOf(s.product.Extended("Rarity"))
 		var matches []palworldCard
-		for _, u := range upstream {
-			if upstreamSetCode(u) != code || !strings.EqualFold(u.Name, s.baseName) || rarityOf(u.Rarity) != rarity {
+		for _, u := range bySetRarity[setRarity{code, rarity}] {
+			if !strings.EqualFold(u.Name, s.baseName) {
 				continue
 			}
 			matches = append(matches, u)
