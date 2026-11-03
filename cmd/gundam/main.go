@@ -490,8 +490,8 @@ func generalPromotion(tag string) string {
 	// is an early trial event, and folding it to its first two words made
 	// a promo type of the set.
 	for _, name := range setNameHeads {
-		if strings.HasPrefix(tag, name+" ") {
-			tag = strings.TrimPrefix(tag, name+" ")
+		if rest, ok := strings.CutPrefix(tag, name); ok && strings.HasPrefix(rest, " ") {
+			tag = rest[1:]
 			break
 		}
 	}
