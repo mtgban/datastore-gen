@@ -315,6 +315,12 @@ func Check(doc Document, wantFinishes map[int][]string, rules Rules) (Counts, er
 		return out, err
 	}
 	for productID, want := range wantFinishes {
+		if got := gotFinishes[productID]; len(got) == 1 && len(want) == 1 {
+			if got[0] != want[0] {
+				return out, fmt.Errorf("product %d emits finishes %v, skus carry %v", productID, got, want)
+			}
+			continue
+		}
 		got := append([]string(nil), gotFinishes[productID]...)
 		sort.Strings(got)
 		expected := append([]string(nil), want...)
