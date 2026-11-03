@@ -99,6 +99,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
@@ -1175,6 +1176,101 @@ func correctedEntry(src *emit.Card, id, number, setCode, finish, parent, label s
 	return entry
 }
 
+// carryHandPrinted adds the hand-carried printings the build does not
+// already name, each read off the base printing its number names, and
+// returns the cards with them.
+func carryHandPrinted(rows []handCarried, cards []*emit.Card, sets map[string]*emit.Set, printed map[string][]*emit.Card, carried, carriedArt map[string]bool, byRarity map[string]string, cardNames map[string]bool, statedOn map[*emit.Card]stated) []*emit.Card {
+	var minted, stoodDown, setAside int
+	missing := map[string]bool{}
+	for _, printing := range rows {
+		// A number is carried by its own set and by every later one
+		// reissuing it - a promo group, a starter deck, an anniversary
+		// box. An errata corrects the text the printing carried first,
+		// so the parent is the one in the set the number is named for;
+		// the reissues came after the correction and were never
+		// pre-errata.
+		// The number's prefix and the set code it names are spelled
+		// differently either side of the dash - "ST03-009" is carried by
+		// the set the catalog abbreviates "ST-03" - so the two are
+		// compared the way a pack label and an abbreviation already are.
+		own := packKey(strings.SplitN(printing.number, "-", 2)[0])
+		variant := strings.TrimSpace(printing.parent + " " + printing.label)
+		var candidates []*emit.Card
+		for _, c := range printed[printing.number+"|"+printing.parent] {
+			if packKey(c.SetCode) == own {
+				candidates = append(candidates, c)
+			}
+		}
+		if len(candidates) == 0 {
+			log.Printf("hand-carried: %s carries no %q printing in %s; %q not carried",
+				printing.number, printing.parent, own, variant)
+			stoodDown++
+			continue
+		}
+		// One printing, but possibly both its finishes: take the lowest
+		// id so the choice does not move between runs.
+		sort.Slice(candidates, func(i, j int) bool {
+			return candidates[i].ID < candidates[j].ID
+		})
+		src := candidates[0]
+		// The parent says where the printing being reissued lives; a row
+		// naming its own set says where this one is sold.
+		setCode := src.SetCode
+		if printing.set != "" {
+			setCode = printing.set
+		}
+		// A reissue's set is spelled only by the catalog's own group, so
+		// where the catalog holds no OP-RP or PRB-01 the rows sold there
+		// wait for it: one shelf missing never stops the game.
+		if sets[setCode] == nil {
+			log.Printf("hand-carried: %s %q is sold in %s, which the catalog does not hold; set aside",
+				printing.number, variant, setCode)
+			setAside++
+			missing[setCode] = true
+			continue
+		}
+		key := fmt.Sprintf("%s|%s|%s|%s", src.Name, printing.number, setCode, variant)
+		if carried[key] {
+			log.Printf("hand-carried: %s %q is sold as a product now; the hand-carried one stands down",
+				printing.number, variant)
+			stoodDown++
+			continue
+		}
+		carried[key] = true
+		// A reissue is sold on a shelf of its own and was never a
+		// corrected run, so it leaves the number's art to Cardmarket.
+		if printing.set == "" {
+			carriedArt[printing.number+"|"+printing.parent] = true
+		}
+
+		// A catalog id carries "_<product id>" before its finish suffix,
+		// so "_ct<blueprint id>" cannot meet one however the numbers
+		// fall, and the suffix stays last the way every other id here
+		// spells it.
+		finish := parentFinish(candidates, byRarity)
+		if printing.finish != "" {
+			finish = printing.finish
+		}
+		// The blueprint is what this printing was minted from, and until
+		// now it was legible only inside the uuid - the one fact about a
+		// hand-carried entry that had to be read out of an id rather than
+		// off a field. It is published here so nothing has to.
+		// No TCGplayer product sells it, so the Cardmarket one is the only
+		// id it can be priced by; a printing Cardmarket does not sell
+		// either carries none, and is carried for resolution alone.
+		links := emit.Links{CardTraderID: printing.blueprint, CardmarketID: printing.cardmarket}
+		id := fmt.Sprintf("%s_ct%d%s", idStem(printing.number), printing.blueprint, emit.FinishSuffix(finish))
+		cards = append(cards, correctedEntry(src, id, printing.number, setCode, finish,
+			printing.parent, printing.label, links, cardNames, statedOn))
+		minted++
+	}
+	// The sets are named here as well, so a code the table spells wrong
+	// shows in a log diff and not only as a count.
+	log.Printf("hand-carried printings: %d carried, %d stood down, %d set aside %v",
+		minted, stoodDown, setAside, slices.Sorted(maps.Keys(missing)))
+	return cards
+}
+
 // preErrataShelf ends the name of a Cardmarket shelf selling a set's first,
 // corrected print run card by card. "Romance Dawn (Pre-Errata)" is the only
 // one in 2026-09.
@@ -2195,80 +2291,7 @@ func main() {
 	// The number and art of every corrected run carried by hand, which a
 	// Cardmarket product of the same printing must not mint a second time.
 	carriedArt := map[string]bool{}
-	var minted, stoodDown int
-	for _, printing := range handCarriedPrintings {
-		// A number is carried by its own set and by every later one
-		// reissuing it - a promo group, a starter deck, an anniversary
-		// box. An errata corrects the text the printing carried first,
-		// so the parent is the one in the set the number is named for;
-		// the reissues came after the correction and were never
-		// pre-errata.
-		// The number's prefix and the set code it names are spelled
-		// differently either side of the dash - "ST03-009" is carried by
-		// the set the catalog abbreviates "ST-03" - so the two are
-		// compared the way a pack label and an abbreviation already are.
-		own := packKey(strings.SplitN(printing.number, "-", 2)[0])
-		variant := strings.TrimSpace(printing.parent + " " + printing.label)
-		var candidates []*emit.Card
-		for _, c := range printed[printing.number+"|"+printing.parent] {
-			if packKey(c.SetCode) == own {
-				candidates = append(candidates, c)
-			}
-		}
-		if len(candidates) == 0 {
-			log.Printf("hand-carried: %s carries no %q printing in %s; %q not carried",
-				printing.number, printing.parent, own, variant)
-			stoodDown++
-			continue
-		}
-		// One printing, but possibly both its finishes: take the lowest
-		// id so the choice does not move between runs.
-		sort.Slice(candidates, func(i, j int) bool {
-			return candidates[i].ID < candidates[j].ID
-		})
-		src := candidates[0]
-		// The parent says where the printing being reissued lives; a row
-		// naming its own set says where this one is sold.
-		setCode := src.SetCode
-		if printing.set != "" {
-			setCode = printing.set
-		}
-		key := fmt.Sprintf("%s|%s|%s|%s", src.Name, printing.number, setCode, variant)
-		if carried[key] {
-			log.Printf("hand-carried: %s %q is sold as a product now; the hand-carried one stands down",
-				printing.number, variant)
-			stoodDown++
-			continue
-		}
-		carried[key] = true
-		// A reissue is sold on a shelf of its own and was never a
-		// corrected run, so it leaves the number's art to Cardmarket.
-		if printing.set == "" {
-			carriedArt[printing.number+"|"+printing.parent] = true
-		}
-
-		// A catalog id carries "_<product id>" before its finish suffix,
-		// so "_ct<blueprint id>" cannot meet one however the numbers
-		// fall, and the suffix stays last the way every other id here
-		// spells it.
-		finish := parentFinish(candidates, byRarity)
-		if printing.finish != "" {
-			finish = printing.finish
-		}
-		// The blueprint is what this printing was minted from, and until
-		// now it was legible only inside the uuid - the one fact about a
-		// hand-carried entry that had to be read out of an id rather than
-		// off a field. It is published here so nothing has to.
-		// No TCGplayer product sells it, so the Cardmarket one is the only
-		// id it can be priced by; a printing Cardmarket does not sell
-		// either carries none, and is carried for resolution alone.
-		links := emit.Links{CardTraderID: printing.blueprint, CardmarketID: printing.cardmarket}
-		id := fmt.Sprintf("%s_ct%d%s", idStem(printing.number), printing.blueprint, emit.FinishSuffix(finish))
-		cards = append(cards, correctedEntry(src, id, printing.number, setCode, finish,
-			printing.parent, printing.label, links, cardNames, statedOn))
-		minted++
-	}
-	log.Printf("hand-carried printings: %d carried, %d stood down", minted, stoodDown)
+	cards = carryHandPrinted(handCarriedPrintings, cards, sets, printed, carried, carriedArt, byRarity, cardNames, statedOn)
 
 	var mkmMinted int
 	cards, mkmMinted = mintFromCardmarket(*cardmarketCatalogPath, cards, printed, carried, carriedArt, byRarity, cardNames, statedOn)
