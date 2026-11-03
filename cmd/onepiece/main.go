@@ -103,7 +103,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/mtgban/datastore-gen/internal/build"
@@ -823,15 +822,6 @@ func numberFor(product tcgplayer.Product) string {
 	return strings.ToUpper(cardType)
 }
 
-// idBase is a priced entry's id before its finish suffix: the number and the
-// product, or the product alone where the catalog files no number.
-func idBase(number string, productID int) string {
-	if stem := idStem(number); stem != "" {
-		return stem + "_" + strconv.Itoa(productID)
-	}
-	return strconv.Itoa(productID)
-}
-
 // single is one card product, its name split into the base name, the
 // parenthetical qualifiers, and the collector number.
 type single struct {
@@ -1147,7 +1137,7 @@ func parentFinish(candidates []*emit.Card, byRarity map[string]string) string {
 func singleEntry(s single, setCode, finish, bandaiID string) *emit.Card {
 	productID := s.product.ProductID
 	return &emit.Card{
-		ID:            idBase(s.number, productID) + emit.FinishSuffix(finish),
+		ID:            emit.IDBase(s.number, productID) + emit.FinishSuffix(finish),
 		Name:          s.baseName,
 		SetCode:       setCode,
 		Number:        s.number,
@@ -1283,7 +1273,7 @@ func carryHandPrinted(rows []handCarried, cards []*emit.Card, sets map[string]*e
 		// id it can be priced by; a printing Cardmarket does not sell
 		// either carries none, and is carried for resolution alone.
 		links := emit.Links{CardTraderID: printing.blueprint, CardmarketID: printing.cardmarket}
-		id := fmt.Sprintf("%s_ct%d%s", idStem(printing.number), printing.blueprint, emit.FinishSuffix(finish))
+		id := fmt.Sprintf("%s_ct%d%s", emit.IDStem(printing.number), printing.blueprint, emit.FinishSuffix(finish))
 		cards = append(cards, correctedEntry(src, id, printing.number, setCode, finish,
 			printing.parent, printing.label, links, cardNames, statedOn))
 		minted++
@@ -1428,7 +1418,7 @@ func mintFromCardmarket(path string, cards []*emit.Card, printed map[string][]*e
 		// "_mkm<product id>" cannot meet a catalog id's "_<product id>" or
 		// a hand-carried "_ct<blueprint id>", however the numbers fall.
 		finish := parentFinish(candidates, byRarity)
-		entryID := fmt.Sprintf("%s_mkm%d%s", idStem(number), id, emit.FinishSuffix(finish))
+		entryID := fmt.Sprintf("%s_mkm%d%s", emit.IDStem(number), id, emit.FinishSuffix(finish))
 		cards = append(cards, correctedEntry(src, entryID, number, setCode, finish, parent, label,
 			emit.Links{CardmarketID: id}, cardNames, statedOn))
 		minted++
@@ -1583,24 +1573,13 @@ func linkCardmarketProducts(cards []*emit.Card) (int, []string) {
 	return linked, reports
 }
 
-// nonCodeRe matches the runs a set code cannot carry.
-var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
-
-// idStem spells a collector number for the inside of a uuid: a number can
-// carry the set total it is printed with ("1/1000"), and a slash in a uuid
-// is a path separator wherever one is written down. Every run of anything
-// but a letter or a digit becomes one dash.
-func idStem(number string) string {
-	return strings.ToLower(strings.Trim(nonCodeRe.ReplaceAllString(number, "-"), "-"))
-}
-
 // packKey reduces a Bandai pack label and a TCGplayer group abbreviation to
 // what the two spell alike: Bandai writes "OP-01" where the catalog writes
 // "OP01". A group the catalog qualifies further - "OP02 PRE" for the
 // pre-release of a set - keeps the qualifier and so matches no pack, which
 // is right: it is a different product handing the cards out.
 func packKey(s string) string {
-	return strings.ToUpper(nonCodeRe.ReplaceAllString(s, ""))
+	return strings.ReplaceAll(emit.SetCodeOf(s), "-", "")
 }
 
 // packLabels names the pack Bandai labels differently from the group

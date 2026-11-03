@@ -79,7 +79,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/mtgban/datastore-gen/internal/build"
@@ -183,26 +182,6 @@ var fabFinish = map[string]string{
 	"F|C": "1st Edition Cold Foil",
 	"U|S": "Unlimited Edition Normal",
 	"U|R": "Unlimited Edition Rainbow Foil",
-}
-
-// mintedIDBase is idBase for a printing that names no product: the
-// sanitized collector number alone. A catalog id always carries "_<product
-// id>" before its finish suffix and a minted one never does, so the two
-// namespaces cannot meet.
-func mintedIDBase(num string) string {
-	num = nonCodeRe.ReplaceAllString(num, "-")
-	return strings.ToLower(strings.Trim(num, "-"))
-}
-
-func idBase(num string, productID int) string {
-	// A double-faced number holds two of them with a separator between,
-	// which would put a space inside a uuid.
-	num = nonCodeRe.ReplaceAllString(num, "-")
-	num = strings.Trim(num, "-")
-	if num == "" {
-		return strconv.Itoa(productID)
-	}
-	return strings.ToLower(num) + "_" + strconv.Itoa(productID)
 }
 
 var parenRe = regexp.MustCompile(`\s*\(([^)]+)\)`)
@@ -504,9 +483,6 @@ func promoOnlySets(mintable map[string][]fabRow) map[string]bool {
 // promoRarity is what the catalog calls the rarity of a printing handed out
 // rather than sold in a pack.
 const promoRarity = "Promo"
-
-// nonCodeRe matches the runs a set code cannot carry.
-var nonCodeRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
 // normalizeSetName reduces a set name to what the two sources spell alike:
 // the dataset writes "Armory Deck - Azalea" where the catalog writes
@@ -1089,7 +1065,7 @@ func main() {
 		for _, finish := range printings[productID] {
 			suffix := emit.FinishSuffix(finish)
 			entry := &emit.Card{
-				ID:            idBase(s.number, productID) + suffix,
+				ID:            emit.IDBase(s.number, productID) + suffix,
 				Name:          s.baseName,
 				SetCode:       codes[s.product.GroupID],
 				Number:        emit.QueryNumber(s.number),
@@ -1158,7 +1134,7 @@ func main() {
 
 		for _, finish := range finishes {
 			cards = append(cards, &emit.Card{
-				ID:            mintedIDBase(number) + emit.FinishSuffix(finish),
+				ID:            emit.IDStem(number) + emit.FinishSuffix(finish),
 				Name:          row.Name,
 				SetCode:       code,
 				Number:        emit.QueryNumber(row.ID),
