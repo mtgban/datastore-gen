@@ -544,7 +544,7 @@ type europeanSibling struct {
 // type, appended after foldPromoTypes runs so the fold cannot rewrite it.
 // See docs/yugioh-european-prints.md for the label's purpose and the
 // replay evidence.
-func mintEuropeanPrints(cards []any, sets map[string]any, ygoCards []ygoCard) []any {
+func mintEuropeanPrints(cards []*emit.Card, sets map[string]*emit.Set, ygoCards []ygoCard) []*emit.Card {
 	if len(ygoCards) == 0 {
 		log.Print("european first prints: no ygoprodeck cards to mint from")
 		return cards
@@ -566,35 +566,23 @@ func mintEuropeanPrints(cards []any, sets map[string]any, ygoCards []ygoCard) []
 	// Rarities table has no plain "Common", only "Common" combined with
 	// "Short Print", and would refuse most of what upstream calls Common.
 	cardRarities := map[string]string{}
-	for _, raw := range cards {
-		e, ok := raw.(map[string]any)
-		if !ok {
-			continue
+	for _, e := range cards {
+		if e.Number != "" {
+			numbered[strings.ToUpper(e.Number)] = true
 		}
-		setCode := fmt.Sprint(e["setCode"])
-		if number, _ := e["number"].(string); number != "" {
-			numbered[strings.ToUpper(number)] = true
+		if finishesOf[e.SetCode] == nil {
+			finishesOf[e.SetCode] = map[string]bool{}
 		}
-		if finishesOf[setCode] == nil {
-			finishesOf[setCode] = map[string]bool{}
+		finishesOf[e.SetCode][e.Finish] = true
+		cardNames[normalizeName(e.Name)] = true
+		if e.Rarity != "" {
+			cardRarities[normRarity(e.Rarity)] = e.Rarity
 		}
-		finishesOf[setCode][fmt.Sprint(e["finish"])] = true
-		name := fmt.Sprint(e["name"])
-		cardNames[normalizeName(name)] = true
-		rarity, _ := e["rarity"].(string)
-		if rarity != "" {
-			cardRarities[normRarity(rarity)] = rarity
+		sib := europeanSibling{name: e.Name, cardType: e.Type, attribute: e.Attribute, rarity: e.Rarity, variant: e.Variant}
+		if id := e.ExternalLinks.KonamiID; id != 0 {
+			recordSibling(bySetKonami, e.SetCode+"|"+strconv.Itoa(id), sib)
 		}
-		cardType, _ := e["type"].(string)
-		attribute, _ := e["attribute"].(string)
-		variant, _ := e["variant"].(string)
-		sib := europeanSibling{name: name, cardType: cardType, attribute: attribute, rarity: rarity, variant: variant}
-		if links, ok := e["externalLinks"].(map[string]any); ok {
-			if id, ok := links["konamiId"].(int); ok && id != 0 {
-				recordSibling(bySetKonami, setCode+"|"+strconv.Itoa(id), sib)
-			}
-		}
-		recordSibling(bySetName, setCode+"|"+normalizeName(name), sib)
+		recordSibling(bySetName, e.SetCode+"|"+normalizeName(e.Name), sib)
 	}
 	// finishFor is a set's default run, cached and logged once per prefix:
 	// a set pricing no card at all cannot choose one, and every European
@@ -653,7 +641,7 @@ func mintEuropeanPrints(cards []any, sets map[string]any, ygoCards []ygoCard) []
 		}
 		return stats[prefix]
 	}
-	var minted []any
+	var minted []*emit.Card
 	for _, c := range candidates {
 		st := statOf(c.prefix)
 		if numbered[c.code] {
@@ -721,20 +709,19 @@ func mintEuropeanPrints(cards []any, sets map[string]any, ygoCards []ygoCard) []
 		}
 		st.minted++
 
-		entry := map[string]any{
-			"id":            strings.ToLower(c.code) + emit.FinishSuffix(finish),
-			"name":          sib.name,
-			"number":        c.code,
-			"setCode":       c.prefix,
-			"rarity":        rarity,
-			"attribute":     sib.attribute,
-			"type":          sib.cardType,
-			"finish":        finish,
-			"variant":       "European",
-			"promoTypes":    []string{"european"},
-			"externalLinks": map[string]any{"konamiId": c.card.ID},
-		}
-		minted = append(minted, entry)
+		minted = append(minted, &emit.Card{
+			ID:            strings.ToLower(c.code) + emit.FinishSuffix(finish),
+			Name:          sib.name,
+			SetCode:       c.prefix,
+			Number:        c.code,
+			Rarity:        rarity,
+			Finish:        finish,
+			Variant:       "European",
+			PromoTypes:    []string{"european"},
+			Type:          sib.cardType,
+			Attribute:     sib.attribute,
+			ExternalLinks: emit.Links{KonamiID: c.card.ID},
+		})
 	}
 
 	var prefixes []string
@@ -1341,7 +1328,7 @@ func main() {
 	for _, product := range sealedProducts {
 		carried[setCodes[product.GroupID]] = true
 	}
-	sets := map[string]any{}
+	sets := map[string]*emit.Set{}
 	var promoSets, skippedEmpty, splitNamed, splitUnnamed int
 	for _, group := range groups {
 		if productsIn[group.GroupID] == 0 {
@@ -1349,9 +1336,9 @@ func main() {
 			continue
 		}
 		add := func(code, name, date string) {
-			set := map[string]any{"name": name, "releaseDate": date}
+			set := &emit.Set{Name: name, ReleaseDate: date}
 			if isPromoGroup(group) {
-				set["type"] = "promo"
+				set.Type = "promo"
 				promoSets++
 			}
 			sets[code] = set
@@ -1409,7 +1396,7 @@ func main() {
 		catalogFinishes[product.ProductID] = printings[product.ProductID]
 	}
 
-	var cards []any
+	var cards []*emit.Card
 	var passcoded int
 	contradicted := map[string]bool{}
 	for _, s := range singles {
@@ -1425,7 +1412,7 @@ func main() {
 		}
 		for _, finish := range printings[productID] {
 			suffix := emit.FinishSuffix(finish)
-			links := map[string]any{"tcgPlayerId": productID}
+			links := emit.Links{TCGPlayerID: productID}
 			// The passcode the collector number names, and where the
 			// number names several cards, the one its rarity picks out.
 			// Checked against the name: where the product's own name is
@@ -1448,31 +1435,28 @@ func main() {
 					}
 				}
 				if found {
-					links["konamiId"] = passcode
+					links.KonamiID = passcode
 					passcoded++
 				}
 			}
-			entry := map[string]any{
-				"id":        idBase(s.number, productID) + suffix,
-				"name":      name,
-				"setCode":   cardSet(s),
-				"rarity":    s.rarity,
-				"attribute": attribute(s.product),
-				"type":      cardType,
-				"finish":    finish,
-				"image":     emit.ImageURL(s.product.ImageURL),
-
-				"externalLinks": links,
-			}
-			if s.number != "" {
-				entry["number"] = s.number
+			entry := &emit.Card{
+				ID:            idBase(s.number, productID) + suffix,
+				Name:          name,
+				SetCode:       cardSet(s),
+				Number:        s.number,
+				Rarity:        s.rarity,
+				Finish:        finish,
+				Type:          cardType,
+				Attribute:     attribute(s.product),
+				Image:         emit.ImageURL(s.product.ImageURL),
+				ExternalLinks: links,
 			}
 			if len(s.quals) > 0 {
-				entry["variant"] = strings.Join(s.quals, " ")
+				entry.Variant = strings.Join(s.quals, " ")
 				// The same labels as a list: joined, "OTS Stamp Blue"
 				// cannot be read back into the two tags it holds, and the
 				// matcher needs them whole to declare and to match on.
-				entry["promoTypes"] = emit.Lowered(s.quals)
+				entry.PromoTypes = emit.Lowered(s.quals)
 			}
 			cards = append(cards, entry)
 		}
@@ -1481,18 +1465,16 @@ func main() {
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
-	var sealed []any
+	var sealed []*emit.Sealed
 	for _, product := range sealedProducts {
 		code := setCodes[product.GroupID]
-		sealed = append(sealed, map[string]any{
-			"id":          fmt.Sprintf("%s-%d", strings.ToLower(code), product.ProductID),
-			"name":        product.Name,
-			"setCode":     code,
-			"releaseDate": releaseDates[product.GroupID],
-			"image":       emit.ImageURL(product.ImageURL),
-			"externalLinks": map[string]any{
-				"tcgPlayerId": product.ProductID,
-			},
+		sealed = append(sealed, &emit.Sealed{
+			ID:            fmt.Sprintf("%s-%d", strings.ToLower(code), product.ProductID),
+			Name:          product.Name,
+			SetCode:       code,
+			ReleaseDate:   releaseDates[product.GroupID],
+			Image:         emit.ImageURL(product.ImageURL),
+			ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
 		})
 	}
 	if len(contradicted) > 0 {
@@ -1523,25 +1505,25 @@ func main() {
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
-	emit.AsList(cards, "attribute", "attributes")
-	cards = emit.DropRepeatedFinishes(cards)
-	if kept, unknown := dropUnsold(cards); len(unknown) > 0 {
+	doc := &emit.Datastore{
+		Game:       "yugioh",
+		Properties: properties,
+		Sets:       sets,
+		Cards:      cards,
+		Sealed:     sealed,
+	}
+	doc.Lists()
+	doc.DropRepeatedFinishes()
+	if kept, unknown := dropUnsold(doc.Cards); len(unknown) > 0 {
 		log.Printf("unsold: %d entries name no product and are no European first print, dropped: %s", len(unknown), strings.Join(unknown, "; "))
-		cards = kept
+		doc.Cards = kept
 	}
-	emit.DropEmptySets(sets, cards, sealed)
-	doc := map[string]any{
-		"game":   "yugioh",
-		"sets":   sets,
-		"cards":  cards,
-		"sealed": sealed,
-	}
-	doc["properties"] = properties
+	doc.DropEmptySets()
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
 	handtable.Report()
-	emit.PlainQuotes(doc)
+	doc.PlainQuotes()
 
 	envelope := emit.Envelope(emit.Today(), doc)
 	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
@@ -1570,9 +1552,9 @@ func main() {
 		log.Fatalln("validation:", err)
 	}
 	log.Printf("validated: %d sets, %d cards, %d sealed", counted.Sets, counted.Cards, counted.Sealed)
-	if counted.Cards != len(cards) || counted.Sealed != len(sealed) {
+	if counted.Cards != len(doc.Cards) || counted.Sealed != len(doc.Sealed) {
 		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			len(cards), len(sealed), counted.Cards, counted.Sealed)
+			len(doc.Cards), len(doc.Sealed), counted.Cards, counted.Sealed)
 	}
 	// The coverage contract for the sealed side. Sealed is everything the
 	// catalog does not type as a single, so it is exhaustive by
@@ -1621,23 +1603,19 @@ func europeanPrint(number, passcode string) bool {
 // print, the one kind of card this build mints, rather than publish a card
 // nothing prices and nothing explains. It returns the entries kept, in
 // order, and what it dropped.
-func dropUnsold(cards []any) ([]any, []string) {
-	kept := make([]any, 0, len(cards))
+func dropUnsold(cards []*emit.Card) ([]*emit.Card, []string) {
+	kept := make([]*emit.Card, 0, len(cards))
 	var dropped []string
-	for _, raw := range cards {
-		entry, _ := raw.(map[string]any)
-		links, _ := entry["externalLinks"].(map[string]any)
-		product, _ := links["tcgPlayerId"].(int)
-		number, _ := entry["number"].(string)
+	for _, entry := range cards {
 		passcode := ""
-		if id, _ := links["konamiId"].(int); id != 0 {
+		if id := entry.ExternalLinks.KonamiID; id != 0 {
 			passcode = fmt.Sprint(id)
 		}
-		if product == 0 && !europeanPrint(number, passcode) {
-			dropped = append(dropped, fmt.Sprintf("%v (%v %v)", entry["id"], entry["name"], number))
+		if entry.ExternalLinks.TCGPlayerID == 0 && !europeanPrint(entry.Number, passcode) {
+			dropped = append(dropped, fmt.Sprintf("%s (%s %s)", entry.ID, entry.Name, entry.Number))
 			continue
 		}
-		kept = append(kept, raw)
+		kept = append(kept, entry)
 	}
 	return kept, dropped
 }
@@ -1934,9 +1912,9 @@ func shorterName(tag string, named map[string]bool) string {
 // printing is told from its siblings by the foil colour alone: "Blue-Eyes
 // White Dragon" is DL09-EN001 in silver and in bronze, one number and one
 // rarity between them, so the colour is what a promo type is for.
-func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string) (int, int, int, int, int, int) {
+func foldPromoTypes(cards []*emit.Card, sets map[string]*emit.Set, rarities map[string]string) (int, int, int, int, int, int) {
 	type held struct {
-		item    map[string]any
+		item    *emit.Card
 		kept    []string
 		dropped []string
 		marks   []string
@@ -1946,20 +1924,16 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 	// Where each token appears. A token seen only in the video-game promo
 	// sets is the title of the release it came with, which the set says.
 	seenIn := map[string]map[string]bool{}
-	for _, raw := range cards {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
+	for _, item := range cards {
 		row := held{item: item}
-		number := fmt.Sprint(item["number"])
-		rarity := fmt.Sprint(item["rarity"])
-		set := fmt.Sprint(item["setCode"])
+		number := item.Number
+		rarity := item.Rarity
+		set := item.SetCode
 		setDate := ""
-		if held, ok := sets[set].(map[string]any); ok {
-			setDate = fmt.Sprint(held["releaseDate"])
+		if held, ok := sets[set]; ok {
+			setDate = held.ReleaseDate
 		}
-		for _, tag := range emit.StringsOf(item["promoTypes"]) {
+		for _, tag := range item.PromoTypes {
 			if name, found := promoTypeNames.Get(tag); found {
 				tag = name
 			}
@@ -1967,7 +1941,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 			// Silver Dragon (Oversized) (Silver Dragon)" came in the Silver
 			// Dragon Value Box, and its silver is a box, not an ink.
 			if named, found := languages[strings.ToLower(strings.TrimSpace(tag))]; found {
-				item["language"] = named
+				item.Language = named
 				spoken++
 				continue
 			}
@@ -1982,13 +1956,13 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 					continue
 				}
 			} else if mark != "" && !videoGameSets.Has(set) {
-				if held, worn := item["watermark"]; worn && held != mark {
+				if held := item.Watermark; held != "" && held != mark {
 					// Nothing wears two marks today. If a catalog ever
 					// says otherwise, the second stays a promo type
 					// rather than quietly displacing the first.
 					doubled++
 				} else {
-					item["watermark"] = mark
+					item.Watermark = mark
 					marked++
 					if tag = rest; tag == "" {
 						continue
@@ -1996,7 +1970,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 				}
 			}
 			if date := promoReleaseDate(tag, setDate); date != "" {
-				item["originalReleaseDate"] = date
+				item.OriginalReleaseDate = date
 				dated++
 			}
 			tag = generalPromotion(tag)
@@ -2056,8 +2030,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 	}
 
 	identity := func(r held) string {
-		return fmt.Sprint(r.item["name"], "|", r.item["number"], "|", r.item["setCode"],
-			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", r.item["watermark"], "|", r.item["language"], "|", r.kept)
+		return identityOf(r.item, r.kept)
 	}
 	shared := map[string]int{}
 	for _, r := range rows {
@@ -2082,8 +2055,7 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 			out = append(out, folded[tag])
 		}
 		slices.Sort(out)
-		return fmt.Sprint(r.item["name"], "|", r.item["number"], "|", r.item["setCode"],
-			"|", r.item["rarity"], "|", r.item["finish"], "|", r.item["originalReleaseDate"], "|", r.item["watermark"], "|", r.item["language"], "|", out)
+		return identityOf(r.item, out)
 	}
 	joined := map[string]int{}
 	for _, r := range rows {
@@ -2108,8 +2080,8 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 			// "Penguin Soldier" at DL18-EN002 - and with it back the
 			// number the label also restated has nothing left to tell.
 			// The dropped labels go back only where no mark does.
-			if len(r.marks) > 0 && r.item["watermark"] == nil {
-				r.item["watermark"] = r.marks[0]
+			if len(r.marks) > 0 && r.item.Watermark == "" {
+				r.item.Watermark = r.marks[0]
 				marked++
 			} else {
 				kept = append(slices.Clone(kept), r.dropped...)
@@ -2117,11 +2089,6 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 		} else {
 			dropped += len(r.dropped) + len(r.marks)
 		}
-		if len(kept) == 0 {
-			delete(r.item, "promoTypes")
-			continue
-		}
-		out := make([]any, 0, len(kept))
 		var written []string
 		for _, tag := range kept {
 			slug, known := folded[tag]
@@ -2135,10 +2102,16 @@ func foldPromoTypes(cards []any, sets map[string]any, rarities map[string]string
 		}
 		slices.Sort(written)
 		for _, slug := range written {
-			out = append(out, slug)
 			tokens[slug] = true
 		}
-		r.item["promoTypes"] = out
+		r.item.PromoTypes = written
 	}
 	return dropped, len(tokens), dated, marked, doubled, spoken
+}
+
+// identityOf is what tells a printing from its siblings once its promo
+// types are the ones given.
+func identityOf(c *emit.Card, promoTypes []string) string {
+	return fmt.Sprint(c.Name, "|", c.Number, "|", c.SetCode, "|", c.Rarity, "|", c.Finish,
+		"|", c.OriginalReleaseDate, "|", c.Watermark, "|", c.Language, "|", promoTypes)
 }
