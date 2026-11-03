@@ -180,12 +180,29 @@ func repeatedRows(payload []byte) []string {
 		return nil
 	}
 	seen := map[string]bool{}
+	// Two rows alike share an id, so a row is encoded only once a second
+	// row has come under its id, and the first is encoded then.
+	ids := map[string]bool{}
+	pending := map[string]any{}
 	var repeated []string
 	for _, blade := range doc.PageProps.Page.Blades {
 		if blade.Type != "riftboundCardGallery" {
 			continue
 		}
 		for _, row := range blade.Cards.Items {
+			item, _ := row.(map[string]any)
+			id, _ := item["id"].(string)
+			if !ids[id] {
+				ids[id] = true
+				pending[id] = row
+				continue
+			}
+			if first, waiting := pending[id]; waiting {
+				delete(pending, id)
+				if encoded, err := json.Marshal(first); err == nil {
+					seen[string(encoded)] = true
+				}
+			}
 			// Map keys encode sorted, so two rows encode alike only when
 			// every field is the same.
 			encoded, err := json.Marshal(row)
@@ -193,7 +210,6 @@ func repeatedRows(payload []byte) []string {
 				continue
 			}
 			if seen[string(encoded)] {
-				item, _ := row.(map[string]any)
 				repeated = append(repeated, fmt.Sprint(item["id"]))
 			}
 			seen[string(encoded)] = true

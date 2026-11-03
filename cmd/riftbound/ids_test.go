@@ -143,3 +143,41 @@ func TestCleanGallery(t *testing.T) {
 		})
 	}
 }
+
+// TestRepeatedRows pins which rows count as served twice: a row encoded only
+// once its id comes round again must still be caught on the second and any
+// later copy, across blades, and under an id that is no string.
+func TestRepeatedRows(t *testing.T) {
+	blade := func(kind string, rows ...string) string {
+		return `{"type":"` + kind + `","cards":{"items":[` + strings.Join(rows, ",") + `]}}`
+	}
+	payload := func(blades ...string) []byte {
+		return []byte(`{"pageProps":{"page":{"blades":[` + strings.Join(blades, ",") + `]}}}`)
+	}
+	const (
+		gallery   = "riftboundCardGallery"
+		jinx      = `{"id":"ogn-001-298","name":"Jinx"}`
+		otherJinx = `{"id":"ogn-001-298","name":"Jinx","rarity":"showcase"}`
+		viktor    = `{"id":"ogn-246-298","name":"Viktor"}`
+		numbered  = `{"id":7,"name":"Seven"}`
+		unnamed   = `{"name":"Nobody"}`
+	)
+	for _, test := range []struct {
+		desc    string
+		payload []byte
+		want    []string
+	}{
+		{"every row once", payload(blade(gallery, jinx, viktor)), nil},
+		{"a row served twice", payload(blade(gallery, jinx, viktor, jinx)), []string{"ogn-001-298"}},
+		{"a different row under a taken id", payload(blade(gallery, jinx, otherJinx)), nil},
+		{"the first row's copy after a different one", payload(blade(gallery, jinx, otherJinx, jinx)), []string{"ogn-001-298"}},
+		{"a row served three times", payload(blade(gallery, jinx, jinx, jinx)), []string{"ogn-001-298", "ogn-001-298"}},
+		{"a repeat across blades", payload(blade(gallery, jinx), blade(gallery, viktor, jinx)), []string{"ogn-001-298"}},
+		{"another blade's rows", payload(blade(gallery, jinx), blade("promo", jinx)), nil},
+		{"ids that are no string", payload(blade(gallery, numbered, unnamed, numbered, unnamed)), []string{"7", "<nil>"}},
+	} {
+		if got := repeatedRows(test.payload); !slices.Equal(got, test.want) {
+			t.Errorf("%s: repeatedRows = %q, want %q", test.desc, got, test.want)
+		}
+	}
+}
