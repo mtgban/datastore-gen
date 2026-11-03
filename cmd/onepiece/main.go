@@ -490,26 +490,22 @@ func promoReleaseDate(year, month, setDate string) string {
 	return fmt.Sprintf("%s-%02d-01", year, at)
 }
 
+// stated is the year and month a printing's label stated, kept by noteWhen
+// until the sets are known.
+type stated struct{ year, month string }
+
 // datePrintings turns the year a label stated into the date it is, where the
-// set does not already state it, and clears what noteWhen stashed. See
-// promoReleaseDate.
-func datePrintings(cards []any, sets map[string]any) int {
+// set does not already state it. See promoReleaseDate.
+func datePrintings(cards []*emit.Card, sets map[string]*emit.Set, statedOn map[*emit.Card]stated) int {
 	var dated int
-	for _, raw := range cards {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		year, _ := item["_year"].(string)
-		month, _ := item["_month"].(string)
-		delete(item, "_year")
-		delete(item, "_month")
+	for _, item := range cards {
+		when := statedOn[item]
 		setDate := ""
-		if held, ok := sets[fmt.Sprint(item["setCode"])].(map[string]any); ok {
-			setDate = fmt.Sprint(held["releaseDate"])
+		if held, ok := sets[item.SetCode]; ok {
+			setDate = held.ReleaseDate
 		}
-		if date := promoReleaseDate(year, month, setDate); date != "" {
-			item["originalReleaseDate"] = date
+		if date := promoReleaseDate(when.year, when.month, setDate); date != "" {
+			item.OriginalReleaseDate = date
 			dated++
 		}
 	}
@@ -653,17 +649,14 @@ func splitLabel(label string) (stems []string, issue string) {
 	return []string{label}, ""
 }
 
-// noteWhen stashes what promoTypesOf took off the labels, for datePrintings
-// to turn into a date once the sets are known and for the mark to be
-// written straight out. An instalment and a deck are both marks - which
-// running of a promotion, which deck of a set - and no printing carries
-// two, so one field holds whichever it has.
-func noteWhen(entry map[string]any, year, month, instalment, mark string) {
-	if year != "" {
-		entry["_year"] = year
-	}
-	if month != "" {
-		entry["_month"] = month
+// noteWhen keeps what promoTypesOf took off the labels, for datePrintings
+// to turn into a date once the sets are known, and writes the mark straight
+// out. An instalment and a deck are both marks - which running of a
+// promotion, which deck of a set - and no printing carries two, so one
+// field holds whichever it has.
+func noteWhen(entry *emit.Card, statedOn map[*emit.Card]stated, year, month, instalment, mark string) {
+	if year != "" || month != "" {
+		statedOn[entry] = stated{year, month}
 	}
 	var marks []string
 	for _, held := range []string{mark, instalment} {
@@ -672,7 +665,7 @@ func noteWhen(entry map[string]any, year, month, instalment, mark string) {
 		}
 	}
 	if len(marks) > 0 {
-		entry["watermark"] = strings.Join(marks, " ")
+		entry.Watermark = strings.Join(marks, " ")
 	}
 }
 
@@ -1086,26 +1079,19 @@ var handCarriedPrintings = []handCarried{
 // finishByRarity is the finish each set sells a rarity in, read off the
 // plain printings TCGplayer sells in one finish only, and left out where
 // they disagree: OP01's rares are foil in all 23 such products.
-func finishByRarity(cards []any) map[string]string {
-	finishes := map[string]map[string]bool{}
-	rarityOf := map[string]string{}
-	for _, entry := range cards {
-		e, ok := entry.(map[string]any)
-		if !ok {
+func finishByRarity(cards []*emit.Card) map[string]string {
+	finishes := map[int]map[string]bool{}
+	rarityOf := map[int]string{}
+	for _, e := range cards {
+		product := e.ExternalLinks.TCGPlayerID
+		if product == 0 || e.Variant != "" || e.Language != "" {
 			continue
 		}
-		links, _ := e["externalLinks"].(map[string]any)
-		variant, _ := e["variant"].(string)
-		_, translated := e["language"]
-		if links["tcgPlayerId"] == nil || variant != "" || translated {
-			continue
-		}
-		product := fmt.Sprint(links["tcgPlayerId"])
 		if finishes[product] == nil {
 			finishes[product] = map[string]bool{}
 		}
-		finishes[product][fmt.Sprint(e["finish"])] = true
-		rarityOf[product] = fmt.Sprintf("%v|%v", e["setCode"], e["rarity"])
+		finishes[product][e.Finish] = true
+		rarityOf[product] = e.SetCode + "|" + e.Rarity
 	}
 	seen := map[string]map[string]bool{}
 	for product, sold := range finishes {
@@ -1136,35 +1122,35 @@ func finishByRarity(cards []any) map[string]string {
 // both finishes, the one its set sells that rarity in. Three of OP01's
 // rares are sold both ways, and a corrected run of one is the booster's
 // foil card.
-func parentFinish(candidates []map[string]any, byRarity map[string]string) string {
+func parentFinish(candidates []*emit.Card, byRarity map[string]string) string {
 	src := candidates[0]
 	for _, c := range candidates[1:] {
-		if c["finish"] == src["finish"] {
+		if c.Finish == src.Finish {
 			continue
 		}
-		if finish, known := byRarity[fmt.Sprintf("%v|%v", src["setCode"], src["rarity"])]; known {
+		if finish, known := byRarity[src.SetCode+"|"+src.Rarity]; known {
 			return finish
 		}
 		break
 	}
-	return fmt.Sprint(src["finish"])
+	return src.Finish
 }
 
 // correctedEntry spells a printing the catalog does not sell - a corrected
 // run, a reissue - as its parent's card in every respect but the id, the
 // set it is sold on, the finish, the label and the links.
-func correctedEntry(src map[string]any, id, number, setCode, finish, parent, label string, links map[string]any, cardNames map[string]bool) map[string]any {
-	entry := map[string]any{
-		"id":            id,
-		"name":          src["name"],
-		"number":        number,
-		"setCode":       setCode,
-		"rarity":        src["rarity"],
-		"color":         src["color"],
-		"type":          src["type"],
-		"finish":        finish,
-		"image":         src["image"],
-		"externalLinks": links,
+func correctedEntry(src *emit.Card, id, number, setCode, finish, parent, label string, links emit.Links, cardNames map[string]bool, statedOn map[*emit.Card]stated) *emit.Card {
+	entry := &emit.Card{
+		ID:            id,
+		Name:          src.Name,
+		SetCode:       setCode,
+		Number:        number,
+		Rarity:        src.Rarity,
+		Finish:        finish,
+		Type:          src.Type,
+		Color:         src.Color,
+		Image:         src.Image,
+		ExternalLinks: links,
 	}
 	// A reissue sold on a shelf that names it needs no label saying
 	// so: every card in the revision pack set is a revision pack card.
@@ -1172,7 +1158,7 @@ func correctedEntry(src map[string]any, id, number, setCode, finish, parent, lab
 	if variant == "" {
 		return entry
 	}
-	entry["variant"] = variant
+	entry.Variant = variant
 	// The two the variant was joined from, not the words it was
 	// joined into: "Alternate Art" is one label and splitting the
 	// string would make it two.
@@ -1183,11 +1169,9 @@ func correctedEntry(src map[string]any, id, number, setCode, finish, parent, lab
 	if label != "" {
 		tags = append(tags, label)
 	}
-	labels, _, year, month, instalment, mark := promoTypesOf(fmt.Sprint(src["name"]), tags, cardNames)
-	if len(labels) > 0 {
-		entry["promoTypes"] = labels
-	}
-	noteWhen(entry, year, month, instalment, mark)
+	labels, _, year, month, instalment, mark := promoTypesOf(src.Name, tags, cardNames)
+	entry.PromoTypes = labels
+	noteWhen(entry, statedOn, year, month, instalment, mark)
 	return entry
 }
 
@@ -1212,7 +1196,7 @@ var shelfNumberRe = regexp.MustCompile(`\(([A-Z]+[0-9]*-[0-9]+)\)`)
 // exactly one. A product whose number and art a hand-carried run already
 // covers is passed over: Cardmarket sells one Bepo where CardTrader tells
 // the alpha run from the beta, and it is one of those two, not a third.
-func mintFromCardmarket(path string, cards []any, printed map[string][]map[string]any, carried, carriedArt map[string]bool, byRarity map[string]string, cardNames map[string]bool) ([]any, int) {
+func mintFromCardmarket(path string, cards []*emit.Card, printed map[string][]*emit.Card, carried, carriedArt map[string]bool, byRarity map[string]string, cardNames map[string]bool, statedOn map[*emit.Card]stated) ([]*emit.Card, int) {
 	file, err := os.Open(path)
 	if err != nil {
 		log.Fatalln("cardmarket catalog:", err)
@@ -1236,13 +1220,8 @@ func mintFromCardmarket(path string, cards []any, printed map[string][]map[strin
 	// The products a row already prices through, and the variants each
 	// number is printed in, for the alternate art.
 	claimed := map[int]bool{}
-	for _, entry := range cards {
-		e, ok := entry.(map[string]any)
-		if !ok {
-			continue
-		}
-		links, _ := e["externalLinks"].(map[string]any)
-		if id, ok := links["cardmarketId"].(int); ok {
+	for _, e := range cards {
+		if id := e.ExternalLinks.CardmarketID; id != 0 {
 			claimed[id] = true
 		}
 	}
@@ -1276,10 +1255,10 @@ func mintFromCardmarket(path string, cards []any, printed map[string][]map[strin
 		}
 		number := fields[1]
 		own := packKey(strings.SplitN(number, "-", 2)[0])
-		inOwnSet := func(variant string) []map[string]any {
-			var in []map[string]any
+		inOwnSet := func(variant string) []*emit.Card {
+			var in []*emit.Card
 			for _, c := range printed[number+"|"+variant] {
-				if packKey(fmt.Sprint(c["setCode"])) == own {
+				if packKey(c.SetCode) == own {
 					in = append(in, c)
 				}
 			}
@@ -1313,13 +1292,13 @@ func mintFromCardmarket(path string, cards []any, printed map[string][]map[strin
 			continue
 		}
 		sort.Slice(candidates, func(i, j int) bool {
-			return fmt.Sprint(candidates[i]["id"]) < fmt.Sprint(candidates[j]["id"])
+			return candidates[i].ID < candidates[j].ID
 		})
 		src := candidates[0]
-		setCode := fmt.Sprint(src["setCode"])
+		setCode := src.SetCode
 		label := shelves[product.ExpansionID]
 		variant := strings.TrimSpace(parent + " " + label)
-		key := fmt.Sprintf("%v|%s|%s|%s", src["name"], number, setCode, variant)
+		key := fmt.Sprintf("%s|%s|%s|%s", src.Name, number, setCode, variant)
 		if carried[key] {
 			log.Printf("cardmarket: %s %q is sold as a product now; %d stands down", number, variant, id)
 			passed++
@@ -1331,7 +1310,7 @@ func mintFromCardmarket(path string, cards []any, printed map[string][]map[strin
 		finish := parentFinish(candidates, byRarity)
 		entryID := fmt.Sprintf("%s_mkm%d%s", idStem(number), id, emit.FinishSuffix(finish))
 		cards = append(cards, correctedEntry(src, entryID, number, setCode, finish, parent, label,
-			map[string]any{"cardmarketId": id}, cardNames))
+			emit.Links{CardmarketID: id}, cardNames, statedOn))
 		minted++
 	}
 	log.Printf("cardmarket: of the pre-errata shelf, %d carried by hand, %d a run a hand-carried printing covers, %d passed over",
@@ -1444,20 +1423,15 @@ var productCardmarketIDs = map[int]int{
 // from those products, and reports every row that does nothing: a product
 // no entry carries, one carried in several finishes (the Cardmarket product
 // would name none of them alone), or an id another entry already carries.
-func linkCardmarketProducts(cards []any) (int, []string) {
-	byProduct := map[int][]map[string]any{}
-	carriedBy := map[int]any{}
-	for _, entry := range cards {
-		e, ok := entry.(map[string]any)
-		if !ok {
-			continue
-		}
-		links, _ := e["externalLinks"].(map[string]any)
-		if id, ok := links["tcgPlayerId"].(int); ok {
+func linkCardmarketProducts(cards []*emit.Card) (int, []string) {
+	byProduct := map[int][]*emit.Card{}
+	carriedBy := map[int]string{}
+	for _, e := range cards {
+		if id := e.ExternalLinks.TCGPlayerID; id != 0 {
 			byProduct[id] = append(byProduct[id], e)
 		}
-		if id, ok := links["cardmarketId"].(int); ok {
-			carriedBy[id] = e["id"]
+		if id := e.ExternalLinks.CardmarketID; id != 0 {
+			carriedBy[id] = e.ID
 		}
 	}
 	// Stable order, so unchanged data keeps producing byte-identical output.
@@ -1479,10 +1453,10 @@ func linkCardmarketProducts(cards []any) (int, []string) {
 		case len(entries) > 1:
 			reports = append(reports, fmt.Sprintf("%d is carried in %d finishes; Cardmarket %d names none of them alone", product, len(entries), cardmarketID))
 		case owned:
-			reports = append(reports, fmt.Sprintf("%d stands down: %v already carries Cardmarket %d", product, owner, cardmarketID))
+			reports = append(reports, fmt.Sprintf("%d stands down: %s already carries Cardmarket %d", product, owner, cardmarketID))
 		default:
-			entries[0]["externalLinks"].(map[string]any)["cardmarketId"] = cardmarketID
-			carriedBy[cardmarketID] = entries[0]["id"]
+			entries[0].ExternalLinks.CardmarketID = cardmarketID
+			carriedBy[cardmarketID] = entries[0].ID
 			linked++
 		}
 	}
@@ -2081,7 +2055,7 @@ func main() {
 	for _, product := range catalog.Products {
 		productsIn[product.GroupID]++
 	}
-	sets := map[string]any{}
+	sets := map[string]*emit.Set{}
 	var populated, promoSets, skippedEmpty int
 	for _, group := range catalog.Groups {
 		if productsIn[group.GroupID] == 0 {
@@ -2089,21 +2063,17 @@ func main() {
 			continue
 		}
 		populated++
-		set := map[string]any{
-			"name":        group.Name,
-			"releaseDate": group.ReleaseDate(),
-		}
+		set := &emit.Set{Name: group.Name, ReleaseDate: group.ReleaseDate()}
 		// The type is what tells the matcher a printing is promotional, so
 		// only the wholly promotional groups carry it.
 		if isPromoGroup(group) {
-			set["type"] = "promo"
+			set.Type = "promo"
 			promoSets++
 		}
 		sets[codes[group.GroupID]] = set
 	}
-	for _, entry := range sets {
-		set, _ := entry.(map[string]any)
-		if name, _ := set["name"].(string); name != "" {
+	for _, set := range sets {
+		if name := set.Name; name != "" {
 			setNameHeads = append(setNameHeads, strings.ToLower(name))
 			// The name behind the code, the one a label says.
 			if _, behind, coded := strings.Cut(name, ": "); coded && behind != "" {
@@ -2160,7 +2130,8 @@ func main() {
 		cardNames[epithetKey(singles[i].baseName)] = true
 	}
 
-	var cards []any
+	var cards []*emit.Card
+	statedOn := map[*emit.Card]stated{}
 	var nonEnglish int
 	for _, s := range singles {
 		group := groupByID[s.product.GroupID]
@@ -2170,38 +2141,27 @@ func main() {
 		}
 		for _, finish := range printings[productID] {
 			suffix := emit.FinishSuffix(finish)
-			entry := map[string]any{
-				"id":      idBase(s.number, productID) + suffix,
-				"name":    s.baseName,
-				"setCode": codes[group.GroupID],
-				"rarity":  s.product.Extended("Rarity"),
-				"color":   s.product.Extended("Color"),
-				"type":    s.product.Extended("CardType"),
-				"finish":  finish,
-				"image":   cardImage(s, bandaiIDs[productID]),
-				"externalLinks": map[string]any{
-					"tcgPlayerId": productID,
-				},
-			}
-			if s.number != "" {
-				entry["number"] = s.number
+			entry := &emit.Card{
+				ID:            idBase(s.number, productID) + suffix,
+				Name:          s.baseName,
+				SetCode:       codes[group.GroupID],
+				Number:        s.number,
+				Rarity:        s.product.Extended("Rarity"),
+				Finish:        finish,
+				Language:      s.language,
+				Type:          s.product.Extended("CardType"),
+				Color:         s.product.Extended("Color"),
+				Image:         cardImage(s, bandaiIDs[productID]),
+				ExternalLinks: emit.Links{TCGPlayerID: productID, BandaiID: bandaiIDs[productID]},
 			}
 			if len(s.quals) > 0 {
-				entry["variant"] = strings.Join(s.quals, " ")
+				entry.Variant = strings.Join(s.quals, " ")
 				// The same labels as a list. Joined, "Alternate Art Manga"
 				// cannot be read back into the two it holds, and the
 				// matcher declares and narrows on them one at a time.
 				tags, _, year, month, instalment, mark := promoTypesOf(s.baseName, s.quals, cardNames)
-				if len(tags) > 0 {
-					entry["promoTypes"] = tags
-				}
-				noteWhen(entry, year, month, instalment, mark)
-			}
-			if s.language != "" {
-				entry["language"] = s.language
-			}
-			if bandai, found := bandaiIDs[productID]; found {
-				entry["bandaiId"] = bandai
+				entry.PromoTypes = tags
+				noteWhen(entry, statedOn, year, month, instalment, mark)
 			}
 			cards = append(cards, entry)
 		}
@@ -2224,18 +2184,11 @@ func main() {
 	carried := map[string]bool{}
 	// A printing is looked up by the number and the variant that name it,
 	// and the set is settled below.
-	printed := map[string][]map[string]any{}
-	for _, entry := range cards {
-		e, ok := entry.(map[string]any)
-		if !ok {
-			continue
-		}
-		variant, _ := e["variant"].(string)
-		number, _ := e["number"].(string)
-		setCode := fmt.Sprint(e["setCode"])
-		carried[fmt.Sprintf("%v|%s|%s|%s", e["name"], number, setCode, variant)] = true
-		if _, translated := e["language"]; !translated {
-			printed[number+"|"+variant] = append(printed[number+"|"+variant], e)
+	printed := map[string][]*emit.Card{}
+	for _, e := range cards {
+		carried[fmt.Sprintf("%s|%s|%s|%s", e.Name, e.Number, e.SetCode, e.Variant)] = true
+		if e.Language == "" {
+			printed[e.Number+"|"+e.Variant] = append(printed[e.Number+"|"+e.Variant], e)
 		}
 	}
 	byRarity := finishByRarity(cards)
@@ -2256,9 +2209,9 @@ func main() {
 		// compared the way a pack label and an abbreviation already are.
 		own := packKey(strings.SplitN(printing.number, "-", 2)[0])
 		variant := strings.TrimSpace(printing.parent + " " + printing.label)
-		var candidates []map[string]any
+		var candidates []*emit.Card
 		for _, c := range printed[printing.number+"|"+printing.parent] {
-			if packKey(fmt.Sprint(c["setCode"])) == own {
+			if packKey(c.SetCode) == own {
 				candidates = append(candidates, c)
 			}
 		}
@@ -2271,16 +2224,16 @@ func main() {
 		// One printing, but possibly both its finishes: take the lowest
 		// id so the choice does not move between runs.
 		sort.Slice(candidates, func(i, j int) bool {
-			return fmt.Sprint(candidates[i]["id"]) < fmt.Sprint(candidates[j]["id"])
+			return candidates[i].ID < candidates[j].ID
 		})
 		src := candidates[0]
 		// The parent says where the printing being reissued lives; a row
 		// naming its own set says where this one is sold.
-		setCode := fmt.Sprint(src["setCode"])
+		setCode := src.SetCode
 		if printing.set != "" {
 			setCode = printing.set
 		}
-		key := fmt.Sprintf("%v|%s|%s|%s", src["name"], printing.number, setCode, variant)
+		key := fmt.Sprintf("%s|%s|%s|%s", src.Name, printing.number, setCode, variant)
 		if carried[key] {
 			log.Printf("hand-carried: %s %q is sold as a product now; the hand-carried one stands down",
 				printing.number, variant)
@@ -2306,22 +2259,19 @@ func main() {
 		// now it was legible only inside the uuid - the one fact about a
 		// hand-carried entry that had to be read out of an id rather than
 		// off a field. It is published here so nothing has to.
-		links := map[string]any{"cardTraderId": printing.blueprint}
 		// No TCGplayer product sells it, so the Cardmarket one is the only
 		// id it can be priced by; a printing Cardmarket does not sell
 		// either carries none, and is carried for resolution alone.
-		if printing.cardmarket != 0 {
-			links["cardmarketId"] = printing.cardmarket
-		}
+		links := emit.Links{CardTraderID: printing.blueprint, CardmarketID: printing.cardmarket}
 		id := fmt.Sprintf("%s_ct%d%s", idStem(printing.number), printing.blueprint, emit.FinishSuffix(finish))
 		cards = append(cards, correctedEntry(src, id, printing.number, setCode, finish,
-			printing.parent, printing.label, links, cardNames))
+			printing.parent, printing.label, links, cardNames, statedOn))
 		minted++
 	}
 	log.Printf("hand-carried printings: %d carried, %d stood down", minted, stoodDown)
 
 	var mkmMinted int
-	cards, mkmMinted = mintFromCardmarket(*cardmarketCatalogPath, cards, printed, carried, carriedArt, byRarity, cardNames)
+	cards, mkmMinted = mintFromCardmarket(*cardmarketCatalogPath, cards, printed, carried, carriedArt, byRarity, cardNames, statedOn)
 	log.Printf("cardmarket: minted %d pre-errata printings only Cardmarket sells", mkmMinted)
 	linkedCardmarket, reports := linkCardmarketProducts(cards)
 	log.Printf("cardmarket: %d catalog printings given the Cardmarket product nothing else links them to", linkedCardmarket)
@@ -2332,18 +2282,16 @@ func main() {
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
-	var sealed []any
+	var sealed []*emit.Sealed
 	for _, product := range sealedProducts {
 		group := groupByID[product.GroupID]
-		sealed = append(sealed, map[string]any{
-			"id":          fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
-			"name":        product.Name,
-			"setCode":     codes[group.GroupID],
-			"releaseDate": group.ReleaseDate(),
-			"image":       emit.ImageURL(product.ImageURL),
-			"externalLinks": map[string]any{
-				"tcgPlayerId": product.ProductID,
-			},
+		sealed = append(sealed, &emit.Sealed{
+			ID:            fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
+			Name:          product.Name,
+			SetCode:       codes[group.GroupID],
+			ReleaseDate:   group.ReleaseDate(),
+			Image:         emit.ImageURL(product.ImageURL),
+			ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
 		})
 	}
 	log.Printf("emitting %d sets, %d card entries over %d products (%d not in English), %d sealed",
@@ -2351,50 +2299,35 @@ func main() {
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
-	// The id upstream knows this printing by moves off the entry into
-	// externalLinks, where every other identifier lives.
 	var linked int
 	for _, entry := range cards {
-		item, ok := entry.(map[string]any)
-		if !ok {
-			continue
+		if entry.ExternalLinks.BandaiID != "" {
+			linked++
 		}
-		id, _ := item["bandaiId"].(string)
-		if id == "" {
-			continue
-		}
-		links, ok := item["externalLinks"].(map[string]any)
-		if !ok {
-			links = map[string]any{}
-			item["externalLinks"] = links
-		}
-		links["bandaiId"] = id
-		delete(item, "bandaiId")
-		linked++
 	}
 	log.Printf("external links: %d cards carry their bandaiId under externalLinks", linked)
 
 	log.Printf("release dates: %d printings dated by a year their label stated, where the set states another",
-		datePrintings(cards, sets))
+		datePrintings(cards, sets, statedOn))
 
+	doc := &emit.Datastore{
+		Game:       "onepiece",
+		Properties: properties,
+		Sets:       sets,
+		Cards:      cards,
+		Sealed:     sealed,
+	}
 	// The catalog files every rarity under its code ("SR"), as the cards
 	// print it; published by the name it gives, as the other games are.
-	emit.SpellRarities(cards, emit.RarityNames(catalog.Rarities))
-	emit.AsList(cards, "color", "colors")
-	cards = emit.DropRepeatedFinishes(cards)
-	emit.DropEmptySets(sets, cards, sealed)
-	doc := map[string]any{
-		"game":   "onepiece",
-		"sets":   sets,
-		"cards":  cards,
-		"sealed": sealed,
-	}
-	doc["properties"] = properties
+	doc.SpellRarities(emit.RarityNames(catalog.Rarities))
+	doc.Lists()
+	doc.DropRepeatedFinishes()
+	doc.DropEmptySets()
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
 	handtable.Report()
-	emit.PlainQuotes(doc)
+	doc.PlainQuotes()
 
 	envelope := emit.Envelope(emit.Today(), doc)
 	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
@@ -2423,9 +2356,9 @@ func main() {
 		log.Fatalln("validation:", err)
 	}
 	log.Printf("validated: %d sets, %d cards, %d sealed", counted.Sets, counted.Cards, counted.Sealed)
-	if counted.Cards != len(cards) || counted.Sealed != len(sealed) {
+	if counted.Cards != len(doc.Cards) || counted.Sealed != len(doc.Sealed) {
 		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			len(cards), len(sealed), counted.Cards, counted.Sealed)
+			len(doc.Cards), len(doc.Sealed), counted.Cards, counted.Sealed)
 	}
 	// The coverage contract for the sealed side. Sealed is everything the
 	// catalog does not type as a single, so it is exhaustive by
