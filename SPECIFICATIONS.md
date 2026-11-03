@@ -546,6 +546,14 @@ built from one catalog.
 **`ci.yml`** (push to master, pull requests): gofmt `-s`, vet, revive
 1.13.0, staticcheck 2026.2.1, govulncheck, build, `go test -race`.
 
+**`hostile-review-wake.yml`** (a pull request opened, pushed, reopened or
+marked ready, unless it touches only Markdown or `docs/`): one curl, no
+checkout, that posts the pull request's number, title, tip and refs to the
+hostile review's webhook so it reviews the change. Skipped on drafts, fork
+and Dependabot pull requests, which get no secrets. Same file as
+go-mtgban's. Secrets: `HOSTILE_REVIEW_WEBHOOK_URL`,
+`HOSTILE_REVIEW_WEBHOOK_KEY`.
+
 **`publish.yml`** (`37 12 * * *` UTC, and `workflow_dispatch` with `game`
 and `rebaseline`): per game, the games running side by side,
 

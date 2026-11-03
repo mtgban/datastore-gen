@@ -64,7 +64,8 @@ internal/vocabulary    the promo-type rules, checked against a built file
 internal/datastorediff the comparison behind cmd/datastorediff
 internal/handtable     the tables carried by hand, which report the rows a
                        build used nothing of
-.github/workflows      ci.yml, publish.yml, tag-output-changes.yml, measure.yml
+.github/workflows      ci.yml, publish.yml, tag-output-changes.yml, measure.yml,
+                       hostile-review-wake.yml
 .github/scripts        games.sh (the games, what each build reads, a build
                        at a commit; publish and measure both read it),
                        pr-measure.sh, tag-output-changes.sh,
