@@ -478,7 +478,7 @@ func namedPromotions(tag string) []string {
 // promotion reached one of them and none of the rest.
 func generalPromotion(tag string) string {
 	for abbrev, spelled := range promoAbbrevs.Rows() {
-		if re := regexp.MustCompile(`\b` + abbrev + `\b`); re.MatchString(tag) {
+		if re := promoAbbrevWords[abbrev]; re.MatchString(tag) {
 			promoAbbrevs.Use(abbrev)
 			tag = re.ReplaceAllString(tag, spelled)
 		}
@@ -509,6 +509,15 @@ var promoAbbrevs = handtable.New("promoAbbrevs", map[string]string{
 	"sdcc": "san diego comic-con",
 	"wcs":  "world championship",
 })
+
+// promoAbbrevWords matches each of promoAbbrevs as a word.
+var promoAbbrevWords = func() map[string]*regexp.Regexp {
+	words := map[string]*regexp.Regexp{}
+	for abbrev := range promoAbbrevs.Rows() {
+		words[abbrev] = regexp.MustCompile(`\b` + abbrev + `\b`)
+	}
+	return words
+}()
 
 // setNameHeads are the sets' names, lower-cased and longest first, for the
 // same stripping the codes get. Filled in main once the sets are known.
