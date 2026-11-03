@@ -9,51 +9,6 @@ import (
 	"github.com/mtgban/go-tcgplayer"
 )
 
-// printingNames maps each product to the distinct printing names its English
-// skus carry, in the order the catalog displays them; a printing it does not list for a
-// product is one that does not exist.
-func printingNames(c *tcgplayer.CatalogDump) map[int][]string {
-	name := map[int]string{}
-	for _, p := range c.Printings {
-		name[p.PrintingID] = p.Name
-	}
-
-	// The order TCGplayer displays a category's printings in, which is the
-	// catalog's to decide: a list written here would be a second opinion
-	// about somebody else's data. Two printings can share a displayOrder -
-	// Flesh and Blood has three at 2 - so the name settles a tie and the
-	// order stays fixed for unchanged data.
-	rank := map[string]int{}
-	for _, p := range c.Printings {
-		rank[p.Name] = p.DisplayOrder
-	}
-
-	out := map[int][]string{}
-	for _, product := range c.Products {
-		var names []string
-		for _, sku := range product.Skus {
-			if sku.LanguageID != 1 {
-				continue
-			}
-			n := name[sku.PrintingID]
-			if n == "" || slices.Contains(names, n) {
-				continue
-			}
-			names = append(names, n)
-		}
-		if len(names) > 1 {
-			sort.SliceStable(names, func(i, j int) bool {
-				if ri, rj := rank[names[i]], rank[names[j]]; ri != rj {
-					return ri < rj
-				}
-				return names[i] < names[j]
-			})
-		}
-		out[product.ProductID] = names
-	}
-	return out
-}
-
 // printRunPrintings name a print run rather than a finish. TCGplayer files
 // the WotC-era runs this way: a set that sold both prices every card in a
 // pair of them - "1st Edition" beside "Unlimited", or the holo pair - where

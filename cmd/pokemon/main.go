@@ -336,7 +336,7 @@ func main() {
 	log.Printf("release dates: %d placeholders, %d filled, %d left empty",
 		placeholders, filled, placeholders-filled)
 
-	printings := printingNames(&catalog)
+	printings := emit.EnglishPrintingNames(&catalog)
 	if strays := dropStrayPrintRuns(&catalog, printings); strays > 0 {
 		log.Printf("print run: %d stray run printings dropped", strays)
 	}

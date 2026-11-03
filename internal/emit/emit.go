@@ -115,6 +115,16 @@ func PrintingDisplayOrder(c *tcgplayer.CatalogDump) map[string]int {
 // and Blood has three at 2 - so the name settles a tie and the order stays
 // fixed for unchanged data.
 func PrintingNames(c *tcgplayer.CatalogDump) map[int][]string {
+	return printingNames(c, false)
+}
+
+// EnglishPrintingNames is PrintingNames counting only the skus priced in
+// English, for a category that prices other languages beside it.
+func EnglishPrintingNames(c *tcgplayer.CatalogDump) map[int][]string {
+	return printingNames(c, true)
+}
+
+func printingNames(c *tcgplayer.CatalogDump, englishOnly bool) map[int][]string {
 	name := map[int]string{}
 	for _, p := range c.Printings {
 		name[p.PrintingID] = p.Name
@@ -124,6 +134,9 @@ func PrintingNames(c *tcgplayer.CatalogDump) map[int][]string {
 	for _, product := range c.Products {
 		var names []string
 		for _, sku := range product.Skus {
+			if englishOnly && sku.LanguageID != englishLanguage {
+				continue
+			}
 			n := name[sku.PrintingID]
 			if n == "" || slices.Contains(names, n) {
 				continue

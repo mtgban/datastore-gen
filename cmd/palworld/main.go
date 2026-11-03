@@ -293,7 +293,7 @@ func main() {
 	// writes codes throughout, so every rarity is read in one vocabulary.
 	spelled := emit.RarityNames(catalog.Rarities)
 	rarityOf := func(code string) string { return cmp.Or(spelled[code], code) }
-	printings := catalog.PrintingNames()
+	printings := emit.PrintingNames(&catalog)
 	displayOrder := emit.PrintingDisplayOrder(&catalog)
 
 	// Split the products: every single becomes printings, the non-single

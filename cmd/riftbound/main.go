@@ -217,47 +217,6 @@ func repeatedRows(payload []byte) []string {
 	return repeated
 }
 
-// finishesByProduct maps each product to the finishes it is sold in, named
-// as TCGplayer names them - which is how the other six games name theirs,
-// and what lets a consumer read the datastore's word back against a sku.
-// Normal and Foil are this category's whole vocabulary today, and a printing
-// TCGplayer adds later is carried under its own name rather than dropped:
-// the loader places an unrecognized name by normalizing it, so a third
-// finish arrives as data rather than as a release of either side. A printing
-// TCGplayer does not list is one that does not exist: most of Riftbound is
-// sold in a single finish, promotional printings being foil and starter
-// cards plain.
-func finishesByProduct(c *tcgplayer.CatalogDump) map[int][]string {
-	printing := map[int]string{}
-	// The catalog's own order for the printings, which puts Normal before
-	// Foil. Ordered rather than as encountered, so unchanged data keeps
-	// producing byte-identical output.
-	rank := map[string]int{}
-	for _, p := range c.Printings {
-		printing[p.PrintingID] = p.Name
-		rank[p.Name] = p.PrintingID
-	}
-
-	out := map[int][]string{}
-	for _, product := range c.Products {
-		var finishes []string
-		for _, sku := range product.Skus {
-			name := printing[sku.PrintingID]
-			if name == "" || slices.Contains(finishes, name) {
-				continue
-			}
-			finishes = append(finishes, name)
-		}
-		sort.Slice(finishes, func(i, j int) bool {
-			return rank[finishes[i]] < rank[finishes[j]]
-		})
-		if len(finishes) > 0 {
-			out[product.ProductID] = finishes
-		}
-	}
-	return out
-}
-
 // catalogFinishes is the category's plain and foil printings, as the dump
 // names them. The pair is what a product the catalog prices nothing for
 // falls back to, and the names are the catalog's to choose: written here
@@ -999,7 +958,15 @@ func main() {
 		Count:   countDatastore, Unit: "printings",
 	})
 	catalog := b.ReadCatalog()
-	finishes := finishesByProduct(&catalog)
+	// The finishes as TCGplayer names them, which is how every other game
+	// names its own; a printing TCGplayer does not list does not exist.
+	finishes := emit.PrintingNames(&catalog)
+	var known int
+	for _, f := range finishes {
+		if len(f) > 0 {
+			known++
+		}
+	}
 	bothFinishes := catalogFinishes(&catalog)
 	productsByGroup := map[int][]tcgplayer.Product{}
 	for _, product := range catalog.Products {
@@ -1025,7 +992,7 @@ func main() {
 			return products[i].ProductID < products[j].ProductID
 		})
 	}
-	build.LogCatalogf(&catalog, " (%d singles), %d with a known finish", singles, len(finishes))
+	build.LogCatalogf(&catalog, " (%d singles), %d with a known finish", singles, known)
 
 	payload, err := galleryPayload(*galleryPath, b.UpstreamCache)
 	if err != nil {
