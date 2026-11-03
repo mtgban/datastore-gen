@@ -1514,11 +1514,11 @@ func packKey(s string) string {
 // the fourth extra booster and the list labels the one pack "OP14-EB04"
 // where the catalog groups them apart, and the catalog files both Heroines
 // Editions under one group where the list labels the first "EB-03". A row
-// is reported the build it stops doing anything.
-var packLabels = map[string]string{
+// is used while a pack carries its label and none carries the group's own.
+var packLabels = handtable.New("packLabels", map[string]string{
 	"OP14":     "OP14-EB04",
 	"EB-03-04": "EB-03",
-}
+})
 
 // isReprint reports whether a product is the reprint printing of its
 // number, which Bandai suffixes _rN where every other variant is _pN.
@@ -1534,7 +1534,7 @@ func isReprint(s *single) bool {
 // groupKey is a catalog group's set code the way a pack label spells it,
 // through packLabels where the two sources spell one set two ways.
 func groupKey(group tcgplayer.Group) string {
-	if label, aliased := packLabels[group.Abbreviation]; aliased {
+	if label, aliased := packLabels.Rows()[group.Abbreviation]; aliased {
 		return packKey(label)
 	}
 	return packKey(group.Abbreviation)
@@ -1630,12 +1630,9 @@ func main() {
 			packKeys[key] = true
 		}
 	}
-	for abbreviation, label := range packLabels {
-		switch {
-		case !packKeys[packKey(label)]:
-			log.Printf("pack labels: no pack is labelled %q any more; the row for group %q does nothing", label, abbreviation)
-		case packKeys[packKey(abbreviation)]:
-			log.Printf("pack labels: a pack is labelled %q now; the row aliasing it to %q does nothing", abbreviation, label)
+	for abbreviation, label := range packLabels.Rows() {
+		if packKeys[packKey(label)] && !packKeys[packKey(abbreviation)] {
+			packLabels.Use(abbreviation)
 		}
 	}
 

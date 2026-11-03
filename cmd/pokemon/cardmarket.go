@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mtgban/datastore-gen/internal/emit"
+	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/go-cardmarket"
 )
 
@@ -25,10 +26,10 @@ import (
 // pokemontcg.io carry neither set in any language, and CardTrader, which
 // carries both, bridges none of the missing products to a TCGplayer id. So
 // this is the only source there is for them.
-var cardmarketMintSets = map[string]string{
+var cardmarketMintSets = handtable.New("cardmarketMintSets", map[string]string{
 	"Southeast Asia Promos": "SEA",
 	"Professor Program":     "PPP",
-}
+})
 
 // cardmarketSourceNumber splits the number Cardmarket writes on a stamped
 // promo into the set it was reprinted from and the number it kept.
@@ -91,22 +92,11 @@ func mintFromCardmarket(path string, cards []any, sets map[string]any, ptcg []po
 	// The shelves we mint from, by the id the products name them with.
 	shelves := map[int]string{}
 	for id, expansion := range catalog.Data.Expansions {
-		code, wanted := cardmarketMintSets[expansion.Name]
+		code, wanted := cardmarketMintSets.Get(expansion.Name)
 		if !wanted {
 			continue
 		}
 		shelves[id] = code
-	}
-	for name := range cardmarketMintSets {
-		var found bool
-		for _, expansion := range catalog.Data.Expansions {
-			if expansion.Name == name {
-				found = true
-			}
-		}
-		if !found {
-			log.Printf("cardmarket: no shelf named %q any more; its products mint nothing", name)
-		}
 	}
 
 	// Our sets by the names the other source may write them under: the
