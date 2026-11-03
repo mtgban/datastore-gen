@@ -302,6 +302,26 @@ func canonicalFinish(name string) string {
 	return folded
 }
 
+// pricedSingles splits the products the catalog types as a card into the
+// ones it prices a sku for, which the entries must carry exactly, and the
+// names of the ones it prices nothing for yet, which have no printing to
+// carry until it does.
+func pricedSingles(products []tcgplayer.Product, finishes map[int][]string) (map[int]bool, []string) {
+	priced := map[int]bool{}
+	var unpriced []string
+	for _, product := range products {
+		if !slices.Contains(tcgSingles, product.ProductType) {
+			continue
+		}
+		if len(finishes[product.ProductID]) == 0 {
+			unpriced = append(unpriced, fmt.Sprintf("%q (%d)", product.Name, product.ProductID))
+			continue
+		}
+		priced[product.ProductID] = true
+	}
+	return priced, unpriced
+}
+
 // isPromoGroup reports whether a TCGplayer group holds promotional printings
 // rather than a main set the gallery already covers (or will cover once
 // published, like preview-season sets).
@@ -327,8 +347,8 @@ func numberFor(product tcgplayer.Product) string {
 // reads a printing's number back off this code by cutting at the slash, and
 // "T06 // T04" would leave it a number ending in a space to compare a
 // storefront's own against.
-func publicCode(group tcgplayer.Group, number string) string {
-	return group.Abbreviation + "-" + strings.Join(strings.Fields(number), "")
+func publicCode(setCode, number string) string {
+	return setCode + "-" + strings.Join(strings.Fields(number), "")
 }
 
 // numberWritten is the collector number as a storefront writes it: what
@@ -381,7 +401,7 @@ func canonicalNumber(number string) string {
 // knows about, so a set carries every printing sold under its name rather
 // than only those the gallery published. It goes by name, the gallery's for
 // the card where there is one, and otherwise by the catalog's.
-func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string, printings []string, name string) map[string]any {
+func adoptedCard(group tcgplayer.Group, setCode string, product tcgplayer.Product, number string, printings []string, name string) map[string]any {
 	base, qualifiers := splitQualifiers(product.Name)
 	if name == "" {
 		name = base
@@ -391,15 +411,15 @@ func adoptedCard(group tcgplayer.Group, product tcgplayer.Product, number string
 	promoTypes := promoTypesOf(qualifiers, number)
 
 	item := map[string]any{
-		"id":                 fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
+		"id":                 fmt.Sprintf("%s-%d", strings.ToLower(setCode), product.ProductID),
 		"name":               name,
-		"publicCode":         publicCode(group, number),
+		"publicCode":         publicCode(setCode, number),
 		"orientation":        "portrait",
 		"tcgplayerProductId": product.ProductID,
 		"finishes":           printings,
 		"set": map[string]any{
 			"value": map[string]any{
-				"id":    group.Abbreviation,
+				"id":    setCode,
 				"label": group.Name,
 			},
 		},
@@ -965,17 +985,18 @@ func main() {
 	finishes := finishesByProduct(&catalog)
 	bothFinishes := catalogFinishes(&catalog)
 	productsByGroup := map[int][]tcgplayer.Product{}
-	// The coverage contract: every product the catalog types as a card.
-	// validate reads it back off the encoded output, so a product no rule
-	// here carried fails the build instead of leaving the datastore.
-	cardProducts := map[int]bool{}
 	for _, product := range catalog.Products {
 		productsByGroup[product.GroupID] = append(productsByGroup[product.GroupID], product)
-		if slices.Contains(tcgSingles, product.ProductType) {
-			cardProducts[product.ProductID] = true
-		}
 	}
-	singles := len(cardProducts)
+	// The coverage contract. validate reads it back off the encoded output,
+	// so a product no rule here carried fails the build instead of leaving
+	// the datastore.
+	cardProducts, unpriced := pricedSingles(catalog.Products, finishes)
+	if len(unpriced) > 0 {
+		log.Printf("unpriced: %d card products TCGplayer sells no sku for yet, carried once it does: %s",
+			len(unpriced), strings.Join(unpriced, ", "))
+	}
+	singles := len(cardProducts) + len(unpriced)
 	// A dump from before the product type was recorded types nothing, and
 	// the sealed-by-exclusion rule would then file the whole catalog as
 	// sealed; a dump whose singles all vanished is equally implausible.
@@ -1082,23 +1103,26 @@ func main() {
 
 	// Process in a stable order so unchanged data produces byte-identical
 	// output (consumers cache the file by etag).
+	codes := emit.SetCodes(catalog.Groups)
 	groups := catalog.Groups
 	sort.Slice(groups, func(i, j int) bool {
-		return groups[i].Abbreviation < groups[j].Abbreviation
+		return codes[groups[i].GroupID] < codes[groups[j].GroupID]
 	})
 
-	// Printings the catalog names no finish for, whose gallery finishes
-	// therefore stand. Zero today, and it should stay that way.
-	var unpriced int
 	for _, group := range groups {
-		byNumber := galleryByNumber[group.Abbreviation]
+		code := codes[group.GroupID]
+		byNumber := galleryByNumber[code]
 		products := productsByGroup[group.GroupID]
+		if abbreviation := emit.SetCodeOf(group.Abbreviation); code != abbreviation && galleryByNumber[abbreviation] != nil {
+			log.Printf("%s: abbreviation %s is a gallery set another group claimed; its printings are minted under %s, not stamped",
+				group.Name, group.Abbreviation, code)
+		}
 
 		// A set the gallery published: stamp its printings with the
 		// TCGplayer product id resolving to them, keyed by collector
 		// number, and adopt the products it does not carry.
 		if byNumber != nil {
-			if item := setByID[group.Abbreviation]; item != nil {
+			if item := setByID[code]; item != nil {
 				item["releaseDate"] = group.ReleaseDate()
 			}
 			// One gallery row holds one product id, so a second product
@@ -1113,7 +1137,9 @@ func main() {
 			var pending []tcgplayer.Product
 			var stamped, adopted int
 			for _, product := range products {
-				if !slices.Contains(tcgSingles, product.ProductType) {
+				if !cardProducts[product.ProductID] {
+					// A gallery row of a product priced in nothing yet is
+					// the gallery's alone until it is.
 					continue
 				}
 				number := numberFor(product)
@@ -1160,29 +1186,19 @@ func main() {
 				}
 				// The catalog decides which finishes exist: a printing it
 				// prices a sku for is one that exists, and the gallery says
-				// nothing about finish at all. It can only fall back to the
-				// gallery's own when the catalog names no finish for the
-				// product, which means skus under a printing name this
-				// build does not know - said out loud, because the gallery
-				// answering for commerce is exactly what it cannot do.
-				if f := finishes[product.ProductID]; len(f) > 0 {
-					item["finishes"] = f
-				} else {
-					unpriced++
-					log.Printf("%q (%d) has no finish in the catalog; the gallery's stand",
-						product.Name, product.ProductID)
-				}
+				// nothing about finish at all.
+				item["finishes"] = finishes[product.ProductID]
 				stamped++
 			}
 			for _, product := range pending {
 				number := numberFor(product)
-				card := adoptedCard(group, product, number, finishes[product.ProductID], galleryNames[sameCard(product)])
+				card := adoptedCard(group, code, product, number, finishes[product.ProductID], galleryNames[sameCard(product)])
 				cardDomains.stamp(card, product)
 				cardItems = append(cardItems, card)
 				adopted++
 			}
 			log.Printf("%s (%s): %d printings stamped, %d adopted",
-				group.Name, group.Abbreviation, stamped, adopted)
+				group.Name, code, stamped, adopted)
 			continue
 		}
 
@@ -1191,7 +1207,7 @@ func main() {
 		// catalog's alone, so they are minted here and the set with them.
 		var added int
 		for _, product := range products {
-			if !slices.Contains(tcgSingles, product.ProductType) {
+			if !cardProducts[product.ProductID] {
 				continue
 			}
 			number := numberFor(product)
@@ -1213,16 +1229,16 @@ func main() {
 			item := map[string]any{
 				// The TCGplayer product id is the stable identity of a
 				// promo printing; group-prefixed for readability.
-				"id":                 fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
+				"id":                 fmt.Sprintf("%s-%d", strings.ToLower(code), product.ProductID),
 				"collectorNumber":    collector,
 				"name":               name,
-				"publicCode":         publicCode(group, number),
+				"publicCode":         publicCode(code, number),
 				"orientation":        "portrait",
 				"tcgplayerProductId": product.ProductID,
 				"finishes":           finishes[product.ProductID],
 				"set": map[string]any{
 					"value": map[string]any{
-						"id":    group.Abbreviation,
+						"id":    code,
 						"label": group.Name,
 					},
 				},
@@ -1253,7 +1269,7 @@ func main() {
 		// gallery states a size for the sets it publishes and this build
 		// invents none for the rest.
 		set := map[string]any{
-			"id":          group.Abbreviation,
+			"id":          code,
 			"name":        group.Name,
 			"releaseDate": group.ReleaseDate(),
 		}
@@ -1265,12 +1281,9 @@ func main() {
 		}
 		setItems = append(setItems, set)
 		log.Printf("%s (%s): %d printings minted with a set of their own",
-			group.Name, group.Abbreviation, added)
+			group.Name, code, added)
 	}
 
-	if unpriced > 0 {
-		log.Printf("finishes: %d printings the catalog names none for; the gallery's stand", unpriced)
-	}
 	log.Printf("domains: %d from a gallery printing of the same name, %d from the catalog, %d from neither: %s",
 		cardDomains.fromGallery, cardDomains.fromCatalog, len(cardDomains.missing), strings.Join(cardDomains.missing, ", "))
 
@@ -1287,6 +1300,7 @@ func main() {
 	}
 	var sealedOnly int
 	for _, group := range groups {
+		code := codes[group.GroupID]
 		for _, product := range productsByGroup[group.GroupID] {
 			if slices.Contains(tcgSingles, product.ProductType) {
 				continue
@@ -1294,22 +1308,22 @@ func main() {
 			// Named as every other game names a sealed product; the gallery
 			// has none, so there is no vocabulary of its own to keep.
 			sealedItems = append(sealedItems, &emit.Sealed{
-				ID:            fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
+				ID:            fmt.Sprintf("%s-%d", strings.ToLower(code), product.ProductID),
 				Name:          product.Name,
-				SetCode:       group.Abbreviation,
+				SetCode:       code,
 				ReleaseDate:   group.ReleaseDate(),
 				Image:         emit.ImageURL(product.ImageURL),
 				ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
 			})
 			// A group sold only sealed - accessories, a set before its
 			// cards - gets a set of its own, as the other builders mint.
-			if !knownSets[group.Abbreviation] {
+			if !knownSets[code] {
 				setItems = append(setItems, map[string]any{
-					"id":          group.Abbreviation,
+					"id":          code,
 					"name":        group.Name,
 					"releaseDate": group.ReleaseDate(),
 				})
-				knownSets[group.Abbreviation] = true
+				knownSets[code] = true
 				sealedOnly++
 			}
 		}
@@ -1496,7 +1510,7 @@ func main() {
 	log.Printf("validated: %d sets, %d printings, %d tcgplayer ids, %d sealed",
 		sets2, cards2, identified, sealed2)
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
-		identified, singles, singles-identified)
+		identified, len(cardProducts), len(cardProducts)-identified)
 	if sets2 != len(setItems) || cards2 != len(cardItems) || sealed2 != len(sealedItems) {
 		log.Fatalf("emitted %d sets, %d printings, %d sealed but read back %d, %d, %d; refusing to publish",
 			len(setItems), len(cardItems), len(sealedItems), sets2, cards2, sealed2)

@@ -31,11 +31,11 @@ func TestSameCard(t *testing.T) {
 // catalog's qualifiers give it.
 func TestAdoptedCardTakesTheGalleryName(t *testing.T) {
 	alternate := product("Viktor, Leader (Alternate Art)", "246a/298")
-	card := adoptedCard(tcgplayer.Group{Abbreviation: "OGN"}, alternate, "246a/298", nil, "Viktor")
+	card := adoptedCard(tcgplayer.Group{Abbreviation: "OGN"}, "OGN", alternate, "246a/298", nil, "Viktor")
 	if card["name"] != "Viktor" || card["variant"] != "Alternate Art" {
 		t.Errorf("adopted as %q, variant %q; want Viktor, Alternate Art", card["name"], card["variant"])
 	}
-	card = adoptedCard(tcgplayer.Group{Abbreviation: "OGN"}, alternate, "246a/298", nil, "")
+	card = adoptedCard(tcgplayer.Group{Abbreviation: "OGN"}, "OGN", alternate, "246a/298", nil, "")
 	if card["name"] != "Viktor, Leader" {
 		t.Errorf("with no gallery name adopted as %q, want the catalog's", card["name"])
 	}
