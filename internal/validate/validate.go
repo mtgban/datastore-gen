@@ -209,6 +209,13 @@ func Check(doc Document, wantFinishes map[int][]string, rules Rules) (Counts, er
 	// fallback puts it, so it is logged rather than refused, and go-mtgban's
 	// loader tests fail on it.
 	properties := slices.Sorted(maps.Keys(doc.Properties))
+	listed := map[string]map[string]bool{}
+	for name, order := range doc.Properties {
+		listed[name] = map[string]bool{}
+		for _, value := range order {
+			listed[name][value] = true
+		}
+	}
 	unlisted := map[string]int{}
 	values := rules.Values
 	if values == nil {
@@ -248,7 +255,7 @@ func Check(doc Document, wantFinishes map[int][]string, rules Rules) (Counts, er
 		}
 		for _, name := range properties {
 			for _, value := range values(card, name) {
-				if !slices.Contains(doc.Properties[name], value) {
+				if !listed[name][value] {
 					unlisted[fmt.Sprintf("properties.%s does not list %q", name, value)]++
 				}
 			}
