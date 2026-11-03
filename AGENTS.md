@@ -45,7 +45,8 @@ Two corollaries shape every change:
 ## Layout
 
 ```
-cmd/<game>/main.go     one builder per game: fleshandblood, gundam, lorcana,
+cmd/<game>/            one builder per game (main.go, and files beside it
+                       where it has grown): fleshandblood, gundam, lorcana,
                        onepiece, palworld, pokemon, riftbound, yugioh
 cmd/datastorediff      reads two built datastores, prints what the second did
                        to the first (used by the tagging workflow)
@@ -74,8 +75,11 @@ internal/handtable     the tables carried by hand, which report the rows a
 docs/                  evidence too long for a comment or a commit
 ```
 
-Each `cmd/<game>/main.go` is one large file on purpose. The builders are
-standalone: no dependency on go-mtgban, no external module beyond the
+A builder is one package, `package main`, and its code is one large file
+until that file has grown past reading, when it is split by theme into files
+beside it: `cmd/pokemon` is the example (`tcgdex.go`, `numbers.go`,
+`qualifiers.go`, `promotypes.go`, `cardmarket.go` and so on). The builders
+are standalone: no dependency on go-mtgban, no external module beyond the
 catalog reader (`github.com/mtgban/go-tcgplayer`) and the Cardmarket reader
 (`github.com/mtgban/go-cardmarket`). Shared code lives only under
 `internal/`, which is inside this module and drags nothing. Do not add a
@@ -362,7 +366,7 @@ machine, so after a publish, refresh `output/<game>.json` (and
 ## Working with subagents
 
 Delegate the reading to subagents and keep the reasoning: inventories of a
-builder's flags and entry keys, sweeps across the eight `main.go` files,
+builder's flags and entry keys, sweeps across the eight builders,
 "which rows carry token X", the replay classification. Use a Sonnet-class
 model (`model: sonnet`) for those subagents; they are search and summary
 work and do not need the largest model. Give each a precise question, a
