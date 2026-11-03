@@ -885,7 +885,7 @@ func main() {
 	// An empty group is skipped, its code left claimed so nothing renames
 	// while it is empty and the set appears already-coded the day
 	// TCGplayer files a product there.
-	sets := map[string]any{}
+	sets := map[string]*emit.Set{}
 	promoted := promoGroups(catalog)
 	var promoSets, skippedEmpty, symboled int
 	for _, group := range groups {
@@ -899,33 +899,31 @@ func main() {
 			// nothing is ever filed under a code no set carries.
 			continue
 		}
-		set := map[string]any{
-			"name":        group.Name,
-			"releaseDate": releaseDates[group.GroupID],
-		}
-		if group.Abbreviation != "" {
-			set["abbreviation"] = group.Abbreviation
+		set := &emit.Set{
+			Name:         group.Name,
+			ReleaseDate:  releaseDates[group.GroupID],
+			Abbreviation: group.Abbreviation,
 		}
 		// The mark the set's cards print, from the tcgdex set the group
 		// joined. A group that joined no set, or joined one tcgdex holds no
 		// symbol for, carries none, and whatever renders this falls back to
 		// drawing the set code.
 		if dex := joinedSets[group.GroupID]; dex != nil && dex.Symbol != "" {
-			set["symbol"] = tcgdexSymbolURL(dex.Symbol)
+			set.Symbol = tcgdexSymbolURL(dex.Symbol)
 			symboled++
 		}
 		// The type is what tells the matcher a printing is promotional, so
 		// only the wholly promotional groups carry it.
 		if promoted[group.GroupID] {
-			set["type"] = "promo"
+			set.Type = "promo"
 			promoSets++
 		}
 		sets[setCodes[group.GroupID]] = set
 	}
 	for year, code := range worldsSets {
-		sets[code] = map[string]any{
-			"name":        year + " World Championship Decks",
-			"releaseDate": worldsReleaseDate(year),
+		sets[code] = &emit.Set{
+			Name:        year + " World Championship Decks",
+			ReleaseDate: worldsReleaseDate(year),
 		}
 	}
 	if len(worldsSets) > 0 {
@@ -981,12 +979,12 @@ func main() {
 		code = emit.FreeSetCode(usedCodes, code)
 		usedCodes[code] = true
 		mintedSetCode[card.Set.ID] = code
-		set := map[string]any{"name": card.Set.ID, "releaseDate": ""}
+		set := &emit.Set{Name: card.Set.ID}
 		if dex != nil {
-			set["name"] = dex.Name
-			set["releaseDate"] = dex.ReleaseDate
+			set.Name = dex.Name
+			set.ReleaseDate = dex.ReleaseDate
 			if dex.Symbol != "" {
-				set["symbol"] = tcgdexSymbolURL(dex.Symbol)
+				set.Symbol = tcgdexSymbolURL(dex.Symbol)
 				symboled++
 			}
 		}
@@ -1027,21 +1025,19 @@ func main() {
 			}
 		}
 		var byNameHits, byCodeHits int
-		for code, entry := range sets {
-			set, isMap := entry.(map[string]any)
-			if !isMap || set["symbol"] != nil {
+		for code, set := range sets {
+			if set.Symbol != "" {
 				continue
 			}
-			name, _ := set["name"].(string)
-			date, _ := set["releaseDate"].(string)
+			name, date := set.Name, set.ReleaseDate
 			if found, ok := byName[mtgmatcherNormalize(name)]; ok {
-				set["symbol"] = found.Images.Symbol
+				set.Symbol = found.Images.Symbol
 				byNameHits++
 				symboled++
 				continue
 			}
 			if found, ok := byCodeDate[strings.ToUpper(code)+"|"+date]; ok {
-				set["symbol"] = found.Images.Symbol
+				set.Symbol = found.Images.Symbol
 				byCodeHits++
 				symboled++
 			}
@@ -1107,12 +1103,8 @@ func main() {
 	// of its cards are the delta ones.
 	own := map[string]map[string]bool{}
 	shelf := map[string]bool{}
-	for code, entry := range sets {
-		set, isMap := entry.(map[string]any)
-		if !isMap {
-			continue
-		}
-		name, _ := set["name"].(string)
+	for code, set := range sets {
+		name := set.Name
 		if name == "" {
 			continue
 		}
@@ -1159,7 +1151,7 @@ func main() {
 		}
 	}
 
-	var cards []any
+	var cards []*emit.Card
 	// What promoTypesOf left out of each entry, keyed by the entry's id,
 	// for markPrintings to put back where it turns out to be doing the
 	// distinguishing.
@@ -1178,35 +1170,29 @@ func main() {
 		}
 		for _, finish := range printings[productID] {
 			suffix := emit.FinishSuffix(finish)
-			entry := map[string]any{
-				"id":      idBase(s.number, productID) + suffix,
-				"name":    handName(s.product.ProductID, s.baseName),
-				"setCode": setCodeFor(s.product),
-				"rarity":  s.product.Extended("Rarity"),
-				"finish":  finish,
-				"image":   image,
-				"externalLinks": map[string]any{
-					"tcgPlayerId": productID,
-				},
+			cardType := s.product.Extended("Card Type")
+			mark := printMark(s, setCodeFor(s.product))
+			entry := &emit.Card{
+				ID:            idBase(s.number, productID) + suffix,
+				Name:          handName(s.product.ProductID, s.baseName),
+				SetCode:       setCodeFor(s.product),
+				Rarity:        s.product.Extended("Rarity"),
+				Finish:        finish,
+				Watermark:     mark,
+				Type:          cardType,
+				Types:         cardTypes.of(dex, cardType),
+				Image:         image,
+				ExternalLinks: emit.Links{TCGPlayerID: productID},
+			}
+			if dex != nil {
+				entry.ExternalLinks.TcgdexID = dex.ID
 			}
 			if s.number != "" {
 				emitNumber(entry, emit.QueryNumber(s.number))
 			}
-			cardType := s.product.Extended("Card Type")
-			if cardType != "" {
-				entry["type"] = cardType
-			}
-			types := cardTypes.of(dex, cardType)
-			if len(types) > 0 {
-				entry["types"] = types
-			}
-			mark := printMark(s, setCodeFor(s.product))
-			if mark != "" {
-				entry["watermark"] = mark
-			}
 			variant := variantOf(s)
 			if variant != "" {
-				entry["variant"] = variant
+				entry.Variant = variant
 				// The same labels as a list: joined, "Full Art Staff"
 				// cannot be read back into the two tags it holds, and the
 				// matcher needs them whole to declare and to match on.
@@ -1214,14 +1200,12 @@ func main() {
 				// and no promo types, so the key stays off rather than
 				// carrying an empty list.
 				tags, left, year, found, spoken := promoTypesOf(s, facts, shelf[setCodeFor(s.product)], own[setCodeFor(s.product)], finish, mark)
-				if spoken != "" {
-					entry["language"] = spoken
-				}
+				entry.Language = spoken
 				if year != "" {
-					stated[fmt.Sprint(entry["id"])] = year
+					stated[entry.ID] = year
 				}
 				if mark == "" && found != "" {
-					entry["watermark"] = found
+					entry.Watermark = found
 				}
 				// A label saying what the finish field says names no
 				// promotion: the catalog writes "Reverse Holofoil" into
@@ -1231,15 +1215,10 @@ func main() {
 				tags = slices.DeleteFunc(tags, func(tag string) bool {
 					return saysFinish(tag, finish)
 				})
-				if len(tags) > 0 {
-					entry["promoTypes"] = tags
-				}
+				entry.PromoTypes = tags
 				if len(left) > 0 {
-					leftOut[fmt.Sprint(entry["id"])] = left
+					leftOut[entry.ID] = left
 				}
-			}
-			if dex != nil {
-				entry["tcgdexId"] = dex.ID
 			}
 			cards = append(cards, entry)
 		}
@@ -1296,16 +1275,9 @@ func main() {
 	// 67% to 100% of their cards onto a single group, and the sets that
 	// merely collide here and there run 6% to 33%, with nothing between.
 	pricedIdentity := map[string][]string{}
-	for _, entry := range cards {
-		e, isMap := entry.(map[string]any)
-		if !isMap {
-			continue
-		}
-		name, _ := e["name"].(string)
-		number, _ := e["number"].(string)
-		setCode, _ := e["setCode"].(string)
-		key := identityKey(name, number)
-		pricedIdentity[key] = append(pricedIdentity[key], setCode)
+	for _, e := range cards {
+		key := identityKey(e.Name, e.Number)
+		pricedIdentity[key] = append(pricedIdentity[key], e.SetCode)
 	}
 
 	// How much of each mintable set the catalog already sells, and where.
@@ -1365,19 +1337,12 @@ func main() {
 	// the identity above cannot see: a set the catalog numbers its own way,
 	// and a name it sells without a number at all.
 	pricedNumbers := map[string]map[string]bool{}
-	for _, entry := range cards {
-		e, isMap := entry.(map[string]any)
-		if !isMap {
-			continue
-		}
-		name, _ := e["name"].(string)
-		number, _ := e["number"].(string)
-		setCode, _ := e["setCode"].(string)
-		key := setCode + "|" + identityKey(name, "")
+	for _, e := range cards {
+		key := e.SetCode + "|" + identityKey(e.Name, "")
 		if pricedNumbers[key] == nil {
 			pricedNumbers[key] = map[string]bool{}
 		}
-		pricedNumbers[key][number] = true
+		pricedNumbers[key][e.Number] = true
 	}
 
 	var renumberedTwins, unnumberedTwins int
@@ -1441,40 +1406,35 @@ func main() {
 			mintedWithoutArt++
 		}
 		for _, finish := range finishes {
-			entry := map[string]any{
-				"id":       mintedIDBase(card.ID) + emit.FinishSuffix(finish),
-				"name":     catalogSpelling(card.Name),
-				"setCode":  mintedSetCode[card.Set.ID],
-				"rarity":   rarity,
-				"finish":   finish,
-				"image":    image,
-				"tcgdexId": card.ID,
+			entry := &emit.Card{
+				ID:            mintedIDBase(card.ID) + emit.FinishSuffix(finish),
+				Name:          catalogSpelling(card.Name),
+				SetCode:       mintedSetCode[card.Set.ID],
+				Rarity:        rarity,
+				Finish:        finish,
+				Type:          card.Category,
+				Types:         cardTypes.of(card, ""),
+				Image:         image,
+				ExternalLinks: emit.Links{TcgdexID: card.ID},
 			}
 			if card.LocalID != "" {
 				emitNumber(entry, emit.QueryNumber(card.LocalID))
-				own, _ := entry["number"].(string)
+				own := entry.Number
 				if width, agreed := widthBySet[mintedSetCode[card.Set.ID]]; agreed &&
 					isAllDigits(own) && len(own) < width {
 					padded := strings.Repeat("0", width-len(own)) + own
-					entry["number"] = padded
+					entry.Number = padded
 					own = padded
 					mintedPadded++
 					log.Printf("minted: %s numbers %q where %s pads to %d; published as %q",
 						card.ID, card.LocalID, mintedSetCode[card.Set.ID], width, padded)
 				}
-				if _, printed := entry["total"]; !printed && own != "" && own[0] >= '0' && own[0] <= '9' {
+				if entry.Total == "" && own != "" && own[0] >= '0' && own[0] <= '9' {
 					if total, sole := totalBySet[mintedSetCode[card.Set.ID]]; sole {
-						entry["total"] = total
+						entry.Total = total
 						mintedTotals++
 					}
 				}
-			}
-			if card.Category != "" {
-				entry["type"] = card.Category
-			}
-			types := cardTypes.of(card, "")
-			if len(types) > 0 {
-				entry["types"] = types
 			}
 			cards = append(cards, entry)
 			mintedCards++
@@ -1494,11 +1454,8 @@ func main() {
 			mintedCards, len(mintable), mintedWithoutArt, mintedTotals, mintedPadded)
 	}
 	cardsIn := map[string]int{}
-	for _, entry := range cards {
-		if e, isMap := entry.(map[string]any); isMap {
-			code, _ := e["setCode"].(string)
-			cardsIn[code]++
-		}
+	for _, e := range cards {
+		cardsIn[e.SetCode]++
 	}
 	var emptied int
 	for code := range mintedSetEntries {
@@ -1515,18 +1472,16 @@ func main() {
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
-	var sealed []any
+	var sealed []*emit.Sealed
 	for _, product := range sealedProducts {
 		code := setCodeFor(product)
-		sealed = append(sealed, map[string]any{
-			"id":          fmt.Sprintf("%s-%d", sanitizeID(code), product.ProductID),
-			"name":        product.Name,
-			"setCode":     code,
-			"releaseDate": releaseDates[product.GroupID],
-			"image":       emit.ImageURL(product.ImageURL),
-			"externalLinks": map[string]any{
-				"tcgPlayerId": product.ProductID,
-			},
+		sealed = append(sealed, &emit.Sealed{
+			ID:            fmt.Sprintf("%s-%d", sanitizeID(code), product.ProductID),
+			Name:          product.Name,
+			SetCode:       code,
+			ReleaseDate:   releaseDates[product.GroupID],
+			Image:         emit.ImageURL(product.ImageURL),
+			ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
 		})
 	}
 	// The set's own size, which is the total its cards print beside their
@@ -1535,15 +1490,15 @@ func main() {
 	// a set whose cards name no single total carries none.
 	var sized int
 	for code, total := range totalsBySet(cards) {
-		set, isMap := sets[code].(map[string]any)
-		if !isMap {
+		set, held := sets[code]
+		if !held {
 			continue
 		}
 		size, err := strconv.Atoi(strings.TrimLeft(total, "0"))
 		if err != nil || size <= 0 {
 			continue
 		}
-		set["baseSetSize"] = size
+		set.BaseSetSize = size
 		sized++
 	}
 	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed (%d sets carry a printed size)",
@@ -1551,26 +1506,11 @@ func main() {
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
-	// The id upstream knows this printing by moves off the entry into
-	// externalLinks, where every other identifier lives.
 	var linked int
 	for _, entry := range cards {
-		item, ok := entry.(map[string]any)
-		if !ok {
-			continue
+		if entry.ExternalLinks.TcgdexID != "" {
+			linked++
 		}
-		id, _ := item["tcgdexId"].(string)
-		if id == "" {
-			continue
-		}
-		links, ok := item["externalLinks"].(map[string]any)
-		if !ok {
-			links = map[string]any{}
-			item["externalLinks"] = links
-		}
-		links["tcgdexId"] = id
-		delete(item, "tcgdexId")
-		linked++
 	}
 	log.Printf("external links: %d cards carry their tcgdexId under externalLinks", linked)
 
@@ -1589,22 +1529,22 @@ func main() {
 
 	log.Printf("watermarks: %d printings marked by which copy of the number they are, %d still alike", marked, alike)
 
-	cards = emit.DropRepeatedFinishes(cards)
-	emit.DropEmptySets(sets, cards, sealed)
-	doc := map[string]any{
-		"game":   "pokemon",
-		"sets":   sets,
-		"cards":  cards,
-		"sealed": sealed,
+	doc := &emit.Datastore{
+		Game:       "pokemon",
+		Properties: properties,
+		Sets:       sets,
+		Cards:      cards,
+		Sealed:     sealed,
 	}
-	doc["properties"] = properties
+	doc.DropRepeatedFinishes()
+	doc.DropEmptySets()
 	var buf bytes.Buffer
 	log.Printf("types: %d printings typed by tcgdex, %d by the catalog's Card Type",
 		cardTypes.fromTcgdex, cardTypes.fromCatalog)
 	handtable.Report()
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
-	emit.PlainQuotes(doc)
+	doc.PlainQuotes()
 
 	envelope := emit.Envelope(emit.Today(), doc)
 	err = json.NewEncoder(&buf).Encode(envelope)
@@ -1633,9 +1573,9 @@ func main() {
 		log.Fatalln("validation:", err)
 	}
 	log.Printf("validated: %d sets, %d cards, %d sealed", counted.Sets, counted.Cards, counted.Sealed)
-	if counted.Cards != len(cards) || counted.Sealed != len(sealed) {
+	if counted.Cards != len(doc.Cards) || counted.Sealed != len(doc.Sealed) {
 		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			len(cards), len(sealed), counted.Cards, counted.Sealed)
+			len(doc.Cards), len(doc.Sealed), counted.Cards, counted.Sealed)
 	}
 	// The coverage contract for the sealed side. Sealed is everything the
 	// catalog does not type as a single, so it is exhaustive by

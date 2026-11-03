@@ -31,12 +31,8 @@ func sanitizeID(s string) string {
 // leaves a face without a total untouched. Nothing is checked against the
 // set's real size on purpose: the secret rares are numbered past it
 // ("168/167") and that is what the face says.
-func emitNumber(entry map[string]any, number string) {
-	own, total, _ := strings.Cut(number, "/")
-	entry["number"] = own
-	if total != "" {
-		entry["total"] = total
-	}
+func emitNumber(entry *emit.Card, number string) {
+	entry.Number, entry.Total, _ = strings.Cut(number, "/")
 }
 
 // totalsBySet is the set total each set's cards agree on, for the sets that
@@ -44,17 +40,12 @@ func emitNumber(entry map[string]any, number string) {
 // the promo pools hold cards that keep the total of wherever they were
 // first printed, so 44/130 and 87/101 sit side by side - and those sets are
 // absent rather than guessed at, because there is no one size to report.
-func totalsBySet(cards []any) map[string]string {
+func totalsBySet(cards []*emit.Card) map[string]string {
 	seen := map[string]map[string]bool{}
 	numbers := map[string]map[string]bool{}
-	for _, item := range cards {
-		entry, isMap := item.(map[string]any)
-		if !isMap {
-			continue
-		}
-		code, _ := entry["setCode"].(string)
-		total, ok := entry["total"].(string)
-		if code == "" || !ok || total == "" {
+	for _, entry := range cards {
+		code, total := entry.SetCode, entry.Total
+		if code == "" || total == "" {
 			continue
 		}
 		if seen[code] == nil {
@@ -62,8 +53,7 @@ func totalsBySet(cards []any) map[string]string {
 			numbers[code] = map[string]bool{}
 		}
 		seen[code][total] = true
-		number, _ := entry["number"].(string)
-		numbers[code][number] = true
+		numbers[code][entry.Number] = true
 	}
 	out := map[string]string{}
 	for code, totals := range seen {
@@ -95,15 +85,10 @@ func totalsBySet(cards []any) map[string]string {
 // card of theirs should be and are left alone. Of the 358 minted entries, one
 // sits in a set that agrees and is narrower than it: Machamp, the single Base
 // Set card the catalog has no Base Set product for.
-func numberWidthsBySet(cards []any) map[string]int {
+func numberWidthsBySet(cards []*emit.Card) map[string]int {
 	widths := map[string]map[int]bool{}
-	for _, item := range cards {
-		entry, isMap := item.(map[string]any)
-		if !isMap {
-			continue
-		}
-		code, _ := entry["setCode"].(string)
-		number, _ := entry["number"].(string)
+	for _, entry := range cards {
+		code, number := entry.SetCode, entry.Number
 		if code == "" || number == "" || !isAllDigits(number) {
 			continue
 		}
