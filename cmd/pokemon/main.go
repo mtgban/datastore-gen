@@ -329,9 +329,6 @@ func main() {
 	}
 
 	releaseDates := map[int]string{}
-	// The groups a source dates on its own, which is what makes a hand row
-	// for one of them dead rather than merely unused this run.
-	datedBySource := map[int]bool{}
 	var placeholders, filled int
 	for _, group := range groups {
 		if productsIn[group.GroupID] == 0 {
@@ -339,20 +336,18 @@ func main() {
 		}
 		if emit.HasDate(group) {
 			releaseDates[group.GroupID] = group.ReleaseDate()
-			datedBySource[group.GroupID] = true
 			continue
 		}
 		placeholders++
 		dex := joinedSets[group.GroupID]
 		if dex != nil && dex.ReleaseDate != "" {
 			releaseDates[group.GroupID] = dex.ReleaseDate
-			datedBySource[group.GroupID] = true
 			filled++
 			log.Printf("%s (%s): release date %s filled from tcgdex",
 				group.Name, setCodes[group.GroupID], dex.ReleaseDate)
 			continue
 		}
-		if date, found := handDates[group.GroupID]; found {
+		if date, found := handDates.Get(group.GroupID); found {
 			releaseDates[group.GroupID] = date
 			filled++
 			log.Printf("%s (%s): release date %s filled by hand",
@@ -361,7 +356,6 @@ func main() {
 		}
 		log.Printf("%s (%s): no release date anywhere, left undated", group.Name, setCodes[group.GroupID])
 	}
-	reportStaleHandTables(catalog, datedBySource)
 	log.Printf("release dates: %d placeholders, %d filled, %d left empty",
 		placeholders, filled, placeholders-filled)
 

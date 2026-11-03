@@ -378,7 +378,7 @@ var handDates = handtable.New("handDates", map[int]string{
 // passcode spelling it in full. 270 entries name their card differently
 // from YGOPRODeck and all but this one are that other thing - a rename, a
 // storefront's disambiguating suffix - so the table is one line rather
-// than a rule.
+// than a rule. A row is used only where it changes the name.
 var handNames = handtable.New("handNames", map[int]string{
 	// Kuwagata α, the only card in the game whose name carries a Greek
 	// letter. Tournament Pack 1 dropped it and left "Kuwagata"; OTS
@@ -1419,7 +1419,8 @@ func main() {
 		}
 		productID := s.product.ProductID
 		name := s.baseName
-		if corrected, hand := handNames.Get(productID); hand {
+		if corrected, hand := handNames.Rows()[productID]; hand && corrected != name {
+			handNames.Use(productID)
 			name = corrected
 		}
 		for _, finish := range printings[productID] {

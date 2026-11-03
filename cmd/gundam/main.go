@@ -341,15 +341,15 @@ func decompose(p tcgplayer.Product, num string) single {
 // "Resource" and "EX Base" with the face in no field - so the name cannot
 // witness the parenthetical the way it does for every other card, and
 // nothing promoted a Resource for carrying the Zeon emblem. They stay the
-// variant they are. A row no product carries any more is reported.
-var tokenSubjects = map[string]bool{
+// variant they are.
+var tokenSubjects = handtable.New("tokenSubjects", map[string]bool{
 	"char aznable emblem": true, "earth alliance": true,
 	"earth federation force": true, "neo zeon": true, "oz": true,
 	"united emirates of orb": true, "vist foundation": true, "zaft": true,
 	"zeon force": true, "asticassia school of technology": true,
 	"mobile suit gundam: hathaway's flash":     true,
 	"mobile suit gundam: iron-blooded orphans": true,
-}
+})
 
 // bareNumberingRe matches a label that is a collector number and nothing
 // else. The catalog writes a number in a parenthesis where the card is two
@@ -432,7 +432,7 @@ func promoTypesOf(quals []string) []string {
 		qual = spelledQual.Replace(qual)
 		qual = spacedNumberRe.ReplaceAllString(qual, "$1 $2")
 		tag := strings.ToLower(strings.Join(strings.Fields(qual), " "))
-		if tag == "" || tokenSubjects[tag] || bareNumberingRe.MatchString(tag) {
+		if tag == "" || tokenSubjects.Has(tag) || bareNumberingRe.MatchString(tag) {
 			continue
 		}
 		// Words, not slugs: tokenSubjects is keyed by them, and
@@ -728,18 +728,6 @@ func main() {
 	}
 	log.Printf("qualifiers: %d elected into a name, %d of them on the %d numbers upstream does not name; %d names spelled as upstream places them",
 		elected, unwitnessed, len(byNumber), placed)
-	// A token face no product carries any more is a row doing nothing.
-	seenSubjects := map[string]bool{}
-	for _, s := range singles {
-		for _, q := range s.quals {
-			seenSubjects[strings.ToLower(strings.Join(strings.Fields(q), " "))] = true
-		}
-	}
-	for subject := range tokenSubjects {
-		if !seenSubjects[subject] {
-			log.Printf("token subjects: no product carries %q any more; the row does nothing", subject)
-		}
-	}
 
 	// Emit. Sets are the catalog groups that hold anything; a group with
 	// no product is a husk TCGplayer keeps around for a set it has not

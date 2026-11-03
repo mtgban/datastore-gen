@@ -1,10 +1,6 @@
 package main
 
-import (
-	"log"
-
-	"github.com/mtgban/go-tcgplayer"
-)
+import "github.com/mtgban/datastore-gen/internal/handtable"
 
 // handNames correct the names the catalog misspells, keyed by the product
 // id, which the catalog never reuses. Each one is the catalog contradicting
@@ -25,14 +21,18 @@ import (
 // A convention is not a typo either, and stays: the special energies
 // transcribe the symbol printed on the card as a letter ("Heat R Energy",
 // "Speed L Energy"), which the catalog does consistently.
+//
+// A row is used only where it changes the name, so one the catalog has
+// come to spell itself is reported with the ones whose product is gone.
 func handName(productID int, name string) string {
-	if corrected, hand := handNames[productID]; hand {
+	if corrected, hand := handNames.Rows()[productID]; hand && corrected != name {
+		handNames.Use(productID)
 		return corrected
 	}
 	return name
 }
 
-var handNames = map[int]string{
+var handNames = handtable.New("handNames", map[int]string{
 	// Base Set #073/102. The catalog's own Shadowless printing of this
 	// card (107070) spells it Impostor, as do tcgdex and pokemontcg.io.
 	// The Base Set 2 and Celebrations reprints really are "Imposter" and
@@ -44,50 +44,7 @@ var handNames = map[int]string{
 	84973: "Drowzee",
 	// Truncated rather than misspelled, but a name no query carries.
 	89808: "Team Galactic's Invention G-107 Technical Machine G",
-}
-
-// reportStaleHandTables says when a hand-maintained row has stopped doing
-// anything. Both tables here correct a source rather than add to it, so a
-// row outlives its reason silently: the catalog fixes a spelling, or gains
-// a real date, and the row goes on being consulted and changing nothing.
-// Nobody would notice, and the next person to read the table would take
-// every row in it as still true.
-//
-// Nothing is dropped automatically. A row the catalog agrees with today
-// may disagree again tomorrow - the catalog has re-broken a name before -
-// and a row whose product has vanished may be a product withdrawn for a
-// week. This reports; a person decides.
-func reportStaleHandTables(catalog tcgplayer.CatalogDump, dated map[int]bool) {
-	names := map[int]string{}
-	for _, product := range catalog.Products {
-		names[product.ProductID] = product.Name
-	}
-	for productID, corrected := range handNames {
-		switch have, sold := names[productID]; {
-		case !sold:
-			log.Printf("hand names: product %d is no longer in the catalog; the row correcting it to %q does nothing",
-				productID, corrected)
-		case have == corrected:
-			log.Printf("hand names: the catalog now spells product %d %q itself; the row is a no-op",
-				productID, corrected)
-		}
-	}
-
-	groups := map[int]bool{}
-	for _, group := range catalog.Groups {
-		groups[group.GroupID] = true
-	}
-	for groupID, date := range handDates {
-		switch {
-		case !groups[groupID]:
-			log.Printf("hand dates: group %d is no longer in the catalog; the row dating it %s does nothing",
-				groupID, date)
-		case dated[groupID]:
-			log.Printf("hand dates: group %d is dated by a source now; the row dating it %s is a no-op",
-				groupID, date)
-		}
-	}
-}
+})
 
 // handDates are release dates for the groups neither source can date: the
 // catalog stamps its request time on them and tcgdex has no set to join.
@@ -95,8 +52,8 @@ func reportStaleHandTables(catalog tcgplayer.CatalogDump, dated map[int]bool) {
 // catalog never reuses. A group holding one promotion carries that
 // promotion's release day; a drawer TCGplayer fills across eras carries
 // the earliest day its contents can have existed, so it sorts where its
-// oldest cards belong.
-var handDates = map[int]string{
+// oldest cards belong. A row is used only where no source dates its group.
+var handDates = handtable.New("handDates", map[int]string{
 	// EX Trainer Kit released June 1, 2004 (Bulbapedia, "EX Trainer Kit").
 	1543: "2004-06-01",
 	// EX Trainer Kit 2 released March 1, 2006 (Bulbapedia, "EX Trainer
@@ -125,4 +82,4 @@ var handDates = map[int]string{
 	// The miscellaneous drawer's oldest cards are stamped Base Set prints
 	// handed out through 1999; anchored at the game's English release.
 	2374: "1999-01-09",
-}
+})
