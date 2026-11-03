@@ -19,10 +19,11 @@ type Datastore struct {
 	Sealed     []*Sealed           `json:"sealed"`
 }
 
-// Set is one entry of sets, keyed by its set code (SPECIFICATIONS §2.1).
+// Set is one entry of sets, keyed by its set code (SPECIFICATIONS §2.1). A
+// set no source dates publishes no releaseDate.
 type Set struct {
 	Name         string `json:"name"`
-	ReleaseDate  string `json:"releaseDate"`
+	ReleaseDate  string `json:"releaseDate,omitempty"`
 	Type         string `json:"type,omitempty"`
 	BaseSetSize  int    `json:"baseSetSize,omitempty"`
 	Abbreviation string `json:"abbreviation,omitempty"`

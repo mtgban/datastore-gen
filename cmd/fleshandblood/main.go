@@ -479,6 +479,18 @@ func promoSeriesDate(catalog tcgplayer.CatalogDump, promoted map[int]bool, produ
 	return series.ReleaseDate()
 }
 
+// mintedSetDate is the date a minted set is filed under: the dataset's, else
+// the promo series' for a set of promos, else none, and the set publishes no
+// releaseDate.
+func mintedSetDate(setID string, set fabSet, promoOnly bool, seriesDate string) string {
+	date := set.releaseDate()
+	if date == "" && promoOnly && seriesDate != "" {
+		date = seriesDate
+		log.Printf("dataset set %s has no release date; dated %s as the promo series", setID, date)
+	}
+	return date
+}
+
 // promoOnlySets names the dataset sets whose every mintable row is a promo.
 // Only those take the promo series' date when the dataset gives none, so an
 // unannounced set, or one holding a rarity fabRarity does not know, stays
@@ -1106,12 +1118,7 @@ func main() {
 		if name == "" {
 			name = setID
 		}
-		releaseDate := upstream.releaseDate()
-		if releaseDate == "" && promoOnly[setID] && seriesDate != "" {
-			releaseDate = seriesDate
-			log.Printf("dataset set %s has no release date; dated %s as the promo series", setID, releaseDate)
-		}
-		sets[code] = &emit.Set{Name: name, ReleaseDate: releaseDate}
+		sets[code] = &emit.Set{Name: name, ReleaseDate: mintedSetDate(setID, upstream, promoOnly[setID], seriesDate)}
 		mintedSets++
 	}
 	if mintedSets > 0 {

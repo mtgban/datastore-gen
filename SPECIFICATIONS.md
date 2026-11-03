@@ -153,7 +153,7 @@ populated group count.
 | field | meaning |
 |---|---|
 | `name` | the catalog group's name (Pokemon strips a leading code such as `SWSH07:`) |
-| `releaseDate` | `YYYY-MM-DD`, the group's, or YGOPRODeck's where the catalog's is a placeholder |
+| `releaseDate` | `YYYY-MM-DD`, the group's, or YGOPRODeck's where the catalog's is a placeholder; absent where no source dates the set |
 | `type` | `"promo"` on the sets that hand out promotional printings; absent otherwise |
 | `baseSetSize` | the set's printed size; only where the game prints or publishes one (see §3.4) |
 | `abbreviation`, `symbol` | Pokemon: the code and the tcgdex/pokemontcg.io symbol URL |
