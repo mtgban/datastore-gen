@@ -638,9 +638,9 @@ func splitLabel(label string) (stems []string, issue string) {
 		return []string{releaseEvent, rest}, ""
 	}
 	for _, shelf := range shelfHeads.Items() {
-		if strings.HasPrefix(label, shelf+" ") {
+		if rest, ok := strings.CutPrefix(label, shelf); ok && strings.HasPrefix(rest, " ") {
 			shelfHeads.Use(shelf)
-			return []string{shelf}, strings.TrimPrefix(label, shelf+" ")
+			return []string{shelf}, rest[1:]
 		}
 	}
 	for _, shelf := range shelfTails.Items() {
