@@ -572,6 +572,11 @@ fallback for the Riftbound shape. Both sides are peeled by
 now has to start after the envelope. Only meaningful when both files were
 built from one catalog.
 
+**`internal/buildtest`** — `Run(t, game, upstream flags...)`: builds the
+binary, runs it twice offline on its `testdata` fixture, demands identical
+bytes, and compares the build to `testdata/golden.json`, one card or sealed
+product to a line, with `meta.date` held still (`-update` rewrites it).
+
 ## 7. Workflows
 
 **`ci.yml`** (push to master, pull requests): gofmt `-s`, vet, revive

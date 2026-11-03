@@ -71,6 +71,7 @@ internal/vocabulary    the promo-type rules, checked against a built file
 internal/datastorediff the comparison behind cmd/datastorediff
 internal/handtable     the tables carried by hand, which report the rows a
                        build used nothing of
+internal/buildtest     every builder's end-to-end test on cmd/<game>/testdata
 .github/workflows      ci.yml, publish.yml, tag-output-changes.yml, measure.yml,
                        hostile-review-wake.yml
 .github/scripts        games.sh (the games, what each build reads, a build
@@ -121,6 +122,12 @@ Unit tests live in `internal/*` and in the builders that
 have them (`cmd/pokemon`, `cmd/fleshandblood`, `cmd/lorcana`,
 `cmd/riftbound`, `cmd/onepiece`, `cmd/yugioh`); most builder behaviour is
 verified by building, below.
+
+Every builder also has `TestBuild` (`internal/buildtest`): it builds the
+binary, runs it offline on a fixture cut from real inputs under
+`cmd/<game>/testdata`, and compares the output to `testdata/golden.json`.
+A change to what a builder publishes is regenerated with `go test
+./cmd/<game> -run TestBuild -update` and its diff read in the PR.
 
 ## Inputs, and where they come from
 
