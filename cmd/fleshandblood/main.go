@@ -23,10 +23,9 @@
 //
 // Group abbreviations are unreliable in this category — blank on every
 // deck group, reused ("GEM" six times) — and set codes must be unique and
-// non-empty, so blanks get a code derived from the group name's initials
-// and any code already claimed gets "-groupId" appended, every repair
-// logged. Non-blank abbreviations claim their codes first so a derived
-// code can never displace a real one.
+// non-empty, so they are claimed through emit.SetCodes: a blank gets
+// G<group id> and a code already claimed gets "-groupId" appended, every
+// repair logged.
 //
 // The-fab-cube dataset knows the game's own printing ids ("MST131") and
 // maps 92% of its rows to a TCGplayer product; where exactly one distinct
@@ -423,18 +422,6 @@ func decompose(p tcgplayer.Product, num string, witnessed bool) single {
 	}
 }
 
-// initials reduces a group name to the uppercase initials of its words,
-// the deterministic stand-in for an abbreviation the catalog left blank.
-func initials(name string) string {
-	var b strings.Builder
-	for _, word := range strings.FieldsFunc(name, func(r rune) bool {
-		return !('a' <= r && r <= 'z' || 'A' <= r && r <= 'Z' || '0' <= r && r <= '9')
-	}) {
-		b.WriteString(strings.ToUpper(word[:1]))
-	}
-	return b.String()
-}
-
 // promoGroups reports which catalog groups hand out promotional printings.
 // Two things say so and they cover different ground: TCGplayer names the one
 // promo group outright, and the welcome decks give their cards away without
@@ -534,47 +521,6 @@ func normalizeSetName(name string) string {
 	return b.String()
 }
 
-// setCodes assigns every group a unique, non-empty set code. Non-blank
-// abbreviations claim their codes first, in group-id order; blank ones get
-// the group name's initials; any code already claimed gets "-groupId"
-// appended, and "-2", "-3", … after that where it too is taken. Every
-// repair is logged, because none of it is the catalog's own identity.
-func setCodes(groups []tcgplayer.Group) map[int]string {
-	ordered := append([]tcgplayer.Group(nil), groups...)
-	sort.Slice(ordered, func(i, j int) bool {
-		return ordered[i].GroupID < ordered[j].GroupID
-	})
-
-	codes := map[int]string{}
-	taken := map[string]bool{}
-	claim := func(g tcgplayer.Group, code string) {
-		if taken[code] {
-			suffixed := emit.FreeSetCode(taken, fmt.Sprintf("%s-%d", code, g.GroupID))
-			log.Printf("set code: %q (%s) reuses %s, using %s", g.Name, g.Abbreviation, code, suffixed)
-			code = suffixed
-		}
-		codes[g.GroupID] = code
-		taken[code] = true
-	}
-	for _, g := range ordered {
-		if code := emit.SetCodeOf(g.Abbreviation); code != "" {
-			claim(g, code)
-		}
-	}
-	for _, g := range ordered {
-		if emit.SetCodeOf(g.Abbreviation) != "" {
-			continue
-		}
-		code := initials(g.Name)
-		if code == "" {
-			code = fmt.Sprintf("G%d", g.GroupID)
-		}
-		log.Printf("set code: %q has no abbreviation, derived %s", g.Name, code)
-		claim(g, code)
-	}
-	return codes
-}
-
 func main() {
 	fabCards := flag.String("fab-cards", fabCardsURL, "the-fab-cube card-flattened file, path or URL")
 	fabSets := flag.String("fab-sets", fabSetsURL, "the-fab-cube set file, path or URL")
@@ -616,7 +562,7 @@ func main() {
 	build.LogCatalogf(&catalog, "; fab dataset: %d printings", len(fabRows))
 
 	groupByID := build.GroupsByID(catalog.Groups)
-	codes := setCodes(catalog.Groups)
+	codes := emit.SetCodes(catalog.Groups)
 	checkFabFinishNames(&catalog)
 	printings := emit.PrintingNames(&catalog)
 	displayOrder := emit.PrintingDisplayOrder(&catalog)
