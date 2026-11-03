@@ -921,22 +921,18 @@ func main() {
 		return prefix
 	}
 
-	setCodes := map[int]string{}
-	usedCodes := map[string]bool{}
-	var minted, suffixed, renamed int
 	// The abbreviations first, so a prefix is only adopted where it is
 	// not already some set's name.
+	claimed := map[string]bool{}
+	var cardedGroups []tcgplayer.Group
 	for _, group := range groups {
 		if carded[group.GroupID] {
-			usedCodes[emit.SetCodeOf(group.Abbreviation)] = true
+			claimed[emit.SetCodeOf(group.Abbreviation)] = true
+			cardedGroups = append(cardedGroups, group)
 		}
 	}
-	claimed := usedCodes
-	usedCodes = map[string]bool{}
-	for _, group := range groups {
-		if !carded[group.GroupID] {
-			continue
-		}
+	var renamed int
+	setCodes := emit.SetCodesBy(cardedGroups, func(group tcgplayer.Group) string {
 		code := emit.SetCodeOf(group.Abbreviation)
 		if prefix := soleprefix(group.GroupID); prefix != "" &&
 			!strings.EqualFold(prefix, code) && !claimed[prefix] {
@@ -945,23 +941,9 @@ func main() {
 			code = prefix
 			renamed++
 		}
-		if code == "" {
-			code = fmt.Sprintf("G%d", group.GroupID)
-			minted++
-			log.Printf("%s: no abbreviation, set code %s minted", group.Name, code)
-		}
-		if usedCodes[code] {
-			code = fmt.Sprintf("%s-%d", code, group.GroupID)
-			suffixed++
-			log.Printf("%s: abbreviation %s already taken, set code %s minted",
-				group.Name, group.Abbreviation, code)
-		}
-		code = emit.FreeSetCode(usedCodes, code)
-		usedCodes[code] = true
-		setCodes[group.GroupID] = code
-	}
-	log.Printf("set codes: %d taken from the cards' own numbers, %d minted for blank abbreviations, %d deduplicated",
-		renamed, minted, suffixed)
+		return code
+	})
+	log.Printf("set codes: %d taken from the cards' own numbers", renamed)
 
 	// A group whose cards speak with several prefixes is several sets the
 	// catalog files on one shelf. "Duelist League Promo" holds 732 cards

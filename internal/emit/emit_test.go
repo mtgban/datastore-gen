@@ -522,6 +522,32 @@ func TestSetCodesNeverStopsOnARepairedCode(t *testing.T) {
 	}
 }
 
+// TestSetCodesByRepairsTheHooksCode pins that the code a hook returns is
+// claimed and repaired as an abbreviation is: one already taken is
+// suffixed with the group id, and an empty one is minted from it.
+func TestSetCodesByRepairsTheHooksCode(t *testing.T) {
+	prefix := map[int]string{1: "LOB", 2: "LOB", 4: "PFX"}
+	codes := SetCodesBy([]tcgplayer.Group{
+		{GroupID: 4, Abbreviation: "XYZ"},
+		{GroupID: 2, Abbreviation: "MRD"},
+		{GroupID: 1, Abbreviation: "LOB"},
+		{GroupID: 3, Abbreviation: "SRL"},
+	}, func(g tcgplayer.Group) string { return prefix[g.GroupID] })
+	for _, want := range []struct {
+		group int
+		code  string
+	}{
+		{1, "LOB"},
+		{2, "LOB-2"},
+		{3, "G3"},
+		{4, "PFX"},
+	} {
+		if codes[want.group] != want.code {
+			t.Errorf("group %d: %q, want %q", want.group, codes[want.group], want.code)
+		}
+	}
+}
+
 func TestHasDateReadsAMidnightStamp(t *testing.T) {
 	for _, test := range []struct {
 		publishedOn string
