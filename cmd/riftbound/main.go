@@ -30,7 +30,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -46,10 +45,10 @@ import (
 	"time"
 
 	"github.com/mtgban/datastore-gen/internal/baseline"
+	"github.com/mtgban/datastore-gen/internal/build"
 	"github.com/mtgban/datastore-gen/internal/emit"
 	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/validate"
-	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-tcgplayer"
 )
 
@@ -966,22 +965,13 @@ func countDatastore(data []byte) (baseline.Counts, error) {
 }
 
 func main() {
-	output := flag.String("o", "", "output file (default stdout)")
-	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 89 (required)")
 	galleryPath := flag.String("gallery", "", "card-gallery payload file (default: fetch the live gallery)")
-	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good upstream responses, refreshed on a live fetch and read back when an upstream is unreachable")
-	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
-	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
-	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
-	flag.Parse()
-
-	if *catalogPath == "" {
-		log.Fatalln("-tcg-catalog is required: the dump carries the product ids and the finishes")
-	}
-	catalog, err := emit.ReadCatalog(*catalogPath, riftboundCategory)
-	if err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
+	b := build.Start(build.Game{
+		Category: riftboundCategory, Rules: validationRules(),
+		Carries: "the product ids and the finishes",
+		Count:   countDatastore, Unit: "printings",
+	})
+	catalog := b.ReadCatalog()
 	finishes := finishesByProduct(&catalog)
 	bothFinishes := catalogFinishes(&catalog)
 	productsByGroup := map[int][]tcgplayer.Product{}
@@ -1008,10 +998,9 @@ func main() {
 			return products[i].ProductID < products[j].ProductID
 		})
 	}
-	log.Printf("catalog: %d groups, %d products (%d singles), %d with a known finish",
-		len(catalog.Groups), len(catalog.Products), singles, len(finishes))
+	build.LogCatalogf(&catalog, " (%d singles), %d with a known finish", singles, len(finishes))
 
-	payload, err := galleryPayload(*galleryPath, *upstreamCache)
+	payload, err := galleryPayload(*galleryPath, b.UpstreamCache)
 	if err != nil {
 		log.Fatalln("gallery payload:", err)
 	}
@@ -1467,29 +1456,7 @@ func main() {
 	sets["items"] = setItems
 	cards["items"] = cardItems
 	doc["properties"] = properties
-
-	var buf bytes.Buffer
-	handtable.Report()
-
-	envelope := emit.Envelope(emit.Today(), doc)
-	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
-		log.Fatalln(err)
-	}
-	// Spell the quotes the way a query does before anything reads the
-	// document, so the checks below see what will be published.
-	emit.PlainQuotes(&buf)
-
-	// A token the vocabulary refuses comes off its printing here, logged,
-	// rather than stopping every card of the game at the publish's check.
-	{
-		setAside, err := vocabulary.FitInto(&buf)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		for _, line := range setAside {
-			log.Println("vocabulary:", line)
-		}
-	}
+	buf := b.Encode(doc)
 
 	// Re-read the encoded output and verify it structurally before
 	// publishing anything: an upstream page redesign or a truncated
@@ -1529,24 +1496,5 @@ func main() {
 			sealed2, wantSealed)
 	}
 
-	// Compare against the baseline, when the publish handed one over, and
-	// say whether this build is fit to become the next one.
-	if err := baseline.Guard(buf.Bytes(), countDatastore, baseline.Options{
-		Against: *against, Tolerance: *againstTolerance, FitPath: *baselineFit, Unit: "printings",
-	}); err != nil {
-		log.Fatalln(err)
-	}
-
-	out := os.Stdout
-	if *output != "" {
-		f, err := os.Create(*output)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		defer f.Close()
-		out = f
-	}
-	if _, err := out.Write(buf.Bytes()); err != nil {
-		log.Fatalln(err)
-	}
+	b.Write(buf)
 }

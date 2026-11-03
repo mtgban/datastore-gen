@@ -526,6 +526,19 @@ spelling each, for all eight builders and for every reader of a built
 file — the peel was eleven copies of a `json.RawMessage` peek before, and
 a discriminator that has to be fixed in eleven places is fixed in none.
 
+**`internal/build`** — `Game`, `Build`, `Start`, `ReadCatalog`,
+`LogCatalogf`, `GroupsByID`, `SplitProducts`, `Split`, `Coverage`,
+`LogCoverage`, `ProductsIn`, `Sets`, `SetTally`, `SealedEntries`,
+`GroupShelf`, `Contract`, `Publish`, `Encode`, `Write`. What every
+builder's main does alike: the common flags (`-o`, `-tcg-catalog`,
+`-upstream-cache`, `-against`, `-against-tolerance`, `-baseline-fit`), the
+catalog read, the split into singles, sealed and unpriced, the coverage
+contract, the set and sealed entries (`emit.Set`, `emit.Sealed`), and the
+tail (encode, plain quotes, `FitInto`, re-read, sealed recount, baseline
+guard, write). The builder calls each piece where its log goes, so the
+logs read as they did. Lorcana and riftbound take the flags, the catalog
+read, `Encode` and `Write`, and read their own shapes back.
+
 **`internal/validate`** — `Rules`, `Card`, `Sealed`, `Counts`, `Datastore`,
 `SetCode`. The re-read of a built file six builders share (lorcana and
 riftbound read their own shapes): the shared checks once, and each game's

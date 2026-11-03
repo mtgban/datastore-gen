@@ -75,24 +75,18 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"maps"
-	"os"
 	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/mtgban/datastore-gen/internal/baseline"
+	"github.com/mtgban/datastore-gen/internal/build"
 	"github.com/mtgban/datastore-gen/internal/emit"
-	"github.com/mtgban/datastore-gen/internal/handtable"
-	"github.com/mtgban/datastore-gen/internal/validate"
-	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-tcgplayer"
 )
 
@@ -118,21 +112,11 @@ const (
 var tcgSingles = tcgplayer.SinglesProductTypes(pokemonCategory)
 
 func main() {
-	output := flag.String("o", "", "output file (default stdout)")
-	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 3 (required)")
 	tcgdexSets := flag.String("tcgdex-sets", "", "tcgdex sets GraphQL response file (default: query the live API)")
 	tcgdexCards := flag.String("tcgdex-cards", "", "tcgdex cards GraphQL response file (default: query the live API)")
 	pokemontcgSets := flag.String("pokemontcg-sets", "", "pokemontcg.io sets response file, read for the symbols tcgdex has none of (default: query the live API)")
-	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good tcgdex and pokemontcg.io responses, refreshed on a live fetch and read back when an API is unreachable")
 	cardmarketCatalogPath := flag.String("cardmarket-catalog", "", "published Cardmarket catalog, read for the stamped promos no other catalog lists (required)")
-	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
-	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
-	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
-	flag.Parse()
-
-	if *catalogPath == "" {
-		log.Fatalln("-tcg-catalog is required: the dump carries the printings and the ids")
-	}
+	b := build.Start(build.Game{Category: pokemonCategory, Rules: validationRules()})
 	// The stamped promos are the only rows of theirs anyone publishes, and
 	// losing them is not a failure this build would otherwise notice: 83
 	// cards out of 44,190 is a fifth of a percent, well inside the 1% the
@@ -142,12 +126,9 @@ func main() {
 	if *cardmarketCatalogPath == "" {
 		log.Fatalln("-cardmarket-catalog is required: nothing else lists the stamped promos, and their loss is too small for the baseline guard to catch")
 	}
-	catalog, err := emit.ReadCatalog(*catalogPath, pokemonCategory)
-	if err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
+	catalog := b.ReadCatalog()
 
-	setsData, err := loadTcgdex(*tcgdexSets, *upstreamCache, "tcgdex-sets.json", tcgdexSetsQuery)
+	setsData, err := loadTcgdex(*tcgdexSets, b.UpstreamCache, "tcgdex-sets.json", tcgdexSetsQuery)
 	if err != nil {
 		log.Fatalln("tcgdex sets:", err)
 	}
@@ -177,7 +158,7 @@ func main() {
 				len(setsResponse.Sets))
 		}
 	}
-	cardsData, err := loadTcgdex(*tcgdexCards, *upstreamCache, "tcgdex-cards.json", tcgdexCardsQuery)
+	cardsData, err := loadTcgdex(*tcgdexCards, b.UpstreamCache, "tcgdex-cards.json", tcgdexCardsQuery)
 	if err != nil {
 		log.Fatalln("tcgdex cards:", err)
 	}
@@ -202,9 +183,8 @@ func main() {
 		dexSets = append(dexSets, set)
 		dexSetKnown[set.ID] = true
 	}
-	log.Printf("catalog: %d groups, %d products; tcgdex: %d sets (%d after dropping %s), %d cards",
-		len(catalog.Groups), len(catalog.Products), len(setsResponse.Sets), len(dexSets),
-		tcgpSerie, len(cardsResponse.Cards))
+	build.LogCatalogf(&catalog, "; tcgdex: %d sets (%d after dropping %s), %d cards",
+		len(setsResponse.Sets), len(dexSets), tcgpSerie, len(cardsResponse.Cards))
 
 	// Assign every group its set code, in group-id order so the group that
 	// claimed an abbreviation keeps it and only the later arrival is
@@ -323,10 +303,7 @@ func main() {
 	// A group with no product is a legacy husk TCGplayer keeps around; it
 	// emits no set below, so it is not worth dating, joining, or being
 	// reported as undated.
-	productsIn := map[int]int{}
-	for _, product := range catalog.Products {
-		productsIn[product.GroupID]++
-	}
+	productsIn := build.ProductsIn(catalog.Products)
 
 	releaseDates := map[int]string{}
 	var placeholders, filled int
@@ -367,21 +344,11 @@ func main() {
 	// Split the products: every single becomes card entries per sku
 	// printing, Sealed Products become sealed. "N/A" is a spelling of no
 	// number; the unnumbered are real singles and stay.
+	split := build.SplitProducts(&catalog, tcgSingles, printings)
 	var singles []single
 	var numberLedQuals int
-	var sealedProducts []tcgplayer.Product
 	var codeCards, unnumbered int
-	var unpriced []string
-	for _, product := range catalog.Products {
-		if !slices.Contains(tcgSingles, product.ProductType) {
-			sealedProducts = append(sealedProducts, product)
-			continue
-		}
-		if len(printings[product.ProductID]) == 0 {
-			// Nothing English is sold for it yet: no printing to carry until there is.
-			unpriced = append(unpriced, fmt.Sprintf("%q (%d)", product.Name, product.ProductID))
-			continue
-		}
+	for _, product := range split.Cards {
 		if product.Extended("Rarity") == codeCardRarity {
 			codeCards++
 		}
@@ -396,12 +363,9 @@ func main() {
 		numberLedQuals += numberLed
 		singles = append(singles, one)
 	}
-	if len(unpriced) > 0 {
-		log.Printf("unpriced: %d card products TCGplayer sells no English sku for yet, carried once it does: %s",
-			len(unpriced), strings.Join(unpriced, ", "))
-	}
+	split.LogUnpriced("English sku")
 	log.Printf("singles: %d kept (%d unnumbered, %d code cards), %d sealed",
-		len(singles), unnumbered, codeCards, len(sealedProducts))
+		len(singles), unnumbered, codeCards, len(split.Sealed))
 	var unrated int
 	for _, s := range singles {
 		if s.product.Extended("Rarity") == "" {
@@ -412,9 +376,7 @@ func main() {
 	if unrated > 0 {
 		log.Printf("no rarity: %d products, carried and logged rather than refused", unrated)
 	}
-	if len(singles) == 0 {
-		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
-	}
+	split.RequireCards()
 
 	// Buckets by collector number within the group, which the collision
 	// guard below reads. The name-versus-variant call is not made here any
@@ -1008,7 +970,7 @@ func main() {
 	// PNG where tcgdex serves webp, four of its symbols sit on another host
 	// entirely, and asking its path for a webp answers 404 with a 186KB
 	// body typed image/png.
-	ptcg, ptcgErr := loadPokemontcgSets(*pokemontcgSets, *upstreamCache)
+	ptcg, ptcgErr := loadPokemontcgSets(*pokemontcgSets, b.UpstreamCache)
 	if ptcgErr != nil {
 		log.Printf("pokemontcg.io: %v; the sets tcgdex has no symbol for keep none", ptcgErr)
 	} else {
@@ -1049,20 +1011,7 @@ func main() {
 	}
 	log.Printf("set symbols: %d of %d sets carry one", symboled, len(sets))
 
-	// The coverage contract: every product the catalog types as a card,
-	// with the sku printings it is sold in. validate reads it back off the
-	// encoded output, so a product no rule here carried fails the build
-	// instead of quietly leaving the datastore.
-	catalogFinishes := map[int][]string{}
-	for _, product := range catalog.Products {
-		if !slices.Contains(tcgSingles, product.ProductType) {
-			continue
-		}
-		if len(printings[product.ProductID]) == 0 {
-			continue
-		}
-		catalogFinishes[product.ProductID] = printings[product.ProductID]
-	}
+	catalogFinishes := build.Coverage(&catalog, tcgSingles, printings)
 
 	// The sets this datastore carries, by name, and the ones that are a
 	// shelf rather than a set. "Deck Exclusives" and "Blister Exclusives"
@@ -1469,21 +1418,9 @@ func main() {
 			mintedSets, emptied)
 	}
 
-	sort.Slice(sealedProducts, func(i, j int) bool {
-		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
-	})
-	sealed := slices.Grow([]*emit.Sealed(nil), len(sealedProducts))
-	for _, product := range sealedProducts {
-		code := setCodeFor(product)
-		sealed = append(sealed, &emit.Sealed{
-			ID:            fmt.Sprintf("%s-%d", sanitizeID(code), product.ProductID),
-			Name:          product.Name,
-			SetCode:       code,
-			ReleaseDate:   releaseDates[product.GroupID],
-			Image:         emit.ImageURL(product.ImageURL),
-			ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
-		})
-	}
+	sealed := build.SealedEntries(split.Sealed, func(product tcgplayer.Product) (string, string) {
+		return setCodeFor(product), releaseDates[product.GroupID]
+	}, sanitizeID)
 	// The set's own size, which is the total its cards print beside their
 	// number. It is read back off the finished cards rather than from the
 	// catalog, which publishes no size, so the minted entries count too;
@@ -1503,8 +1440,7 @@ func main() {
 	}
 	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed (%d sets carry a printed size)",
 		len(sets), len(cards), len(singles), len(sealed), sized)
-	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
-		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
+	build.LogCoverage(len(singles), catalogFinishes)
 
 	var linked int
 	for _, entry := range cards {
@@ -1538,78 +1474,9 @@ func main() {
 	}
 	doc.DropRepeatedFinishes()
 	doc.DropEmptySets()
-	var buf bytes.Buffer
 	log.Printf("types: %d printings typed by tcgdex, %d by the catalog's Card Type",
 		cardTypes.fromTcgdex, cardTypes.fromCatalog)
-	handtable.Report()
-
-	envelope := emit.Envelope(emit.Today(), doc)
-	err = json.NewEncoder(&buf).Encode(envelope)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	// Spell the quotes the way a query does before anything reads the
-	// document, so the checks below see what will be published.
-	emit.PlainQuotes(&buf)
-
-	// A token the vocabulary refuses comes off its printing here, logged,
-	// rather than stopping every card of the game at the publish's check.
-	{
-		setAside, err := vocabulary.FitInto(&buf)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		for _, line := range setAside {
-			log.Println("vocabulary:", line)
-		}
-	}
-
-	// Re-read the encoded output and verify it structurally before
-	// publishing anything: a format drift or a truncated download must
-	// fail here, not in every consumer. The types mirror what go-mtgban's
-	// loader reads, duplicated so this repository depends on nothing.
-	counted, err := validate.Datastore(buf.Bytes(), catalogFinishes, validationRules())
-	if err != nil {
-		log.Fatalln("validation:", err)
-	}
-	log.Printf("validated: %d sets, %d cards, %d sealed", counted.Sets, counted.Cards, counted.Sealed)
-	if counted.Cards != len(doc.Cards) || counted.Sealed != len(doc.Sealed) {
-		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			len(doc.Cards), len(doc.Sealed), counted.Cards, counted.Sealed)
-	}
-	// The coverage contract for the sealed side. Sealed is everything the
-	// catalog does not type as a single, so it is exhaustive by
-	// construction and cannot lose a product to a rule that did not know
-	// what to do with it - the card side's whole failure mode. What it can
-	// lose a product to is an edit: one `continue` on the sealed path and
-	// the products would leave the datastore with nothing to say so, the
-	// card side's invariant being blind to them. Counting the emitted
-	// products back against the catalog total is what says so.
-	wantSealed := len(catalog.Products) - len(singles) - len(unpriced)
-	if counted.Sealed != wantSealed {
-		log.Fatalf("%d sealed products emitted but the catalog types %d as something other than a card; refusing to publish",
-			counted.Sealed, wantSealed)
-	}
-
-	// Compare against the baseline, when the publish handed one over, and
-	// say whether this build is fit to become the next one.
-	if err := baseline.Guard(buf.Bytes(), baseline.Count, baseline.Options{
-		Against: *against, Tolerance: *againstTolerance, FitPath: *baselineFit,
-	}); err != nil {
-		log.Fatalln(err)
-	}
-
-	out := os.Stdout
-	if *output != "" {
-		f, err := os.Create(*output)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		defer f.Close()
-		out = f
-	}
-	_, err = out.Write(buf.Bytes())
-	if err != nil {
-		log.Fatalln(err)
-	}
+	b.Publish(doc, build.Contract{
+		Finishes: catalogFinishes, Split: split, Carried: len(singles),
+	})
 }

@@ -72,24 +72,21 @@
 package main
 
 import (
-	"bytes"
 	"cmp"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
-	"os"
 	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/mtgban/datastore-gen/internal/baseline"
+	"github.com/mtgban/datastore-gen/internal/build"
 	"github.com/mtgban/datastore-gen/internal/emit"
 	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/validate"
-	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-tcgplayer"
 )
 
@@ -567,28 +564,15 @@ func setCodes(groups []tcgplayer.Group) map[int]string {
 }
 
 func main() {
-	output := flag.String("o", "", "output file (default stdout)")
-	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 62 (required)")
 	fabCards := flag.String("fab-cards", fabCardsURL, "the-fab-cube card-flattened file, path or URL")
 	fabSets := flag.String("fab-sets", fabSetsURL, "the-fab-cube set file, path or URL")
-	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good upstream responses, refreshed on a live fetch and read back when an upstream is unreachable")
-	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
-	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
-	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
-	flag.Parse()
-
-	if *catalogPath == "" {
-		log.Fatalln("-tcg-catalog is required: the dump carries the printings and the ids")
-	}
-	catalog, err := emit.ReadCatalog(*catalogPath, fabCategory)
-	if err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
+	b := build.Start(build.Game{Category: fabCategory, Rules: validationRules()})
+	catalog := b.ReadCatalog()
 
 	fabData, err := emit.Upstream{
 		Source:    "the-fab-cube cards",
 		Check:     emit.Reads(func(rows []fabRow) int { return len(rows) }),
-		CacheDir:  *upstreamCache,
+		CacheDir:  b.UpstreamCache,
 		CacheName: "fab-cards.json",
 	}.Fetch(*fabCards)
 	if err != nil {
@@ -597,7 +581,7 @@ func main() {
 	setsData, err := emit.Upstream{
 		Source:    "the-fab-cube sets",
 		Check:     emit.Reads(func(rows []fabSet) int { return len(rows) }),
-		CacheDir:  *upstreamCache,
+		CacheDir:  b.UpstreamCache,
 		CacheName: "fab-sets.json",
 	}.Fetch(*fabSets)
 	if err != nil {
@@ -617,13 +601,9 @@ func main() {
 		log.Fatalln("fab dataset:", err)
 	}
 	fabRows = emit.DropRepeats("fab dataset", fabRows, func(r fabRow) string { return r.PrintingID })
-	log.Printf("catalog: %d groups, %d products; fab dataset: %d printings",
-		len(catalog.Groups), len(catalog.Products), len(fabRows))
+	build.LogCatalogf(&catalog, "; fab dataset: %d printings", len(fabRows))
 
-	groupByID := map[int]tcgplayer.Group{}
-	for _, group := range catalog.Groups {
-		groupByID[group.GroupID] = group
-	}
+	groupByID := build.GroupsByID(catalog.Groups)
 	codes := setCodes(catalog.Groups)
 	checkFabFinishNames(&catalog)
 	printings := emit.PrintingNames(&catalog)
@@ -631,21 +611,12 @@ func main() {
 
 	// Split the products: every single becomes printings, the non-single
 	// types become sealed.
+	split := build.SplitProducts(&catalog, tcgSingles, printings)
 	var singles []single
-	var sealedProducts []tcgplayer.Product
 	var unnumbered int
-	var unpriced, renumbered []string
+	var renumbered []string
 	pitches := newPitchIndex(fabRows)
-	for _, product := range catalog.Products {
-		if !slices.Contains(tcgSingles, product.ProductType) {
-			sealedProducts = append(sealedProducts, product)
-			continue
-		}
-		if len(printings[product.ProductID]) == 0 {
-			// Nothing is sold for it yet: no printing to carry until there is.
-			unpriced = append(unpriced, fmt.Sprintf("%q (%d)", product.Name, product.ProductID))
-			continue
-		}
+	for _, product := range split.Cards {
 		num := spelledNumber(product.Name, product.Extended("Number"))
 		product, num = fixProduct(product, num)
 		if num == "" {
@@ -663,10 +634,7 @@ func main() {
 		log.Printf("number: %d products filed at another pitch's number take the dataset's own: %s",
 			len(renumbered), strings.Join(renumbered, ", "))
 	}
-	if len(unpriced) > 0 {
-		log.Printf("unpriced: %d card products TCGplayer sells no sku for yet, carried once it does: %s",
-			len(unpriced), strings.Join(unpriced, ", "))
-	}
+	split.LogUnpriced("sku")
 	log.Printf("singles: %d kept (%d unnumbered)", len(singles), unnumbered)
 
 	// Per collector number: a qualifier every product of the number
@@ -1035,35 +1003,11 @@ func main() {
 
 	// Emit. Sets are the catalog groups under their repaired codes; ids
 	// embed the product id so they survive any upstream renumbering.
-	sets := map[string]*emit.Set{}
 	promoted := promoGroups(catalog)
-	var promoSets int
-	// An empty group is skipped, its code left claimed so nothing renames
-	// while it is empty and the set appears already-coded the day
-	// TCGplayer files a product there.
-	productsIn := map[int]int{}
-	for _, product := range catalog.Products {
-		productsIn[product.GroupID]++
-	}
-	var skippedEmpty int
-	for _, group := range catalog.Groups {
-		if productsIn[group.GroupID] == 0 {
-			skippedEmpty++
-			continue
-		}
-		set := &emit.Set{Name: group.Name, ReleaseDate: group.ReleaseDate()}
-		// The type is what tells the matcher a printing is promotional, so
-		// only the wholly promotional groups carry it.
-		if promoted[group.GroupID] {
-			set.Type = "promo"
-			promoSets++
-		}
-		sets[codes[group.GroupID]] = set
-	}
-	if skippedEmpty > 0 {
-		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
-	}
-	log.Printf("promotional sets: %d of %d", promoSets, len(sets))
+	productsIn := build.ProductsIn(catalog.Products)
+	sets, tally := build.Sets(&catalog, codes, func(group tcgplayer.Group) bool { return promoted[group.GroupID] })
+	tally.LogEmpty()
+	tally.LogPromo(sets)
 
 	// The sets a minted card is filed under. A dataset set the catalog has
 	// a group for is that group's set, under the code the group already
@@ -1177,20 +1121,7 @@ func main() {
 	sort.Slice(singles, func(i, j int) bool {
 		return singles[i].product.ProductID < singles[j].product.ProductID
 	})
-	// The coverage contract: every product the catalog types as a card,
-	// with the sku printings it is sold in. validate reads it back off the
-	// encoded output, so a product no rule here carried fails the build
-	// instead of quietly leaving the datastore.
-	catalogFinishes := map[int][]string{}
-	for _, product := range catalog.Products {
-		if !slices.Contains(tcgSingles, product.ProductType) {
-			continue
-		}
-		if len(printings[product.ProductID]) == 0 {
-			continue
-		}
-		catalogFinishes[product.ProductID] = printings[product.ProductID]
-	}
+	catalogFinishes := build.Coverage(&catalog, tcgSingles, printings)
 
 	languageNames := emit.LanguageNames(&catalog)
 
@@ -1291,27 +1222,12 @@ func main() {
 			mintedCards, len(mintableOrder), unspellable)
 	}
 
-	sort.Slice(sealedProducts, func(i, j int) bool {
-		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
-	})
-	sealed := slices.Grow([]*emit.Sealed(nil), len(sealedProducts))
-	for _, product := range sealedProducts {
-		group := groupByID[product.GroupID]
-		sealed = append(sealed, &emit.Sealed{
-			ID:            fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
-			Name:          product.Name,
-			SetCode:       codes[group.GroupID],
-			ReleaseDate:   group.ReleaseDate(),
-			Image:         emit.ImageURL(product.ImageURL),
-			ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
-		})
-	}
+	sealed := build.SealedEntries(split.Sealed, build.GroupShelf(groupByID, codes), strings.ToLower)
 	dropped, tokens := foldPromoTypes(cards)
 	log.Printf("promo types: %d labels dropped as the printing's own facts, %d tokens left, each one a slug", dropped, tokens)
 	log.Printf("emitting %d sets, %d card entries over %d products (%d not in English), %d sealed",
 		len(sets), len(cards), len(singles), nonEnglish, len(sealed))
-	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
-		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
+	build.LogCoverage(len(singles), catalogFinishes)
 
 	var linked int
 	for _, entry := range cards {
@@ -1335,76 +1251,9 @@ func main() {
 		doc.Cards = kept
 	}
 	doc.DropEmptySets()
-	var buf bytes.Buffer
-	handtable.Report()
-
-	envelope := emit.Envelope(emit.Today(), doc)
-	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
-		log.Fatalln(err)
-	}
-	// Spell the quotes the way a query does before anything reads the
-	// document, so the checks below see what will be published.
-	emit.PlainQuotes(&buf)
-
-	// A token the vocabulary refuses comes off its printing here, logged,
-	// rather than stopping every card of the game at the publish's check.
-	{
-		setAside, err := vocabulary.FitInto(&buf)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		for _, line := range setAside {
-			log.Println("vocabulary:", line)
-		}
-	}
-
-	// Re-read the encoded output and verify it structurally before
-	// publishing anything: a format drift or a truncated download must
-	// fail here, not in every consumer. The types mirror what go-mtgban's
-	// loader reads, duplicated so this repository depends on nothing.
-	counted, err := validate.Datastore(buf.Bytes(), catalogFinishes, validationRules())
-	if err != nil {
-		log.Fatalln("validation:", err)
-	}
-	log.Printf("validated: %d sets, %d cards, %d sealed", counted.Sets, counted.Cards, counted.Sealed)
-	if counted.Cards != len(doc.Cards) || counted.Sealed != len(doc.Sealed) {
-		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			len(doc.Cards), len(doc.Sealed), counted.Cards, counted.Sealed)
-	}
-	// The coverage contract for the sealed side. Sealed is everything the
-	// catalog does not type as a single, so it is exhaustive by
-	// construction and cannot lose a product to a rule that did not know
-	// what to do with it - the card side's whole failure mode. What it can
-	// lose a product to is an edit: one `continue` on the sealed path and
-	// the products would leave the datastore with nothing to say so, the
-	// card side's invariant being blind to them. Counting the emitted
-	// products back against the catalog total is what says so.
-	wantSealed := len(catalog.Products) - len(singles) - len(unpriced)
-	if counted.Sealed != wantSealed {
-		log.Fatalf("%d sealed products emitted but the catalog types %d as something other than a card; refusing to publish",
-			counted.Sealed, wantSealed)
-	}
-
-	// Compare against the baseline, when the publish handed one over, and
-	// say whether this build is fit to become the next one.
-	if err := baseline.Guard(buf.Bytes(), baseline.Count, baseline.Options{
-		Against: *against, Tolerance: *againstTolerance, FitPath: *baselineFit,
-	}); err != nil {
-		log.Fatalln(err)
-	}
-
-	out := os.Stdout
-	if *output != "" {
-		f, err := os.Create(*output)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		defer f.Close()
-		out = f
-	}
-	if _, err := out.Write(buf.Bytes()); err != nil {
-		log.Fatalln(err)
-	}
+	b.Publish(doc, build.Contract{
+		Finishes: catalogFinishes, Split: split, Carried: len(singles),
+	})
 }
 
 // twinKey is what makes a minted entry a priced card a second time: its set,

@@ -54,12 +54,10 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
-	"os"
 	"regexp"
 	"slices"
 	"sort"
@@ -67,7 +65,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/mtgban/datastore-gen/internal/baseline"
+	"github.com/mtgban/datastore-gen/internal/build"
 	"github.com/mtgban/datastore-gen/internal/emit"
 	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/validate"
@@ -753,28 +751,15 @@ func mintEuropeanPrints(cards []*emit.Card, sets map[string]*emit.Set, ygoCards 
 }
 
 func main() {
-	output := flag.String("o", "", "output file (default stdout)")
-	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 2 (required)")
 	ygoSets := flag.String("ygoprodeck-sets", ygoprodeckSetsURL, "YGOPRODeck cardsets file, path or URL")
 	ygoCards := flag.String("ygoprodeck-cards", ygoprodeckCardsURL, "YGOPRODeck cardinfo file, path or URL")
-	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good upstream responses, refreshed on a live fetch and read back when an upstream is unreachable")
-	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
-	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
-	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
-	flag.Parse()
-
-	if *catalogPath == "" {
-		log.Fatalln("-tcg-catalog is required: the dump carries the printings and the ids")
-	}
-	catalog, err := emit.ReadCatalog(*catalogPath, yugiohCategory)
-	if err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
+	b := build.Start(build.Game{Category: yugiohCategory, Rules: validationRules()})
+	catalog := b.ReadCatalog()
 
 	setsData, err := emit.Upstream{
 		Source:    "ygoprodeck sets",
 		Check:     emit.Reads(func(rows []ygoSet) int { return len(rows) }),
-		CacheDir:  *upstreamCache,
+		CacheDir:  b.UpstreamCache,
 		CacheName: "ygoprodeck-sets.json",
 	}.Fetch(*ygoSets)
 	if err != nil {
@@ -820,8 +805,7 @@ func main() {
 		addDate(datesByCode, strings.ToUpper(set.Code), set.Date)
 		addDate(datesByName, normalizeName(set.Name), set.Date)
 	}
-	log.Printf("catalog: %d groups, %d products; ygoprodeck: %d sets over %d codes",
-		len(catalog.Groups), len(catalog.Products), len(ygo), len(datesByCode))
+	build.LogCatalogf(&catalog, "; ygoprodeck: %d sets over %d codes", len(ygo), len(datesByCode))
 
 	// Konami's passcodes, joined onto the printings by collector number.
 	// A source that will not answer costs the annotation and nothing else:
@@ -831,7 +815,7 @@ func main() {
 	cardsData, err := emit.Upstream{
 		Source:    "ygoprodeck cards",
 		Check:     emit.Reads(func(p ygoCardsPayload) int { return len(p.Data) }),
-		CacheDir:  *upstreamCache,
+		CacheDir:  b.UpstreamCache,
 		CacheName: "ygoprodeck-cards.json",
 	}.Fetch(*ygoCards)
 	if err != nil {
@@ -1054,10 +1038,7 @@ func main() {
 	// emits no set below, so it is not worth dating, joining, or being
 	// reported as undated - the empty groups were most of what the
 	// left-undated log named.
-	productsIn := map[int]int{}
-	for _, product := range catalog.Products {
-		productsIn[product.GroupID]++
-	}
+	productsIn := build.ProductsIn(catalog.Products)
 
 	releaseDates := map[int]string{}
 	var joinedByCode, joinedByName, placeholders, filled, unfilled int
@@ -1113,20 +1094,10 @@ func main() {
 	// Split the products: every single becomes card entries, the
 	// non-single types become sealed. "N/A" is the catalog's spelling for
 	// a product with no number, and a product with none is still a card.
+	split := build.SplitProducts(&catalog, tcgSingles, printings)
 	var singles []single
-	var sealedProducts []tcgplayer.Product
 	var unnumbered int
-	var unpriced []string
-	for _, product := range catalog.Products {
-		if !slices.Contains(tcgSingles, product.ProductType) {
-			sealedProducts = append(sealedProducts, product)
-			continue
-		}
-		if len(printings[product.ProductID]) == 0 {
-			// Nothing is sold for it yet: no printing to carry until there is.
-			unpriced = append(unpriced, fmt.Sprintf("%q (%d)", product.Name, product.ProductID))
-			continue
-		}
+	for _, product := range split.Cards {
 		num := product.Extended("Number")
 		if strings.EqualFold(num, "N/A") {
 			num = ""
@@ -1136,10 +1107,7 @@ func main() {
 		}
 		singles = append(singles, decompose(product, num, rarities))
 	}
-	if len(unpriced) > 0 {
-		log.Printf("unpriced: %d card products TCGplayer sells no sku for yet, carried once it does: %s",
-			len(unpriced), strings.Join(unpriced, ", "))
-	}
+	split.LogUnpriced("sku")
 	log.Printf("singles: %d kept (%d without a collector number)", len(singles), unnumbered)
 	var misfiled []string
 	for _, s := range singles {
@@ -1165,9 +1133,7 @@ func main() {
 	if unrated > 0 {
 		log.Printf("no rarity: %d products, carried and logged rather than refused", unrated)
 	}
-	if len(singles) == 0 {
-		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
-	}
+	split.RequireCards()
 
 	// Per collector number within its group: a qualifier every product of
 	// the number carries is part of the name, not a variant. A number with
@@ -1325,7 +1291,7 @@ func main() {
 	for _, s := range singles {
 		carried[cardSet(s)] = true
 	}
-	for _, product := range sealedProducts {
+	for _, product := range split.Sealed {
 		carried[setCodes[product.GroupID]] = true
 	}
 	sets := map[string]*emit.Set{}
@@ -1381,20 +1347,7 @@ func main() {
 	sort.Slice(singles, func(i, j int) bool {
 		return singles[i].product.ProductID < singles[j].product.ProductID
 	})
-	// The coverage contract: every product the catalog types as a card,
-	// with the sku printings it is sold in. validate reads it back off the
-	// encoded output, so a product no rule here carried fails the build
-	// instead of quietly leaving the datastore.
-	catalogFinishes := map[int][]string{}
-	for _, product := range catalog.Products {
-		if !slices.Contains(tcgSingles, product.ProductType) {
-			continue
-		}
-		if len(printings[product.ProductID]) == 0 {
-			continue
-		}
-		catalogFinishes[product.ProductID] = printings[product.ProductID]
-	}
+	catalogFinishes := build.Coverage(&catalog, tcgSingles, printings)
 
 	cards := slices.Grow([]*emit.Card(nil), len(singles))
 	var passcoded int
@@ -1462,21 +1415,9 @@ func main() {
 		}
 	}
 
-	sort.Slice(sealedProducts, func(i, j int) bool {
-		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
-	})
-	sealed := slices.Grow([]*emit.Sealed(nil), len(sealedProducts))
-	for _, product := range sealedProducts {
-		code := setCodes[product.GroupID]
-		sealed = append(sealed, &emit.Sealed{
-			ID:            fmt.Sprintf("%s-%d", strings.ToLower(code), product.ProductID),
-			Name:          product.Name,
-			SetCode:       code,
-			ReleaseDate:   releaseDates[product.GroupID],
-			Image:         emit.ImageURL(product.ImageURL),
-			ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
-		})
-	}
+	sealed := build.SealedEntries(split.Sealed, func(product tcgplayer.Product) (string, string) {
+		return setCodes[product.GroupID], releaseDates[product.GroupID]
+	}, strings.ToLower)
 	if len(contradicted) > 0 {
 		lines := make([]string, 0, len(contradicted))
 		for line := range contradicted {
@@ -1502,8 +1443,7 @@ func main() {
 	cards = mintEuropeanPrints(cards, sets, ygoCardList)
 	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
 		len(sets), len(cards), len(singles), len(sealed))
-	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
-		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
+	build.LogCoverage(len(singles), catalogFinishes)
 
 	doc := &emit.Datastore{
 		Game:       "yugioh",
@@ -1519,77 +1459,9 @@ func main() {
 		doc.Cards = kept
 	}
 	doc.DropEmptySets()
-	var buf bytes.Buffer
-	handtable.Report()
-
-	envelope := emit.Envelope(emit.Today(), doc)
-	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
-		log.Fatalln(err)
-	}
-	// Spell the quotes the way a query does before anything reads the
-	// document, so the checks below see what will be published.
-	emit.PlainQuotes(&buf)
-
-	// A token the vocabulary refuses comes off its printing here, logged,
-	// rather than stopping every card of the game at the publish's check.
-	{
-		setAside, err := vocabulary.FitInto(&buf)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		for _, line := range setAside {
-			log.Println("vocabulary:", line)
-		}
-	}
-
-	// Re-read the encoded output and verify it structurally before
-	// publishing anything: a format drift or a truncated download must
-	// fail here, not in every consumer. The types mirror what go-mtgban's
-	// mtgmatcher/yugioh reads, duplicated so this repository depends on
-	// nothing.
-	counted, err := validate.Datastore(buf.Bytes(), catalogFinishes, validationRules())
-	if err != nil {
-		log.Fatalln("validation:", err)
-	}
-	log.Printf("validated: %d sets, %d cards, %d sealed", counted.Sets, counted.Cards, counted.Sealed)
-	if counted.Cards != len(doc.Cards) || counted.Sealed != len(doc.Sealed) {
-		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			len(doc.Cards), len(doc.Sealed), counted.Cards, counted.Sealed)
-	}
-	// The coverage contract for the sealed side. Sealed is everything the
-	// catalog does not type as a single, so it is exhaustive by
-	// construction and cannot lose a product to a rule that did not know
-	// what to do with it - the card side's whole failure mode. What it can
-	// lose a product to is an edit: one `continue` on the sealed path and
-	// the products would leave the datastore with nothing to say so, the
-	// card side's invariant being blind to them. Counting the emitted
-	// products back against the catalog total is what says so.
-	wantSealed := len(catalog.Products) - len(singles) - len(unpriced)
-	if counted.Sealed != wantSealed {
-		log.Fatalf("%d sealed products emitted but the catalog types %d as something other than a card; refusing to publish",
-			counted.Sealed, wantSealed)
-	}
-
-	// Compare against the baseline, when the publish handed one over, and
-	// say whether this build is fit to become the next one.
-	if err := baseline.Guard(buf.Bytes(), baseline.Count, baseline.Options{
-		Against: *against, Tolerance: *againstTolerance, FitPath: *baselineFit,
-	}); err != nil {
-		log.Fatalln(err)
-	}
-
-	out := os.Stdout
-	if *output != "" {
-		f, err := os.Create(*output)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		defer f.Close()
-		out = f
-	}
-	if _, err := out.Write(buf.Bytes()); err != nil {
-		log.Fatalln(err)
-	}
+	b.Publish(doc, build.Contract{
+		Finishes: catalogFinishes, Split: split, Carried: len(singles),
+	})
 }
 
 // europeanPrint is whether a card no product sells is a European first print
