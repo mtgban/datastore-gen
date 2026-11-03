@@ -113,10 +113,10 @@ and go-mtgban's loader tests fail on it.
 | Riftbound | `rarity`, `domain` (the ids of `rarity.value` and `domain.values`) |
 | Yu-Gi-Oh | `rarity`, `attribute` (`attributes`) |
 
-Before encoding, `emit.PlainQuotes` rewrites every typographic quote in the
-payload to its ASCII form, so the check that re-reads the file sees what is
-published and a query spells names the way the file does; the envelope goes
-around it afterwards, and `meta` carries no prose to rewrite.
+Once the envelope is encoded, `emit.PlainQuotes` rewrites every typographic
+quote in it to its ASCII form, key and value, typed entry and upstream
+payload alike, before anything re-reads it: the checks see what is
+published, and a query spells names the way the file does.
 
 Every reader here peels through `emit.Unwrap`, or `emit.UnwrapDocument`
 where it holds the document already decoded, and none spells the peel

@@ -1542,15 +1542,15 @@ func main() {
 	log.Printf("types: %d printings typed by tcgdex, %d by the catalog's Card Type",
 		cardTypes.fromTcgdex, cardTypes.fromCatalog)
 	handtable.Report()
-	// Spell the quotes the way a query does before anything reads the
-	// document, so the check below sees what will be published.
-	doc.PlainQuotes()
 
 	envelope := emit.Envelope(emit.Today(), doc)
 	err = json.NewEncoder(&buf).Encode(envelope)
 	if err != nil {
 		log.Fatalln(err)
 	}
+	// Spell the quotes the way a query does before anything reads the
+	// document, so the checks below see what will be published.
+	emit.PlainQuotes(&buf)
 
 	// A token the vocabulary refuses comes off its printing here, logged,
 	// rather than stopping every card of the game at the publish's check.

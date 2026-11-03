@@ -18,6 +18,7 @@
 package emit
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"errors"
@@ -213,11 +214,13 @@ func PromoSlug(label string) string {
 }
 
 // typographic is the quotes a catalog spells with and no consumer queries
-// with.
+// with, as an encoded document holds them: a typographic quote can only sit
+// inside a JSON string, so the double ones go back escaped.
 var typographic = strings.NewReplacer(
-	"\u2018", "'", "\u2019", "'", "\u201c", `"`, "\u201d", `"`)
+	"\u2018", "'", "\u2019", "'", "\u201c", `\"`, "\u201d", `\"`)
 
-// PlainQuotes rewrites those quotes wherever the document carries them.
+// PlainQuotes rewrites those quotes wherever the encoded document carries
+// them.
 // The catalogs are not consistent about it: TCGplayer sells "Rocket's
 // Hitmonchan" with a curly apostrophe beside hundreds of names holding a
 // plain one, files two Yu-Gi-Oh rarities as "Ultra Pharaoh's Rare" while
@@ -226,24 +229,15 @@ var typographic = strings.NewReplacer(
 // comes in. A query carries one spelling, so the card filed under the
 // other cannot be found, and the two rarities cannot be asked for at all.
 //
-// The whole document is walked rather than the fields known to carry
-// them, because the field that starts carrying them tomorrow would
-// otherwise be missed, and it runs before the output is encoded so the
-// check that re-reads it sees exactly what will be published.
-func PlainQuotes(v any) any {
-	switch t := v.(type) {
-	case string:
-		return typographic.Replace(t)
-	case map[string]any:
-		for k, e := range t {
-			t[k] = PlainQuotes(e)
-		}
-	case []any:
-		for i, e := range t {
-			t[i] = PlainQuotes(e)
-		}
-	}
-	return v
+// The encoded bytes are rewritten rather than the fields known to carry
+// them, because the field that starts carrying them tomorrow would otherwise
+// be missed, typed entry and upstream payload alike. A builder runs it on
+// its output before anything re-reads it, so the checks see exactly what
+// will be published.
+func PlainQuotes(buf *bytes.Buffer) {
+	plain := typographic.Replace(buf.String())
+	buf.Reset()
+	_, _ = buf.WriteString(plain)
 }
 
 // ImageURL upgrades a catalog image link to the 400-wide rendition; the
