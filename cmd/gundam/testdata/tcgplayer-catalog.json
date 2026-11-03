@@ -1,0 +1,22 @@
+{
+ "category": {"categoryId":86,"name":"Gundam Card Game"},
+ "printings": [{"printingId":168,"name":"Normal","displayOrder":1},{"printingId":169,"name":"Holofoil","displayOrder":2}],
+ "groups": [
+  {"groupId":24193,"name":"Edition Beta","abbreviation":"GD01_b","publishedOn":"2025-02-06T00:00:00"},
+  {"groupId":24340,"name":"Gundam Promotional Cards","abbreviation":"GCG-PR","publishedOn":"2025-03-01T00:00:00"},
+  {"groupId":24221,"name":"Newtype Rising","abbreviation":"GD01","publishedOn":"2025-07-25T00:00:00"},
+  {"groupId":24372,"name":"Promotional Resource Tokens","abbreviation":"","publishedOn":"2025-02-25T00:00:00"}
+ ],
+ "products": [
+  {"productId":616633,"name":"Guntank","groupId":24193,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/616633_200w.jpg","productType":"Cards","skus":[{"printingId":168},{"printingId":168},{"printingId":168},{"printingId":168},{"printingId":168}],"extendedData":[{"name":"Rarity","value":"Uncommon"},{"name":"Number","value":"GD01-008"},{"name":"CardType","value":"Unit"},{"name":"Color","value":"Blue"}]},
+  {"productId":643151,"name":"Unicorn Gundam (Destroy Mode)","groupId":24221,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/643151_200w.jpg","productType":"Cards","skus":[{"printingId":169}],"extendedData":[{"name":"Rarity","value":"Legend Rare"},{"name":"Number","value":"GD01-002"},{"name":"CardType","value":"Unit"},{"name":"Color","value":"Blue"}]},
+  {"productId":643162,"name":"Gundam (GD01-013)","groupId":24221,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/643162_200w.jpg","productType":"Cards","skus":[{"printingId":168}],"extendedData":[{"name":"Rarity","value":"Common"},{"name":"Number","value":"GD01-013"},{"name":"CardType","value":"Unit"},{"name":"Color","value":"Blue"}]},
+  {"productId":643163,"name":"G-Sky Easy","groupId":24221,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/643163_200w.jpg","productType":"Cards","skus":[],"extendedData":[{"name":"Rarity","value":"Common"},{"name":"Number","value":"GD01-014"},{"name":"CardType","value":"Unit"},{"name":"Color","value":"Blue"}]},
+  {"productId":643222,"name":"Sword Strike Gundam","groupId":24221,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/643222_200w.jpg","productType":"Cards","skus":[{"printingId":168}],"extendedData":[{"name":"Rarity","value":"Uncommon"},{"name":"Number","value":"GD01-073"},{"name":"CardType","value":"Unit"},{"name":"Color","value":"White"}]},
+  {"productId":619067,"name":"Newtype Rising Booster Pack","groupId":24221,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/619067_200w.jpg","productType":"Sealed Products","skus":[{"printingId":168}],"extendedData":[]},
+  {"productId":646528,"name":"Unforeseen Incident (Store Tournament Participant Pack 01)","groupId":24340,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/646528_200w.jpg","productType":"Cards","skus":[{"printingId":169}],"extendedData":[{"name":"Rarity","value":"Common"},{"name":"Number","value":"ST01-014"},{"name":"CardType","value":"Command"},{"name":"Color","value":"White"}]},
+  {"productId":646529,"name":"Unforeseen Incident (Store Tournament Winner Pack 01)","groupId":24340,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/646529_200w.jpg","productType":"Cards","skus":[{"printingId":169}],"extendedData":[{"name":"Rarity","value":"C+"},{"name":"Number","value":"ST01-014"},{"name":"CardType","value":"Command"},{"name":"Color","value":"White"}]},
+  {"productId":641564,"name":"Resource (RP-001) (Edition Beta BANDAI TCG+ Store Trial Event)","groupId":24372,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/641564_200w.jpg","productType":"Cards","skus":[{"printingId":169},{"printingId":168}],"extendedData":[{"name":"Rarity","value":"Promo"},{"name":"Number","value":"RP-001"},{"name":"CardType","value":"Resource"}]},
+  {"productId":641565,"name":"Resource (RP-004) (Anime Expo 2025)","groupId":24372,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/641565_200w.jpg","productType":"Cards","skus":[{"printingId":169}],"extendedData":[{"name":"Rarity","value":"Promo"},{"name":"CardType","value":"Resource"}]}
+ ]
+}

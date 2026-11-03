@@ -1,0 +1,20 @@
+{
+ "category": {"categoryId":3,"name":"Pokemon"},
+ "printings": [{"printingId":10,"name":"Normal","displayOrder":1},{"printingId":11,"name":"Holofoil","displayOrder":2},{"printingId":77,"name":"Reverse Holofoil","displayOrder":3},{"printingId":79,"name":"1st Edition Holofoil","displayOrder":5},{"printingId":123,"name":"Unlimited Holofoil","displayOrder":7}],
+ "groups": [
+  {"groupId":24584,"name":"First Partner Collection 2026","abbreviation":"","publishedOn":"2026-03-30T00:00:00"},
+  {"groupId":635,"name":"Jungle","abbreviation":"JU","publishedOn":"1999-06-16T00:00:00"},
+  {"groupId":2332,"name":"Professor Program Promos","abbreviation":"PPP","publishedOn":"2026-11-02T13:04:41.7047297Z"},
+  {"groupId":23237,"name":"SV: Scarlet & Violet 151","abbreviation":"MEW","publishedOn":"2023-09-22T00:00:00"}
+ ],
+ "products": [
+  {"productId":45120,"name":"Clefable (1)","groupId":635,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/45120_200w.jpg","productType":"Cards","skus":[{"printingId":123,"languageId":1},{"printingId":79,"languageId":1}],"extendedData":[{"name":"Number","value":"01/64"},{"name":"Rarity","value":"Holo Rare"},{"name":"Card Type","value":"Colorless"}]},
+  {"productId":502548,"name":"Squirtle - 007/165","groupId":23237,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/502548_200w.jpg","productType":"Cards","skus":[{"printingId":10,"languageId":1},{"printingId":77,"languageId":1}],"extendedData":[{"name":"Number","value":"007/165"},{"name":"Rarity","value":"Common"},{"name":"Card Type","value":"Water"}]},
+  {"productId":516669,"name":"Voltorb","groupId":23237,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/516669_200w.jpg","productType":"Cards","skus":[{"printingId":10,"languageId":1},{"printingId":77,"languageId":1}],"extendedData":[{"name":"Number","value":"100/165"},{"name":"Rarity","value":"Common"},{"name":"Card Type","value":"Lightning"}]},
+  {"productId":502565,"name":"Pidgey","groupId":23237,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/502565_200w.jpg","productType":"Cards","skus":[],"extendedData":[{"name":"Number","value":"016/165"},{"name":"Rarity","value":"Common"},{"name":"Card Type","value":"Colorless"}]},
+  {"productId":517267,"name":"Code Card - 151 Booster Pack","groupId":23237,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/517267_200w.jpg","productType":"Cards","skus":[{"printingId":10,"languageId":1}],"extendedData":[{"name":"Rarity","value":"Code Card"}]},
+  {"productId":176630,"name":"Professor Birch (2006)","groupId":2332,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/176630_200w.jpg","productType":"Cards","skus":[{"printingId":11,"languageId":1}],"extendedData":[{"name":"Number","value":"82/106"},{"name":"Rarity","value":"Promo"},{"name":"Card Type","value":"Supporter"}]},
+  {"productId":686299,"name":"Code Card - First Partner Illustration Collection (Series 1)","groupId":24584,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/686299_200w.jpg","productType":"Cards","skus":[{"printingId":10,"languageId":1}],"extendedData":[{"name":"Rarity","value":"Code Card"}]},
+  {"productId":694977,"name":"First Partner Collection 2026 Series 1 Booster Pack","groupId":24584,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/694977_200w.jpg","productType":"Sealed Products","skus":[{"printingId":10,"languageId":1}],"extendedData":[]}
+ ]
+}

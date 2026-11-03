@@ -1,0 +1,19 @@
+{
+ "category": {"categoryId":62,"name":"Flesh & Blood TCG"},
+ "printings": [{"printingId":103,"name":"Normal","displayOrder":1},{"printingId":104,"name":"Unopened","displayOrder":2},{"printingId":113,"name":"Rainbow Foil","displayOrder":3},{"printingId":112,"name":"Cold Foil","displayOrder":4},{"printingId":105,"name":"1st Edition Normal","displayOrder":5},{"printingId":107,"name":"1st Edition Rainbow Foil","displayOrder":6},{"printingId":106,"name":"1st Edition Cold Foil","displayOrder":7},{"printingId":110,"name":"Unlimited Edition Normal","displayOrder":8},{"printingId":111,"name":"Unlimited Edition Rainbow Foil","displayOrder":9}],
+ "groups": [
+  {"groupId":23506,"name":"Armory Deck: Kayo","abbreviation":"","publishedOn":"2024-05-03T00:00:00"},
+  {"groupId":23540,"name":"Rosetta","abbreviation":"ROS","publishedOn":"2024-09-20T00:00:00"},
+  {"groupId":2726,"name":"Welcome to Rathe","abbreviation":"WTR","publishedOn":"2019-10-11T00:00:00"}
+ ],
+ "products": [
+  {"productId":225015,"name":"Barkbone Strapping","groupId":2726,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/225015_200w.jpg","productType":"Cards","skus":[{"printingId":105},{"printingId":106},{"printingId":110},{"printingId":111}],"extendedData":[{"name":"Rarity","value":"Common"},{"name":"Number","value":"WTR005"},{"name":"CardType","value":"Equipment"}]},
+  {"productId":561264,"name":"Aurora, Shooting Star","groupId":23540,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/561264_200w.jpg","productType":"Cards","skus":[{"printingId":103}],"extendedData":[{"name":"Rarity","value":"Majestic"},{"name":"Number","value":"ROS007"},{"name":"CardType","value":"Hero"}]},
+  {"productId":561296,"name":"Aurora, Shooting Star (Marvel)","groupId":23540,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/561296_200w.jpg","productType":"Cards","skus":[{"printingId":112}],"extendedData":[{"name":"Rarity","value":"Marvel"},{"name":"Number","value":"ROS007"},{"name":"CardType","value":"Hero"}]},
+  {"productId":580839,"name":"Rosetta Set Art Card","groupId":23540,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/580839_200w.jpg","productType":"Cards","skus":[{"printingId":103},{"printingId":112}],"extendedData":[{"name":"Rarity","value":"None"}]},
+  {"productId":561283,"name":"Earth Form (Red)","groupId":23540,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/561283_200w.jpg","productType":"Cards","skus":[{"printingId":103},{"printingId":113}],"extendedData":[{"name":"Rarity","value":"Rare"},{"name":"Number","value":"ROS036"},{"name":"CardType","value":"Action"},{"name":"Pitch Value","value":"1"}]},
+  {"productId":561284,"name":"Earth Form (Yellow)","groupId":23540,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/561284_200w.jpg","productType":"Cards","skus":[],"extendedData":[{"name":"Rarity","value":"Rare"},{"name":"Number","value":"ROS037"},{"name":"CardType","value":"Action"},{"name":"Pitch Value","value":"2"}]},
+  {"productId":549250,"name":"Kayo, Armed and Dangerous","groupId":23506,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/549250_200w.jpg","productType":"Cards","skus":[{"printingId":103}],"extendedData":[{"name":"Rarity","value":"Majestic"},{"name":"Number","value":"AKO001"},{"name":"CardType","value":"Hero"}]},
+  {"productId":547761,"name":"Armory Deck: Kayo","groupId":23506,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/547761_200w.jpg","productType":"Sealed Products","skus":[{"printingId":103}],"extendedData":[]}
+ ]
+}

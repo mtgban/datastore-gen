@@ -1,0 +1,7 @@
+{
+ "data": [{"id":"base2","name":"Jungle","series":"Base","total":64,"ptcgoCode":"JU","releaseDate":"1999/06/16","images":{"symbol":"https://images.pokemontcg.io/base2/symbol.png","logo":"https://images.pokemontcg.io/base2/logo.png"}}],
+ "page": 1,
+ "pageSize": 250,
+ "count": 2,
+ "totalCount": 2
+}

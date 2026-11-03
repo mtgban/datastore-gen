@@ -1,0 +1,21 @@
+{
+ "category": {"categoryId":71,"name":"Lorcana TCG"},
+ "printings": [{"printingId":132,"name":"Normal","displayOrder":1},{"printingId":133,"name":"Holofoil","displayOrder":2},{"printingId":141,"name":"Cold Foil","displayOrder":3}],
+ "groups": [
+  {"groupId":17690,"name":"D23 Promos","abbreviation":"","publishedOn":"2022-09-11T00:00:00"},
+  {"groupId":23234,"name":"Disney Lorcana Promo Cards","abbreviation":"DLPC","publishedOn":"2023-07-01T00:00:00"},
+  {"groupId":24258,"name":"Reign of Jafar","abbreviation":"8","publishedOn":"2025-05-30T00:00:00"},
+  {"groupId":22937,"name":"The First Chapter","abbreviation":"1","publishedOn":"2023-08-18T00:00:00"}
+ ],
+ "products": [
+  {"productId":485360,"name":"Scar - Mastermind","groupId":22937,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/485360_200w.jpg","productType":"Cards","skus":[{"printingId":132},{"printingId":141}],"extendedData":[{"name":"Rarity","value":"Rare"},{"name":"Number","value":"158/204"},{"name":"CardType","value":"Character"}]},
+  {"productId":485364,"name":"Hades - King of Olympus","groupId":22937,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/485364_200w.jpg","productType":"Cards","skus":[{"printingId":132},{"printingId":141}],"extendedData":[{"name":"Rarity","value":"Rare"},{"name":"Number","value":"5/204"},{"name":"CardType","value":"Character"}]},
+  {"productId":485361,"name":"Aladdin - Prince Ali","groupId":22937,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/485361_200w.jpg","productType":"Cards","skus":[],"extendedData":[{"name":"Rarity","value":"Common"},{"name":"Number","value":"69/204"},{"name":"CardType","value":"Character"}]},
+  {"productId":512519,"name":"Mickey Mouse - Brave Little Tailor Puzzle Insert (Set of 4)","groupId":22937,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/512519_200w.jpg","productType":"Cards","skus":[{"printingId":132}],"extendedData":[{"name":"Rarity","value":"None"}]},
+  {"productId":482406,"name":"Disney Lorcana: The First Chapter Booster Pack","groupId":22937,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/482406_200w.jpg","productType":"Sealed Products","skus":[{"printingId":132}],"extendedData":[]},
+  {"productId":533447,"name":"Stitch - Rock Star (Store Championship)","groupId":23234,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/533447_200w.jpg","productType":"Cards","skus":[{"printingId":133},{"printingId":133}],"extendedData":[{"name":"Rarity","value":"Promo"},{"name":"Number","value":"30"},{"name":"CardType","value":"Character"}]},
+  {"productId":454230,"name":"Elsa - Snow Queen","groupId":17690,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/454230_200w.jpg","productType":"Cards","skus":[{"printingId":133}],"extendedData":[{"name":"Rarity","value":"Promo"},{"name":"Number","value":"3"},{"name":"CardType","value":"Character"}]},
+  {"productId":631349,"name":"Louie - One Cool Duck","groupId":24258,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/631349_200w.jpg","productType":"Cards","skus":[{"printingId":132}],"extendedData":[{"name":"Rarity","value":"Uncommon"},{"name":"Number","value":"1/204"},{"name":"CardType","value":"Character"}]},
+  {"productId":633427,"name":"Louie - One Cool Duck (Foil)","groupId":24258,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/633427_200w.jpg","productType":"Cards","skus":[{"printingId":141}],"extendedData":[{"name":"Rarity","value":"Uncommon"},{"name":"Number","value":"1/204"},{"name":"CardType","value":"Character"}]}
+ ]
+}

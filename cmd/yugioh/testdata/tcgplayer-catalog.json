@@ -1,0 +1,16 @@
+{
+ "category": {"categoryId":2,"name":"YuGiOh"},
+ "printings": [{"printingId":7,"name":"Unlimited","displayOrder":1},{"printingId":8,"name":"1st Edition","displayOrder":2},{"printingId":23,"name":"Limited","displayOrder":3},{"printingId":102,"name":"Normal","displayOrder":99}],
+ "groups": [
+  {"groupId":2197,"name":"Mattel Action Figure Promos: Series 3","abbreviation":"MF03","publishedOn":"2026-11-02T13:02:29.3943358Z"},
+  {"groupId":280,"name":"Shonen Jump Championship Series Promos","abbreviation":"","publishedOn":"2004-12-04T00:00:00"},
+  {"groupId":330,"name":"The Legend of Blue Eyes White Dragon","abbreviation":"LOB","publishedOn":"2002-03-08T00:00:00"}
+ ],
+ "products": [
+  {"productId":21876,"name":"Dark Magician","groupId":330,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/21876_200w.jpg","productType":"Cards","skus":[{"printingId":7},{"printingId":8}],"extendedData":[{"name":"Number","value":"LOB-005"},{"name":"Rarity","value":"Ultra Rare"},{"name":"Attribute","value":"DARK"},{"name":"MonsterType","value":"Spellcaster"},{"name":"Card Type","value":"Normal Monster"}]},
+  {"productId":21749,"name":"Armaill","groupId":330,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/21749_200w.jpg","productType":"Cards","skus":[],"extendedData":[{"name":"Number","value":"LOB-079"},{"name":"Rarity","value":"Common"},{"name":"Attribute","value":"EARTH"},{"name":"MonsterType","value":"Warrior"},{"name":"Card Type","value":"Normal Monster"}]},
+  {"productId":181264,"name":"The Legend of Blue-Eyes White Dragon Booster Pack - North American English [1st Edition]","groupId":330,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/181264_200w.jpg","productType":"Sealed Products","skus":[{"printingId":102}],"extendedData":[]},
+  {"productId":25554,"name":"Shrink","groupId":280,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/25554_200w.jpg","productType":"Cards","skus":[{"printingId":23}],"extendedData":[{"name":"Number","value":"SJC-EN003"},{"name":"Rarity","value":"Ultra Rare"},{"name":"Attribute","value":"SPELL"},{"name":"Card Type","value":"Normal Spell"}]},
+  {"productId":158239,"name":"Winged Kuriboh LV10","groupId":2197,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/158239_200w.jpg","productType":"Cards","skus":[{"printingId":23}],"extendedData":[{"name":"Rarity","value":"Parallel Rare"},{"name":"Attribute","value":"LIGHT"},{"name":"MonsterType","value":"Fairy"},{"name":"Card Type","value":"Effect Monster"}]}
+ ]
+}
