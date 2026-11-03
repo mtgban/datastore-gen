@@ -57,14 +57,11 @@
 // the matcher drops a non-English candidate from a query that named no
 // language, leaving English matching exactly as it was.
 //
-// A card the game gives no collector number is filed under its card type:
-// the DON!! cards, which neither the catalog nor Bandai's own card list
-// numbers, and the promo Leaders handed out in sealed-battle packs. A type
-// is stable where a counted or ordered number would renumber the cards the
-// day TCGplayer adds a product, and it reads as what the card is rather
-// than as a number a storefront's stray digits could match; identity falls
-// to the set and the variant label, which the catalog spells out per
-// product and no two of them share.
+// A card the game gives no collector number publishes none, and its id is
+// the bare product id: the DON!! cards, which neither the catalog nor
+// Bandai's own card list numbers, and the promo Leaders handed out in
+// sealed-battle packs. Identity falls to the set and the variant label,
+// which the catalog spells out per product and no two of them share.
 //
 // The official card list also holds printings whose collector number the
 // catalog has no product for, and those would have to be minted for this
@@ -117,16 +114,6 @@ import (
 const (
 	onepieceCategory = 68
 
-	// donCardType is the card type the catalog gives every DON!! card. The
-	// rarity does not answer for them - TCGplayer files the event ones as
-	// "PR" alongside the promo characters - but the type does.
-	donCardType = "DON!!"
-
-	// donNumber is the shorter spelling the DON!! cards' ids were published
-	// under, kept so this datastore's oldest minted numbers do not churn;
-	// every other unnumbered card is filed under its card type as spelled.
-	donNumber = "DON"
-
 	punkCardsURL = "https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json"
 	punkPacksURL = "https://raw.githubusercontent.com/buhbbl/punk-records/main/english/packs.json"
 )
@@ -165,14 +152,12 @@ type punkPack struct {
 // clean image is derivable exactly where the printing identity is known:
 // the aligned printings by their id, the base printings by their bare
 // number. An unaligned variant keeps the watermarked catalog image, whose
-// art is at least the right one, and so does every DON!! card: the number
-// they are filed under is this builder's, not a printing id the mirror
-// could know.
+// art is at least the right one, and so does every card with no number.
 func cardImage(s single, bandaiID string) string {
 	if bandaiID != "" {
 		return "https://static.dotgg.gg/onepiece/card/" + bandaiID + ".webp"
 	}
-	if len(s.quals) == 0 && s.number != "" && s.number != donNumber {
+	if len(s.quals) == 0 && s.number != "" {
 		return "https://static.dotgg.gg/onepiece/card/" + s.number + ".webp"
 	}
 	return emit.ImageURL(s.product.ImageURL)
@@ -717,8 +702,8 @@ func promoTypesOf(name string, quals []string, cardNames map[string]bool) (kept,
 		// having Nami on it, so the character stays the variant it is.
 		if name == donCardName && (cardNames[epithetKey(qual)] || donSubjects.Has(strings.ToLower(qual))) {
 			// Published as the mark it is, and not held back for the
-			// collision guard: every DON!! card is named "DON!! Card" at
-			// one number, so the character is the only thing a listing can
+			// collision guard: every DON!! card is named "DON!! Card" with
+			// no number, so the character is the only thing a listing can
 			// name to tell one from another, and the ones that happened
 			// not to collide said it nowhere at all.
 			subjects = append(subjects, strings.ToLower(qual))
@@ -808,19 +793,11 @@ func nameLanguage(quals []string) string {
 }
 
 // numberFor is the collector number a product is filed under: the catalog's
-// own Number, or the product's card type where the game numbers nothing.
-// A product carrying neither has no number, and is carried on its product id
-// alone, the way every other game carries the cards the catalog files so.
+// own Number, and none where it files none (SPECIFICATIONS §2.2), so the
+// 244 DON!! cards and 5 promo Leaders are carried on their product id alone
+// (docs/onepiece-numberless-ids.md).
 func numberFor(product tcgplayer.Product) string {
-	num := product.Extended("Number")
-	if num != "" {
-		return num
-	}
-	cardType := product.Extended("CardType")
-	if strings.EqualFold(cardType, donCardType) {
-		return donNumber
-	}
-	return strings.ToUpper(cardType)
+	return product.Extended("Number")
 }
 
 // idBase is a priced entry's id before its finish suffix: the number and the
@@ -1747,30 +1724,32 @@ func main() {
 	// types become sealed.
 	split := build.SplitProducts(&catalog, tcgSingles, printings)
 	var singles []single
-	var unnumbered int
 	var numberless []string
+	var unnumberedDON int
 	for _, product := range split.Cards {
-		if product.Extended("Number") == "" {
-			unnumbered++
-		}
 		single := decompose(product, numberFor(product))
-		if single.number == "" {
+		switch {
+		case single.number != "":
+		case single.baseName == donCardName:
+			unnumberedDON++
+		default:
 			numberless = append(numberless, fmt.Sprintf("%q (%d)", product.Name, product.ProductID))
 		}
 		singles = append(singles, single)
 	}
 	split.LogUnpriced("sku")
-	log.Printf("singles: %d kept (%d filed under a card type for want of a number, %d with neither, carried on the product id: %s)",
-		len(singles), unnumbered, len(numberless), strings.Join(numberless, ", "))
+	byProductID := fmt.Sprintf("%d DON!! cards", unnumberedDON)
+	if len(numberless) > 0 {
+		byProductID += " and " + strings.Join(numberless, ", ")
+	}
+	log.Printf("singles: %d kept (%d with no number, carried on the product id: %s)",
+		len(singles), unnumberedDON+len(numberless), byProductID)
 
 	// Per collector number: a qualifier every product of the number carries
 	// is part of the name (the "(Bentham)" epithets), not a variant. A
 	// number with a single product cannot make that call alone, so the
 	// epithets learned from the multi-product numbers decide for it — the
-	// same epithet decorates the character's every printing. The DON!!
-	// bucket is the one holding unrelated cards rather than one card's
-	// printings, and it holds undecorated ones, so the rule finds nothing
-	// common there and hands every qualifier to the variant label.
+	// same epithet decorates the character's every printing.
 	byNumber := map[string][]*single{}
 	for i := range singles {
 		// Unnumbered products are unrelated cards, not one card's printings.
