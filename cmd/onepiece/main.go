@@ -1142,6 +1142,26 @@ func parentFinish(candidates []*emit.Card, byRarity map[string]string) string {
 	return src.Finish
 }
 
+// singleEntry is one finish of a catalog single, its facts as the catalog
+// gives them. A fact the product lacks is left out of the entry: a DON!!
+// card has no colour.
+func singleEntry(s single, setCode, finish, bandaiID string) *emit.Card {
+	productID := s.product.ProductID
+	return &emit.Card{
+		ID:            idBase(s.number, productID) + emit.FinishSuffix(finish),
+		Name:          s.baseName,
+		SetCode:       setCode,
+		Number:        s.number,
+		Rarity:        s.product.Extended("Rarity"),
+		Finish:        finish,
+		Language:      s.language,
+		Type:          s.product.Extended("CardType"),
+		Color:         s.product.Extended("Color"),
+		Image:         cardImage(s, bandaiID),
+		ExternalLinks: emit.Links{TCGPlayerID: productID, BandaiID: bandaiID},
+	}
+}
+
 // correctedEntry spells a printing the catalog does not sell - a corrected
 // run, a reissue - as its parent's card in every respect but the id, the
 // set it is sold on, the finish, the label and the links.
@@ -2149,20 +2169,7 @@ func main() {
 			nonEnglish++
 		}
 		for _, finish := range printings[productID] {
-			suffix := emit.FinishSuffix(finish)
-			entry := &emit.Card{
-				ID:            idBase(s.number, productID) + suffix,
-				Name:          s.baseName,
-				SetCode:       codes[group.GroupID],
-				Number:        s.number,
-				Rarity:        s.product.Extended("Rarity"),
-				Finish:        finish,
-				Language:      s.language,
-				Type:          s.product.Extended("CardType"),
-				Color:         s.product.Extended("Color"),
-				Image:         cardImage(s, bandaiIDs[productID]),
-				ExternalLinks: emit.Links{TCGPlayerID: productID, BandaiID: bandaiIDs[productID]},
-			}
+			entry := singleEntry(s, codes[group.GroupID], finish, bandaiIDs[productID])
 			if len(s.quals) > 0 {
 				entry.Variant = strings.Join(s.quals, " ")
 				// The same labels as a list. Joined, "Alternate Art Manga"
