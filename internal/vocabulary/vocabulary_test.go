@@ -52,16 +52,16 @@ func TestCheckReadsTheRules(t *testing.T) {
 		{
 			desc: "two printings no field tells apart",
 			printings: []Printing{
-				{ID: "a", Facts: map[string]any{"name": "DON!! Card", "number": "DON"}},
-				{ID: "b", Facts: map[string]any{"name": "DON!! Card", "number": "DON"}},
+				{ID: "a", Facts: map[string]any{"name": "DON!! Card"}},
+				{ID: "b", Facts: map[string]any{"name": "DON!! Card"}},
 			},
 			want: func(p Problems) int { return len(p.Alike) },
 		},
 		{
 			desc: "and the same two once a mark says which is which",
 			printings: []Printing{
-				{ID: "a", Facts: map[string]any{"name": "DON!! Card", "number": "DON", "watermark": "nami"}},
-				{ID: "b", Facts: map[string]any{"name": "DON!! Card", "number": "DON", "watermark": "buggy"}},
+				{ID: "a", Facts: map[string]any{"name": "DON!! Card", "watermark": "nami"}},
+				{ID: "b", Facts: map[string]any{"name": "DON!! Card", "watermark": "buggy"}},
 			},
 			want: func(p Problems) int { return len(p.Alike) },
 		},
