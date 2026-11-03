@@ -531,8 +531,10 @@ func tidyLabel(label string) string {
 // list can be compared by: the list writes "Mr.2.Bon.Kurei(Bentham)" with
 // no space before the bracket and dots for the spaces.
 func epithetKey(s string) string {
-	return strings.NewReplacer(" ", "", ".", "").Replace(strings.ToLower(s))
+	return epithetSpacing.Replace(strings.ToLower(s))
 }
+
+var epithetSpacing = strings.NewReplacer(" ", "", ".", "")
 
 // packSeam is a label naming an occasion and the pack or set it handed out:
 // "Store Championship Participation Pack" is a store championship and a
