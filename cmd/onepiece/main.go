@@ -571,7 +571,7 @@ const gameName = "one piece card game "
 // setNameHeads are the sets' names, lower-cased and longest first, for the
 // same stripping the codes get: "Starter Deck 11: Uta Deck Battle" is a deck
 // battle, and the deck is the card's own set. Filled in main once the sets
-// are known.
+// are known, each name held as the slug cutSlug reads.
 var setNameHeads []string
 
 // cutHead reads a set's name off the front of a label by its letters and
@@ -579,7 +579,11 @@ var setNameHeads []string
 // it was printed ("Starter Deck 11: Uta Deck Battle") after TCGplayer
 // renames the set ("ST-11: Starter Deck 11 Uta", 40 groups on 2026-09-29).
 func cutHead(label, head string) (rest string, opens bool) {
-	want := emit.PromoSlug(head)
+	return cutSlug(label, emit.PromoSlug(head))
+}
+
+// cutSlug is cutHead on a head already slugged.
+func cutSlug(label, want string) (rest string, opens bool) {
 	if want == "" {
 		return "", false
 	}
@@ -617,7 +621,7 @@ func splitLabel(label string) (stems []string, issue string) {
 		// product reprinted the card - "Ultra Deck: The Three Captains" on
 		// a Romance Dawn card - which is which copy of the number this is,
 		// a mark, and promoted nothing.
-		rest, opens := cutHead(label, name)
+		rest, opens := cutSlug(label, name)
 		if !opens {
 			continue
 		}
@@ -2089,6 +2093,9 @@ func main() {
 		}
 		return setNameHeads[i] < setNameHeads[j]
 	})
+	for i, name := range setNameHeads {
+		setNameHeads[i] = emit.PromoSlug(name)
+	}
 	log.Printf("promotional sets: %d of %d", promoSets, len(sets))
 	if skippedEmpty > 0 {
 		log.Printf("sets: %d empty groups hold no product and are skipped", skippedEmpty)
