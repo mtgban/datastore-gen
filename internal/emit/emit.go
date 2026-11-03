@@ -506,6 +506,13 @@ func SetCodeOf(abbreviation string) string {
 // from the group id. Every repair is logged, because none of it is the
 // catalog's own identity.
 func SetCodes(groups []tcgplayer.Group) map[int]string {
+	return SetCodesBy(groups, func(g tcgplayer.Group) string { return SetCodeOf(g.Abbreviation) })
+}
+
+// SetCodesBy is SetCodes for a game that asks for a group's code itself
+// rather than taking its abbreviation: codeOf is called once per group, in
+// group-id order, and what it returns is claimed and repaired the same way.
+func SetCodesBy(groups []tcgplayer.Group, codeOf func(tcgplayer.Group) string) map[int]string {
 	ordered := append([]tcgplayer.Group(nil), groups...)
 	sort.Slice(ordered, func(i, j int) bool {
 		return ordered[i].GroupID < ordered[j].GroupID
@@ -515,7 +522,7 @@ func SetCodes(groups []tcgplayer.Group) map[int]string {
 	used := map[string]bool{}
 	var minted, suffixed int
 	for _, group := range ordered {
-		code := SetCodeOf(group.Abbreviation)
+		code := codeOf(group)
 		if code == "" {
 			code = fmt.Sprintf("G%d", group.GroupID)
 			minted++

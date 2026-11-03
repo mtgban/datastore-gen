@@ -76,7 +76,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"maps"
 	"regexp"
@@ -186,37 +185,17 @@ func main() {
 	build.LogCatalogf(&catalog, "; tcgdex: %d sets (%d after dropping %s), %d cards",
 		len(setsResponse.Sets), len(dexSets), tcgpSerie, len(cardsResponse.Cards))
 
-	// Assign every group its set code, in group-id order so the group that
-	// claimed an abbreviation keeps it and only the later arrival is
-	// marked. Counting the abbreviations first and suffixing every sharer
-	// would rewrite an existing set's code — and every id filed under it —
-	// the day TCGplayer adds a group carrying the same abbreviation. A
-	// blank abbreviation gets a code minted from the group id.
 	groups := append([]tcgplayer.Group(nil), catalog.Groups...)
 	sort.Slice(groups, func(i, j int) bool {
 		return groups[i].GroupID < groups[j].GroupID
 	})
-	setCodes := map[int]string{}
+	setCodes := emit.SetCodes(catalog.Groups)
+	// The codes taken so far, which the championship years and the minted
+	// sets below are claimed against.
 	usedCodes := map[string]bool{}
-	var minted, suffixed int
-	for _, group := range groups {
-		code := emit.SetCodeOf(group.Abbreviation)
-		if code == "" {
-			code = fmt.Sprintf("G%d", group.GroupID)
-			minted++
-			log.Printf("%s: no abbreviation, set code %s minted", group.Name, code)
-		}
-		if usedCodes[code] {
-			code = fmt.Sprintf("%s-%d", code, group.GroupID)
-			suffixed++
-			log.Printf("%s: abbreviation %s already taken, set code %s minted",
-				group.Name, group.Abbreviation, code)
-		}
-		code = emit.FreeSetCode(usedCodes, code)
+	for _, code := range setCodes {
 		usedCodes[code] = true
-		setCodes[group.GroupID] = code
 	}
-	log.Printf("set codes: %d minted for blank abbreviations, %d deduplicated", minted, suffixed)
 
 	// A championship is a set. The group code is the stem and the year the
 	// suffix, so "WCD" becomes WCD2004 through WCD2025, and every product
