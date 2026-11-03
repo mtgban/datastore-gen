@@ -130,12 +130,14 @@ func PrintingNames(c *tcgplayer.CatalogDump) map[int][]string {
 			}
 			names = append(names, n)
 		}
-		sort.SliceStable(names, func(i, j int) bool {
-			if ri, rj := rank[names[i]], rank[names[j]]; ri != rj {
-				return ri < rj
-			}
-			return names[i] < names[j]
-		})
+		if len(names) > 1 {
+			sort.SliceStable(names, func(i, j int) bool {
+				if ri, rj := rank[names[i]], rank[names[j]]; ri != rj {
+					return ri < rj
+				}
+				return names[i] < names[j]
+			})
+		}
 		out[product.ProductID] = names
 	}
 	return out
