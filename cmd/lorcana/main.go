@@ -88,11 +88,10 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/mtgban/datastore-gen/internal/baseline"
+	"github.com/mtgban/datastore-gen/internal/build"
 	"github.com/mtgban/datastore-gen/internal/emit"
 	"github.com/mtgban/datastore-gen/internal/handtable"
 	"github.com/mtgban/datastore-gen/internal/validate"
-	"github.com/mtgban/datastore-gen/internal/vocabulary"
 	"github.com/mtgban/go-cardmarket"
 	"github.com/mtgban/go-tcgplayer"
 )
@@ -948,19 +947,12 @@ type lorcanaDocument struct {
 }
 
 func main() {
-	output := flag.String("o", "", "output file (default stdout)")
-	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 71 (required)")
 	source := flag.String("lorcana", "", "LorcanaJSON allCards file, path or URL (required)")
 	cardmarketCatalogPath := flag.String("cardmarket-catalog", "", "published Cardmarket catalog, read for the product selling each foil TCGplayer sells apart (required)")
-	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good upstream responses, refreshed on a live fetch and read back when an upstream is unreachable")
-	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
-	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
-	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
-	flag.Parse()
-
-	if *catalogPath == "" {
-		log.Fatalln("-tcg-catalog is required: the dump carries the product ids")
-	}
+	b := build.Start(build.Game{
+		Category: lorcanaCategory, Rules: validationRules(),
+		Carries: "the product ids",
+	})
 	if *source == "" {
 		log.Fatalln("-lorcana is required: the LorcanaJSON allCards file this enriches")
 	}
@@ -977,10 +969,7 @@ func main() {
 		log.Fatalln("cardmarket catalog:", err)
 	}
 
-	catalog, err := emit.ReadCatalog(*catalogPath, lorcanaCategory)
-	if err != nil {
-		log.Fatalln("tcg catalog:", err)
-	}
+	catalog := b.ReadCatalog()
 	printings := printingNames(&catalog)
 	productByID := map[int]tcgplayer.Product{}
 	for _, product := range catalog.Products {
@@ -1002,13 +991,12 @@ func main() {
 		log.Fatalln("tcg catalog: no products typed as singles; re-dump with a tcgdumper that records the product type")
 	}
 	finishNames := catalogFinishes(&catalog)
-	log.Printf("catalog: %d groups, %d products (%d singles)",
-		len(catalog.Groups), len(catalog.Products), singles)
+	build.LogCatalogf(&catalog, " (%d singles)", singles)
 
 	payload, err := emit.Upstream{
 		Source:    "lorcana source",
 		Check:     emit.Reads(func(doc lorcanaDocument) int { return len(doc.Cards) }),
-		CacheDir:  *upstreamCache,
+		CacheDir:  b.UpstreamCache,
 		CacheName: "lorcana-allcards.json",
 	}.Fetch(*source)
 	if err != nil {
@@ -1594,29 +1582,7 @@ func main() {
 	emit.AsList(published, "color", "colors")
 	emit.DropEmptySets(sets, emit.SetsInUse(published, sealedItems))
 	doc["properties"] = properties
-
-	handtable.Report()
-	var buf bytes.Buffer
-
-	envelope := emit.Envelope(emit.Today(), doc)
-	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
-		log.Fatalln(err)
-	}
-	// Spell the quotes the way a query does before anything reads the
-	// document, so the checks below see what will be published.
-	emit.PlainQuotes(&buf)
-
-	// A token the vocabulary refuses comes off its printing here, logged,
-	// rather than stopping every card of the game at the publish's check.
-	{
-		setAside, err := vocabulary.FitInto(&buf)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		for _, line := range setAside {
-			log.Println("vocabulary:", line)
-		}
-	}
+	buf := b.Encode(doc)
 
 	// Re-read the encoded output and verify it structurally before
 	// publishing anything: an upstream format change or a truncated
@@ -1658,26 +1624,7 @@ func main() {
 			counted.sealed, wantSealed)
 	}
 
-	// Compare against the baseline, when the publish handed one over, and
-	// say whether this build is fit to become the next one.
-	if err := baseline.Guard(buf.Bytes(), baseline.Count, baseline.Options{
-		Against: *against, Tolerance: *againstTolerance, FitPath: *baselineFit,
-	}); err != nil {
-		log.Fatalln(err)
-	}
-
-	out := os.Stdout
-	if *output != "" {
-		f, err := os.Create(*output)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		defer f.Close()
-		out = f
-	}
-	if _, err := out.Write(buf.Bytes()); err != nil {
-		log.Fatalln(err)
-	}
+	b.Write(buf)
 }
 
 type counts struct {

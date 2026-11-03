@@ -56,6 +56,10 @@ internal/emit          what every builder spells the same way: the entry types
                        normalisation, image link, the retrying fetch and its
                        last-good cache (Upstream), StringsOf, the
                        catalog read and the coverage check, set codes
+internal/build         what every builder's main does alike: the common
+                       flags, the catalog read, the split of the products,
+                       coverage, the set and sealed entries, and the tail
+                       that encodes, fits, re-reads, guards and writes
 internal/baseline      the guard that refuses a build which lost too much
 internal/naming        the qualifier reading Gundam and Palworld share: a
                        product name split into base and qualifiers, and the
