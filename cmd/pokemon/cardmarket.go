@@ -250,7 +250,7 @@ func mintFromCardmarket(path string, cards []*emit.Card, sets map[string]*emit.S
 			rarity = "Promo"
 		}
 		cards = append(cards, &emit.Card{
-			ID:        fmt.Sprintf("%s_mkm%d%s", sanitizeID(number+"-"+total), id, emit.FinishSuffix(finish)),
+			ID:        fmt.Sprintf("%s_mkm%d%s", emit.IDStem(number+"-"+total), id, emit.FinishSuffix(finish)),
 			Name:      name,
 			SetCode:   code,
 			Number:    number,

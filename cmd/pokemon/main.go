@@ -1122,7 +1122,7 @@ func main() {
 			cardType := s.product.Extended("Card Type")
 			mark := printMark(s, setCodeFor(s.product))
 			entry := &emit.Card{
-				ID:            idBase(s.number, productID) + suffix,
+				ID:            emit.IDBase(s.number, productID) + suffix,
 				Name:          handName(s.product.ProductID, s.baseName),
 				SetCode:       setCodeFor(s.product),
 				Rarity:        s.product.Extended("Rarity"),
@@ -1420,7 +1420,7 @@ func main() {
 
 	sealed := build.SealedEntries(split.Sealed, func(product tcgplayer.Product) (string, string) {
 		return setCodeFor(product), releaseDates[product.GroupID]
-	}, sanitizeID)
+	}, emit.IDStem)
 	// The set's own size, which is the total its cards print beside their
 	// number. It is read back off the finished cards rather than from the
 	// catalog, which publishes no size, so the minted entries count too;

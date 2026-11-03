@@ -2,26 +2,10 @@ package main
 
 import (
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/mtgban/datastore-gen/internal/emit"
 )
-
-// sanitizeID reduces a string to the id alphabet: lowercase alphanumerics
-// with runs of anything else collapsed to single dashes.
-func sanitizeID(s string) string {
-	mapped := strings.Map(func(r rune) rune {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			return r
-		}
-		return '-'
-	}, strings.ToLower(s))
-	for strings.Contains(mapped, "--") {
-		mapped = strings.ReplaceAll(mapped, "--", "-")
-	}
-	return strings.Trim(mapped, "-")
-}
 
 // emitNumber writes a collector number onto an entry with the card's part
 // and the set total apart: the "082/167" a card face prints is the card's
@@ -130,14 +114,6 @@ func mintedIDBase(id string) string {
 		}
 	}
 	return b.String()
-}
-
-func idBase(num string, productID int) string {
-	s := sanitizeID(num)
-	if s == "" {
-		return strconv.Itoa(productID)
-	}
-	return s + "_" + strconv.Itoa(productID)
 }
 
 // padRe matches the zeros a component pads its digits with, in front or
