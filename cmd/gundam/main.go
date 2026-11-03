@@ -738,7 +738,7 @@ func main() {
 	for _, product := range catalog.Products {
 		productsIn[product.GroupID]++
 	}
-	sets := map[string]any{}
+	sets := map[string]*emit.Set{}
 	var populated, promoSets, skippedEmpty int
 	for _, group := range catalog.Groups {
 		if productsIn[group.GroupID] == 0 {
@@ -746,14 +746,11 @@ func main() {
 			continue
 		}
 		populated++
-		set := map[string]any{
-			"name":        group.Name,
-			"releaseDate": group.ReleaseDate(),
-		}
+		set := &emit.Set{Name: group.Name, ReleaseDate: group.ReleaseDate()}
 		// The type is what tells the matcher a printing is promotional, so
 		// only the wholly promotional groups carry it.
 		if isPromoGroup(group) {
-			set["type"] = "promo"
+			set.Type = "promo"
 			promoSets++
 		}
 		sets[codes[group.GroupID]] = set
@@ -761,10 +758,9 @@ func main() {
 	// The sets' names, for the stripping the promo-type fold gives set
 	// codes: longest first, so "Deck Build Box Freedom Ascension" is tried
 	// before "Freedom Ascension".
-	for _, entry := range sets {
-		set, _ := entry.(map[string]any)
-		if name, _ := set["name"].(string); name != "" {
-			setNameHeads = append(setNameHeads, strings.ToLower(name))
+	for _, set := range sets {
+		if set.Name != "" {
+			setNameHeads = append(setNameHeads, strings.ToLower(set.Name))
 		}
 	}
 	sort.Slice(setNameHeads, func(i, j int) bool {
@@ -804,35 +800,25 @@ func main() {
 		catalogFinishes[product.ProductID] = printings[product.ProductID]
 	}
 
-	var cards []any
+	var cards []*emit.Card
 	for _, s := range singles {
 		productID := s.product.ProductID
 		for _, finish := range emit.OrderedFinishes(printings[productID], displayOrder) {
-			entry := map[string]any{
-				"id":      emit.IDBase(s.number, productID) + emit.FinishSuffix(finish),
-				"name":    s.baseName,
-				"setCode": codes[s.product.GroupID],
-				"rarity":  s.product.Extended("Rarity"),
-				"finish":  finish,
-				"image":   emit.ImageURL(s.product.ImageURL),
-				"externalLinks": map[string]any{
-					"tcgPlayerId": productID,
-				},
-			}
-			if s.number != "" {
-				entry["number"] = s.number
+			entry := &emit.Card{
+				ID:            emit.IDBase(s.number, productID) + emit.FinishSuffix(finish),
+				Name:          s.baseName,
+				SetCode:       codes[s.product.GroupID],
+				Number:        s.number,
+				Rarity:        s.product.Extended("Rarity"),
+				Finish:        finish,
+				Type:          s.product.Extended("CardType"),
+				Color:         s.product.Extended("Color"),
+				Image:         emit.ImageURL(s.product.ImageURL),
+				ExternalLinks: emit.Links{TCGPlayerID: productID},
 			}
 			if len(s.quals) > 0 {
-				entry["variant"] = strings.Join(s.quals, " ")
-				if tags := promoTypesOf(s.quals); len(tags) > 0 {
-					entry["promoTypes"] = tags
-				}
-			}
-			if t := s.product.Extended("CardType"); t != "" {
-				entry["type"] = t
-			}
-			if c := s.product.Extended("Color"); c != "" {
-				entry["color"] = c
+				entry.Variant = strings.Join(s.quals, " ")
+				entry.PromoTypes = promoTypesOf(s.quals)
 			}
 			cards = append(cards, entry)
 		}
@@ -883,21 +869,16 @@ func main() {
 		if !spelled && rarity != "" {
 			unrated++
 		}
-		entry := map[string]any{
-			"id":      id,
-			"name":    u.Name,
-			"number":  u.Number,
-			"setCode": code,
-			"rarity":  rarity,
-			"finish":  emit.PlainPrinting(&catalog),
-		}
-		if u.CardType != "" {
-			entry["type"] = u.CardType
-		}
-		if u.Color != "" {
-			entry["color"] = u.Color
-		}
-		cards = append(cards, entry)
+		cards = append(cards, &emit.Card{
+			ID:      id,
+			Name:    u.Name,
+			SetCode: code,
+			Number:  u.Number,
+			Rarity:  rarity,
+			Finish:  emit.PlainPrinting(&catalog),
+			Type:    u.CardType,
+			Color:   u.Color,
+		})
 		minted++
 	}
 	// The promotional reprints a storefront sells and TCGplayer does not.
@@ -910,18 +891,11 @@ func main() {
 	// an entry at the same number - and the real product wins, prices and
 	// artwork and all.
 	carriedIdentity := map[string]bool{}
-	plainByNumber := map[string][]map[string]any{}
-	for _, entry := range cards {
-		e, isMap := entry.(map[string]any)
-		if !isMap {
-			continue
-		}
-		number, _ := e["number"].(string)
-		variant, _ := e["variant"].(string)
-		setCode, _ := e["setCode"].(string)
-		carriedIdentity[number+"|"+setCode+"|"+variant] = true
-		if number != "" {
-			plainByNumber[number] = append(plainByNumber[number], e)
+	plainByNumber := map[string][]*emit.Card{}
+	for _, e := range cards {
+		carriedIdentity[e.Number+"|"+e.SetCode+"|"+e.Variant] = true
+		if e.Number != "" {
+			plainByNumber[e.Number] = append(plainByNumber[e.Number], e)
 		}
 	}
 	upstreamSource := map[string]map[string]bool{}
@@ -957,9 +931,9 @@ func main() {
 		// The ordinary card at this number is what the entry reads its
 		// name and printed details from; a promotional reprint is that
 		// card handed out again, not a card of its own.
-		var base map[string]any
+		var base *emit.Card
 		for _, e := range plainByNumber[printing.number] {
-			if variant, _ := e["variant"].(string); variant == "" {
+			if e.Variant == "" {
 				base = e
 				break
 			}
@@ -973,25 +947,19 @@ func main() {
 			log.Printf("hand-carried: %s %q mints no usable id; not carried", printing.number, printing.label)
 			continue
 		}
-		entry := map[string]any{
-			"id":      id + emit.FinishSuffix(printing.finish),
-			"name":    base["name"],
-			"number":  printing.number,
-			"setCode": promoSetCode,
-			"rarity":  base["rarity"],
-			"finish":  printing.finish,
-			"variant": printing.label,
-		}
-		if tags := promoTypesOf([]string{printing.label}); len(tags) > 0 {
-			entry["promoTypes"] = tags
-		}
-		for _, field := range []string{"type", "color"} {
-			if v, found := base[field]; found {
-				entry[field] = v
-			}
-		}
 		carriedIdentity[printing.number+"|"+promoSetCode+"|"+printing.label] = true
-		cards = append(cards, entry)
+		cards = append(cards, &emit.Card{
+			ID:         id + emit.FinishSuffix(printing.finish),
+			Name:       base.Name,
+			SetCode:    promoSetCode,
+			Number:     printing.number,
+			Rarity:     base.Rarity,
+			Finish:     printing.finish,
+			Variant:    printing.label,
+			PromoTypes: promoTypesOf([]string{printing.label}),
+			Type:       base.Type,
+			Color:      base.Color,
+		})
 		handCarriedCount++
 	}
 	log.Printf("hand-carried: %d promotional reprints carried, %d stood down for a product the catalog now sells",
@@ -1006,18 +974,16 @@ func main() {
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
-	var sealed []any
+	var sealed []*emit.Sealed
 	for _, product := range sealedProducts {
 		group := groupByID[product.GroupID]
-		sealed = append(sealed, map[string]any{
-			"id":          fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
-			"name":        product.Name,
-			"setCode":     codes[group.GroupID],
-			"releaseDate": group.ReleaseDate(),
-			"image":       emit.ImageURL(product.ImageURL),
-			"externalLinks": map[string]any{
-				"tcgPlayerId": product.ProductID,
-			},
+		sealed = append(sealed, &emit.Sealed{
+			ID:            fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
+			Name:          product.Name,
+			SetCode:       codes[group.GroupID],
+			ReleaseDate:   group.ReleaseDate(),
+			Image:         emit.ImageURL(product.ImageURL),
+			ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
 		})
 	}
 	spelled, tokens := foldPromoTypes(cards)
@@ -1027,21 +993,21 @@ func main() {
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
-	emit.AsList(cards, "color", "colors")
-	cards = emit.DropRepeatedFinishes(cards)
-	emit.DropEmptySets(sets, cards, sealed)
-	doc := map[string]any{
-		"game":   "gundam",
-		"sets":   sets,
-		"cards":  cards,
-		"sealed": sealed,
+	doc := &emit.Datastore{
+		Game:       "gundam",
+		Properties: properties,
+		Sets:       sets,
+		Cards:      cards,
+		Sealed:     sealed,
 	}
-	doc["properties"] = properties
+	doc.Lists()
+	doc.DropRepeatedFinishes()
+	doc.DropEmptySets()
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
 	handtable.Report()
-	emit.PlainQuotes(doc)
+	doc.PlainQuotes()
 
 	envelope := emit.Envelope(emit.Today(), doc)
 	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
@@ -1068,9 +1034,9 @@ func main() {
 		log.Fatalln("validation:", err)
 	}
 	log.Printf("validated: %d sets, %d cards, %d sealed", counted.Sets, counted.Cards, counted.Sealed)
-	if counted.Cards != len(cards) || counted.Sealed != len(sealed) {
+	if counted.Cards != len(doc.Cards) || counted.Sealed != len(doc.Sealed) {
 		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			len(cards), len(sealed), counted.Cards, counted.Sealed)
+			len(doc.Cards), len(doc.Sealed), counted.Cards, counted.Sealed)
 	}
 	// The coverage contract for the sealed side. Sealed is everything the
 	// catalog does not type as a single, so it is exhaustive by
@@ -1148,14 +1114,10 @@ const promoTypeLimit = vocabulary.TokenLimit
 // premium card collection, and which collection it was is the variant's to
 // say. And a name still reading long past that has only its first two words
 // kept, which is where the concept is and the rest is the instance of it.
-func foldPromoTypes(cards []any) (int, int) {
+func foldPromoTypes(cards []*emit.Card) (int, int) {
 	named := map[string]bool{}
-	for _, raw := range cards {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		for _, tag := range emit.StringsOf(item["promoTypes"]) {
+	for _, item := range cards {
+		for _, tag := range item.PromoTypes {
 			named[tag] = true
 		}
 	}
@@ -1167,29 +1129,20 @@ func foldPromoTypes(cards []any) (int, int) {
 	}
 
 	tokens := map[string]bool{}
-	for _, raw := range cards {
-		item, ok := raw.(map[string]any)
-		if !ok {
+	for _, item := range cards {
+		if len(item.PromoTypes) == 0 {
 			continue
 		}
-		was := emit.StringsOf(item["promoTypes"])
-		if len(was) == 0 {
-			continue
-		}
-		out := make([]any, 0, len(was))
-		for _, tag := range was {
+		out := make([]string, 0, len(item.PromoTypes))
+		for _, tag := range item.PromoTypes {
 			slug := folded[tag]
-			if slug == "" || slices.Contains(out, any(slug)) {
+			if slug == "" || slices.Contains(out, slug) {
 				continue
 			}
 			out = append(out, slug)
 			tokens[slug] = true
 		}
-		if len(out) == 0 {
-			delete(item, "promoTypes")
-			continue
-		}
-		item["promoTypes"] = out
+		item.PromoTypes = out
 	}
 	return spelled, len(tokens)
 }
