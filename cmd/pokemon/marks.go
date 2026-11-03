@@ -4,27 +4,25 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/mtgban/datastore-gen/internal/emit"
 )
 
 // datePrintings gives a printing the date its labels stated, where its set
 // does not already state it. See promoReleaseDate.
-func datePrintings(cards []any, sets map[string]any, stated map[string]string) int {
+func datePrintings(cards []*emit.Card, sets map[string]*emit.Set, stated map[string]string) int {
 	var dated int
-	for _, raw := range cards {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		year := stated[fmt.Sprint(item["id"])]
+	for _, item := range cards {
+		year := stated[item.ID]
 		if year == "" {
 			continue
 		}
 		setDate := ""
-		if held, ok := sets[fmt.Sprint(item["setCode"])].(map[string]any); ok {
-			setDate = fmt.Sprint(held["releaseDate"])
+		if held, ok := sets[item.SetCode]; ok {
+			setDate = held.ReleaseDate
 		}
 		if date := promoReleaseDate(year, setDate); date != "" {
-			item["originalReleaseDate"] = date
+			item.OriginalReleaseDate = date
 			dated++
 		}
 	}
@@ -44,36 +42,31 @@ func datePrintings(cards []any, sets map[string]any, stated map[string]string) i
 // in the joined variant, so nothing was lost - but a consumer reading the
 // fields rather than the sentence had no way to tell them apart, and 582
 // printings read as duplicates of each other.
-func markPrintings(cards []any, leftOut map[string][]string) (int, int) {
-	identity := func(item map[string]any) string {
-		return fmt.Sprint(item["name"], "|", item["number"], "|", item["total"], "|", item["setCode"], "|",
-			item["rarity"], "|", item["finish"], "|", item["promoTypes"], "|", item["watermark"], "|",
-			item["originalReleaseDate"], "|", item["language"])
+func markPrintings(cards []*emit.Card, leftOut map[string][]string) (int, int) {
+	identity := func(item *emit.Card) string {
+		return fmt.Sprint(item.Name, "|", item.Number, "|", item.Total, "|", item.SetCode, "|",
+			item.Rarity, "|", item.Finish, "|", item.PromoTypes, "|", item.Watermark, "|",
+			item.OriginalReleaseDate, "|", item.Language)
 	}
 	shared := map[string]int{}
-	for _, raw := range cards {
-		if item, ok := raw.(map[string]any); ok {
-			shared[identity(item)]++
-		}
+	for _, item := range cards {
+		shared[identity(item)]++
 	}
 	var marked int
-	for _, raw := range cards {
-		item, ok := raw.(map[string]any)
-		if !ok || shared[identity(item)] < 2 {
+	for _, item := range cards {
+		if shared[identity(item)] < 2 {
 			continue
 		}
-		left := leftOut[fmt.Sprint(item["id"])]
+		left := leftOut[item.ID]
 		if len(left) == 0 {
 			continue
 		}
-		item["watermark"] = strings.Join(left, " ")
+		item.Watermark = strings.Join(left, " ")
 		marked++
 	}
 	left := map[string]int{}
-	for _, raw := range cards {
-		if item, ok := raw.(map[string]any); ok {
-			left[identity(item)]++
-		}
+	for _, item := range cards {
+		left[identity(item)]++
 	}
 	var alike int
 	for _, n := range left {

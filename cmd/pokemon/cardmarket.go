@@ -78,7 +78,7 @@ func stampedKey(setCode, name, number string) string {
 // total. The set is resolved from our own codes first, then from
 // pokemontcg.io's ptcgo codes by set name, since Cardmarket writes the
 // ptcgo code where TCGplayer abbreviates its own way (ASR for SWSH10).
-func mintFromCardmarket(path string, cards []any, sets map[string]any, ptcg []pokemontcgSet) ([]any, int, int) {
+func mintFromCardmarket(path string, cards []*emit.Card, sets map[string]*emit.Set, ptcg []pokemontcgSet) ([]*emit.Card, int, int) {
 	file, err := os.Open(path)
 	if err != nil {
 		log.Fatalln("cardmarket catalog:", err)
@@ -104,9 +104,8 @@ func mintFromCardmarket(path string, cards []any, sets map[string]any, ptcg []po
 	// ("Astral Radiance" for "SWSH10: Astral Radiance", "Forbidden Light"
 	// for "SM - Forbidden Light").
 	ourSetsByName := map[string][]string{}
-	for code, entry := range sets {
-		set, _ := entry.(map[string]any)
-		name, _ := set["name"].(string)
+	for code, set := range sets {
+		name := set.Name
 		if name == "" {
 			continue
 		}
@@ -155,15 +154,9 @@ func mintFromCardmarket(path string, cards []any, sets map[string]any, ptcg []po
 	// cannot settle.
 	held := map[string]bool{}
 	heldNames := map[string]int{}
-	sources := map[string][]map[string]any{}
-	for _, entry := range cards {
-		row, ok := entry.(map[string]any)
-		if !ok {
-			continue
-		}
-		name, _ := row["name"].(string)
-		number, _ := row["number"].(string)
-		code, _ := row["setCode"].(string)
+	sources := map[string][]*emit.Card{}
+	for _, row := range cards {
+		name, number, code := row.Name, row.Number, row.SetCode
 		if !held[stampedKey(code, name, number)] {
 			heldNames[code+"|"+stampedName(name)]++
 		}
@@ -227,7 +220,7 @@ func mintFromCardmarket(path string, cards []any, sets map[string]any, ptcg []po
 		}
 		// The printing it was stamped from, which has to be one of ours,
 		// in the set the number names.
-		var from []map[string]any
+		var from []*emit.Card
 		for _, candidate := range candidates {
 			from = append(from, sources[stampedKey(candidate, name, number)]...)
 		}
@@ -239,12 +232,10 @@ func mintFromCardmarket(path string, cards []any, sets map[string]any, ptcg []po
 		// printing's name and mark as this datastore spells them:
 		// "Professor's Research" with the person in the mark, not
 		// Cardmarket's "Professor's Research - Professor Elm".
-		sourceName, _ := from[0]["name"].(string)
-		if sourceName != "" {
-			name = sourceName
+		if from[0].Name != "" {
+			name = from[0].Name
 		}
-		watermark, _ := from[0]["watermark"].(string)
-		total, _ := from[0]["total"].(string)
+		watermark, total := from[0].Watermark, from[0].Total
 		finish := stampedFinish(code, name, from, sets)
 
 		// A catalog written before mkmcatalog carried the rarity says
@@ -257,25 +248,20 @@ func mintFromCardmarket(path string, cards []any, sets map[string]any, ptcg []po
 		if rarity == "" {
 			rarity = "Promo"
 		}
-		entry := map[string]any{
-			"id":      fmt.Sprintf("%s_mkm%d%s", sanitizeID(number+"-"+total), id, emit.FinishSuffix(finish)),
-			"name":    name,
-			"setCode": code,
-			"number":  number,
-			"rarity":  rarity,
-			"finish":  finish,
+		cards = append(cards, &emit.Card{
+			ID:        fmt.Sprintf("%s_mkm%d%s", sanitizeID(number+"-"+total), id, emit.FinishSuffix(finish)),
+			Name:      name,
+			SetCode:   code,
+			Number:    number,
+			Total:     total,
+			Rarity:    rarity,
+			Finish:    finish,
+			Watermark: watermark,
 			// The product this was minted from, and the only id it can be
 			// priced by: no TCGplayer product sells a stamped promo. A
 			// field, so nothing has to read it out of the uuid.
-			"externalLinks": map[string]any{"cardmarketId": id},
-		}
-		if total != "" {
-			entry["total"] = total
-		}
-		if watermark != "" {
-			entry["watermark"] = watermark
-		}
-		cards = append(cards, entry)
+			ExternalLinks: emit.Links{CardmarketID: id},
+		})
 		mintedThisRun[key] = true
 		minted++
 	}
@@ -315,18 +301,18 @@ func mintFromCardmarket(path string, cards []any, sets map[string]any, ptcg []po
 // it misses are an Emerald-era Supporter TCGplayer sells holo, one energy
 // sold plain among fifteen holo siblings, and two Professor's Research
 // stamped from a promo set that is holo beside plain.
-func stampedFinish(shelf, name string, from []map[string]any, sets map[string]any) string {
+func stampedFinish(shelf, name string, from []*emit.Card, sets map[string]*emit.Set) string {
 	finishes := map[string]bool{}
 	for _, row := range from {
-		finish, _ := row["finish"].(string)
-		finishes[finish] = true
+		finishes[row.Finish] = true
 	}
 	if len(finishes) == 1 && finishes["Holofoil"] {
 		return "Holofoil"
 	}
-	sourceSet, _ := from[0]["setCode"].(string)
-	set, _ := sets[sourceSet].(map[string]any)
-	date, _ := set["releaseDate"].(string)
+	var date string
+	if set := sets[from[0].SetCode]; set != nil {
+		date = set.ReleaseDate
+	}
 	modern := date >= "2011"
 	if strings.HasSuffix(stampedName(name), "energy") {
 		if modern {
@@ -340,7 +326,7 @@ func stampedFinish(shelf, name string, from []map[string]any, sets map[string]an
 		}
 		return "Normal"
 	}
-	kind, _ := from[0]["type"].(string)
+	kind := from[0].Type
 	for _, word := range []string{"Item", "Stadium", "Tool"} {
 		if strings.Contains(kind, word) {
 			return "Normal"
