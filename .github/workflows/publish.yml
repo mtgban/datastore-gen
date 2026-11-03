@@ -129,30 +129,6 @@ jobs:
             echo "nothing published yet for ${{ matrix.game }}; building without a baseline"
           fi
 
-          # tcgdex answers DNS by where the question comes from, and its
-          # American record has pointed at a dead server for days while the
-          # European one answers - so every resolver a US runner can ask,
-          # public ones included, hands back an address nothing serves.
-          # Resolution alone cannot route around that. Each candidate is
-          # health-probed instead and the first that actually answers is
-          # pinned for this job alone: the resolver's answer first, then
-          # the European geo record as of 2026-08, which the probe gate
-          # reduces to one wasted request the day it goes stale. No address
-          # is ever pinned unprobed, and when none answers the system
-          # resolver stands - the builder then retries and falls back to
-          # the cached responses below.
-          if cached_objects "$GAME" | grep -qw tcgdex-cards; then
-            resolved=$(dig +short api.tcgdex.net A @1.1.1.1 | grep -E '^[0-9.]+$' | head -1)
-            for cand in $resolved 217.182.193.43; do
-              if curl -sf -o /dev/null --max-time 8 \
-                --resolve "api.tcgdex.net:443:$cand" https://api.tcgdex.net/v2/en/sets; then
-                echo "$cand api.tcgdex.net" | sudo tee -a /etc/hosts
-                break
-              fi
-              echo "api.tcgdex.net at $cand does not answer"
-            done
-          fi
-
           # The last responses a build fetched live from the upstreams this
           # game caches, so a run that cannot reach one builds on them
           # instead of publishing without. A runner's workspace is new every

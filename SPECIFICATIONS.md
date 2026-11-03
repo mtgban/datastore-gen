@@ -568,9 +568,8 @@ and `rebaseline`): per game, the games running side by side,
 2. the baseline, `<game>/<game>.baseline.json.xz`, else the published
    `<game>/<game>.json.xz` to seed one, else nothing;
 3. the game's upstream caches (`<game>/<object>.json.xz` for each of its
-   `cached_objects`, missing until its first publish), for Pokemon a DNS pin
-   for `api.tcgdex.net` besides; Lorcana, One Piece and Pokemon: the
-   required `<game>/cardmarket_catalog.json.xz`;
+   `cached_objects`, missing until its first publish); Lorcana, One Piece
+   and Pokemon: the required `<game>/cardmarket_catalog.json.xz`;
 4. `go run ./cmd/<game> -tcg-catalog tcgplayer-catalog.json [-against
    previous.json] [-lorcana …] -upstream-cache . [-cardmarket-catalog …]
    -baseline-fit baseline.fit -o <game>.json`;
