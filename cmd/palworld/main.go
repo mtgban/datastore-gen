@@ -426,7 +426,7 @@ func main() {
 	for _, product := range catalog.Products {
 		productsIn[product.GroupID]++
 	}
-	sets := map[string]any{}
+	sets := map[string]*emit.Set{}
 	var populated, promoSets, skippedEmpty int
 	for _, group := range catalog.Groups {
 		if productsIn[group.GroupID] == 0 {
@@ -434,14 +434,11 @@ func main() {
 			continue
 		}
 		populated++
-		set := map[string]any{
-			"name":        group.Name,
-			"releaseDate": group.ReleaseDate(),
-		}
+		set := &emit.Set{Name: group.Name, ReleaseDate: group.ReleaseDate()}
 		// The type is what tells the matcher a printing is promotional, so
 		// only the wholly promotional groups carry it.
 		if isPromoGroup(group) {
-			set["type"] = "promo"
+			set.Type = "promo"
 			promoSets++
 		}
 		sets[codes[group.GroupID]] = set
@@ -526,35 +523,25 @@ func main() {
 		log.Printf("number: %d unnumbered products took their number from upstream", numbered)
 	}
 
-	var cards []any
+	var cards []*emit.Card
 	for _, s := range singles {
 		productID := s.product.ProductID
 		for _, finish := range emit.OrderedFinishes(printings[productID], displayOrder) {
-			entry := map[string]any{
-				"id":      emit.IDBase(s.number, productID) + emit.FinishSuffix(finish),
-				"name":    s.baseName,
-				"setCode": codes[s.product.GroupID],
-				"rarity":  rarityOf(s.product.Extended("Rarity")),
-				"finish":  finish,
-				"image":   emit.ImageURL(s.product.ImageURL),
-				"externalLinks": map[string]any{
-					"tcgPlayerId": productID,
-				},
-			}
-			if s.number != "" {
-				entry["number"] = s.number
+			entry := &emit.Card{
+				ID:            emit.IDBase(s.number, productID) + emit.FinishSuffix(finish),
+				Name:          s.baseName,
+				SetCode:       codes[s.product.GroupID],
+				Number:        s.number,
+				Rarity:        rarityOf(s.product.Extended("Rarity")),
+				Finish:        finish,
+				Type:          s.product.Extended("CardType"),
+				Color:         s.product.Extended("Color"),
+				Image:         emit.ImageURL(s.product.ImageURL),
+				ExternalLinks: emit.Links{TCGPlayerID: productID},
 			}
 			if len(s.quals) > 0 {
-				entry["variant"] = strings.Join(s.quals, " ")
-				if tags := promoTypesOf(s.baseName, s.quals, pals); len(tags) > 0 {
-					entry["promoTypes"] = tags
-				}
-			}
-			if t := s.product.Extended("CardType"); t != "" {
-				entry["type"] = t
-			}
-			if c := s.product.Extended("Color"); c != "" {
-				entry["color"] = c
+				entry.Variant = strings.Join(s.quals, " ")
+				entry.PromoTypes = promoTypesOf(s.baseName, s.quals, pals)
 			}
 			cards = append(cards, entry)
 		}
@@ -606,22 +593,17 @@ func main() {
 		} else if rarity != "" {
 			unrated++
 		}
-		entry := map[string]any{
-			"id":      id,
-			"name":    u.Name,
-			"number":  number,
-			"setCode": code,
-			"rarity":  rarity,
-			"finish":  emit.PlainPrinting(&catalog),
-		}
-		if u.CardType != "" {
-			entry["type"] = u.CardType
-		}
-		if len(u.Color) > 0 {
-			entry["color"] = strings.Join(u.Color, " ")
-			entry["colors"] = u.Color
-		}
-		cards = append(cards, entry)
+		cards = append(cards, &emit.Card{
+			ID:      id,
+			Name:    u.Name,
+			SetCode: code,
+			Number:  number,
+			Rarity:  rarity,
+			Finish:  emit.PlainPrinting(&catalog),
+			Type:    u.CardType,
+			Color:   strings.Join(u.Color, " "),
+			Colors:  u.Color,
+		})
 		minted++
 	}
 	// The direction nothing else counts: an upstream card this datastore
@@ -633,18 +615,16 @@ func main() {
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
-	var sealed []any
+	var sealed []*emit.Sealed
 	for _, product := range sealedProducts {
 		group := groupByID[product.GroupID]
-		sealed = append(sealed, map[string]any{
-			"id":          fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
-			"name":        product.Name,
-			"setCode":     codes[group.GroupID],
-			"releaseDate": group.ReleaseDate(),
-			"image":       emit.ImageURL(product.ImageURL),
-			"externalLinks": map[string]any{
-				"tcgPlayerId": product.ProductID,
-			},
+		sealed = append(sealed, &emit.Sealed{
+			ID:            fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
+			Name:          product.Name,
+			SetCode:       codes[group.GroupID],
+			ReleaseDate:   group.ReleaseDate(),
+			Image:         emit.ImageURL(product.ImageURL),
+			ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
 		})
 	}
 	log.Printf("emitting %d sets, %d card entries over %d products, %d sealed",
@@ -652,21 +632,21 @@ func main() {
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
-	emit.AsList(cards, "color", "colors")
-	cards = emit.DropRepeatedFinishes(cards)
-	emit.DropEmptySets(sets, cards, sealed)
-	doc := map[string]any{
-		"game":   "palworld",
-		"sets":   sets,
-		"cards":  cards,
-		"sealed": sealed,
+	doc := &emit.Datastore{
+		Game:       "palworld",
+		Properties: properties,
+		Sets:       sets,
+		Cards:      cards,
+		Sealed:     sealed,
 	}
-	doc["properties"] = properties
+	doc.Lists()
+	doc.DropRepeatedFinishes()
+	doc.DropEmptySets()
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
 	handtable.Report()
-	emit.PlainQuotes(doc)
+	doc.PlainQuotes()
 
 	envelope := emit.Envelope(emit.Today(), doc)
 	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
@@ -693,9 +673,9 @@ func main() {
 		log.Fatalln("validation:", err)
 	}
 	log.Printf("validated: %d sets, %d cards, %d sealed", counted.Sets, counted.Cards, counted.Sealed)
-	if counted.Cards != len(cards) || counted.Sealed != len(sealed) {
+	if counted.Cards != len(doc.Cards) || counted.Sealed != len(doc.Sealed) {
 		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			len(cards), len(sealed), counted.Cards, counted.Sealed)
+			len(doc.Cards), len(doc.Sealed), counted.Cards, counted.Sealed)
 	}
 	// The coverage contract for the sealed side. Sealed is everything the
 	// catalog does not type as a single, so it is exhaustive by
