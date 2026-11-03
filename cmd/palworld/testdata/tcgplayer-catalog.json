@@ -1,0 +1,21 @@
+{
+ "category": {"categoryId":91,"name":"Palworld OFFICIAL CARD GAME"},
+ "printings": [{"printingId":179,"name":"Normal","displayOrder":1},{"printingId":180,"name":"Foil","displayOrder":2}],
+ "rarities": [{"displayText":"Super Special Soul","dbValue":"SSS"},{"displayText":"Over Super Rare","dbValue":"OSR"},{"displayText":"Double Rare","dbValue":"RR"},{"displayText":"Rare","dbValue":"R"},{"displayText":"Common","dbValue":"C"},{"displayText":"Promo","dbValue":"PR"}],
+ "groups": [
+  {"groupId":24842,"name":"BP01: Dawn of Palpagos","abbreviation":"BP01","publishedOn":"2026-07-30T00:00:00"},
+  {"groupId":24851,"name":"Palworld Promo Cards","abbreviation":"PR","publishedOn":"2026-07-30T00:00:00"},
+  {"groupId":24908,"name":"Sleeve and Card Set Vol. 1","abbreviation":"","publishedOn":"2026-10-16T00:00:00"}
+ ],
+ "products": [
+  {"productId":713879,"name":"Jormuntide Ignis - Savage Lava Dragon","groupId":24842,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/713879_200w.jpg","productType":"Cards","skus":[{"printingId":180}],"extendedData":[{"name":"Rarity","value":"RR"},{"name":"Number","value":"EBP01-001"},{"name":"CardType","value":"Pal"},{"name":"Color","value":"Red"}]},
+  {"productId":713880,"name":"Jormuntide Ignis - Savage Lava Dragon (OSR)","groupId":24842,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/713880_200w.jpg","productType":"Cards","skus":[{"printingId":180}],"extendedData":[{"name":"Rarity","value":"OSR"},{"name":"Number","value":"EBP01-001OSR"},{"name":"CardType","value":"Pal"},{"name":"Color","value":"Red"}]},
+  {"productId":713900,"name":"Pyrin - Cinder Steed","groupId":24842,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/713900_200w.jpg","productType":"Cards","skus":[],"extendedData":[{"name":"Rarity","value":"C"},{"name":"Number","value":"EBP01-013"},{"name":"CardType","value":"Pal"},{"name":"Color","value":"Red"}]},
+  {"productId":714040,"name":"Soul (SSS)","groupId":24842,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/714040_200w.jpg","productType":"Cards","skus":[{"printingId":180}],"extendedData":[{"name":"Rarity","value":"SSS"}]},
+  {"productId":713787,"name":"Dawn of Palpagos Booster Pack","groupId":24842,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/713787_200w.jpg","productType":"Sealed Products","skus":[{"printingId":179}],"extendedData":[]},
+  {"productId":714388,"name":"Lamball - My First Pal (Bushiroad EXPO 2026) - EPR-001","groupId":24851,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/714388_200w.jpg","productType":"Cards","skus":[{"printingId":179}],"extendedData":[{"name":"Rarity","value":"PR"},{"name":"Number","value":"EPR-001"},{"name":"CardType","value":"Pal"},{"name":"Color","value":"Colorless"}]},
+  {"productId":714394,"name":"Flambelle - Scorching Tears - EPR-002","groupId":24851,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/714394_200w.jpg","productType":"Cards","skus":[{"printingId":180}],"extendedData":[{"name":"Rarity","value":"PR"},{"name":"Number","value":"EPR-002"},{"name":"CardType","value":"Pal"},{"name":"Color","value":"Red"}]},
+  {"productId":714403,"name":"Soul - ESOUL-003 (Chillet)","groupId":24851,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/714403_200w.jpg","productType":"Cards","skus":[{"printingId":180}],"extendedData":[{"name":"Rarity","value":"PR"},{"name":"Number","value":"ESOUL-003"},{"name":"CardType","value":"Soul"}]},
+  {"productId":723229,"name":"Depresso - Midnight Overdrive","groupId":24908,"imageUrl":"https://tcgplayer-cdn.tcgplayer.com/product/723229_200w.jpg","productType":"Cards","skus":[{"printingId":179}],"extendedData":[{"name":"Rarity","value":"R"},{"name":"Number","value":"ESS01-003"},{"name":"CardType","value":"Pal"},{"name":"Color","value":"Purple"}]}
+ ]
+}

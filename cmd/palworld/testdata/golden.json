@@ -1,0 +1,19 @@
+{
+  "meta":{"date":"0000-00-00","version":"1"},
+  "data":{
+    "game":"palworld",
+    "properties":{"color":["Red","Blue","Green","Purple","Colorless"],"rarity":["Promo","Super Special Soul","Super Special Parallel","Trial Deck Super Parallel","Super Parallel","Over Super Rare","Trial Deck Super Rare","Super Rare","Double Rare","Rare","Trial Deck Rare","Uncommon","Common","Trial Deck","None"]},
+    "sets":{"BP01":{"name":"BP01: Dawn of Palpagos","releaseDate":"2026-07-30"},"G24908":{"name":"Sleeve and Card Set Vol. 1","releaseDate":"2026-10-16"},"PR":{"name":"Palworld Promo Cards","releaseDate":"2026-07-30","type":"promo"}},
+    "cards":[
+      {"id":"ebp01-001_713879_foil","name":"Jormuntide Ignis - Savage Lava Dragon","setCode":"BP01","number":"EBP01-001","rarity":"Double Rare","finish":"Foil","type":"Pal","color":"Red","colors":["Red"],"image":"https://tcgplayer-cdn.tcgplayer.com/product/713879_400w.jpg","externalLinks":{"tcgPlayerId":713879}},
+      {"id":"ebp01-001osr_713880_foil","name":"Jormuntide Ignis - Savage Lava Dragon","setCode":"BP01","number":"EBP01-001OSR","rarity":"Over Super Rare","finish":"Foil","type":"Pal","color":"Red","colors":["Red"],"image":"https://tcgplayer-cdn.tcgplayer.com/product/713880_400w.jpg","externalLinks":{"tcgPlayerId":713880}},
+      {"id":"esoul-002_714040_foil","name":"Soul","setCode":"BP01","number":"ESOUL-002","rarity":"Super Special Soul","finish":"Foil","image":"https://tcgplayer-cdn.tcgplayer.com/product/714040_400w.jpg","externalLinks":{"tcgPlayerId":714040}},
+      {"id":"epr-001_714388","name":"Lamball - My First Pal","setCode":"PR","number":"EPR-001","rarity":"Promo","finish":"Normal","variant":"Bushiroad EXPO 2026","promoTypes":["bushiroadexpo2026"],"type":"Pal","color":"Colorless","colors":["Colorless"],"image":"https://tcgplayer-cdn.tcgplayer.com/product/714388_400w.jpg","externalLinks":{"tcgPlayerId":714388}},
+      {"id":"epr-002_714394_foil","name":"Flambelle - Scorching Tears","setCode":"PR","number":"EPR-002","rarity":"Promo","finish":"Foil","type":"Pal","color":"Red","colors":["Red"],"image":"https://tcgplayer-cdn.tcgplayer.com/product/714394_400w.jpg","externalLinks":{"tcgPlayerId":714394}},
+      {"id":"esoul-003_714403_foil","name":"Soul","setCode":"PR","number":"ESOUL-003","rarity":"Promo","finish":"Foil","variant":"Chillet","promoTypes":["chillet"],"type":"Soul","image":"https://tcgplayer-cdn.tcgplayer.com/product/714403_400w.jpg","externalLinks":{"tcgPlayerId":714403}},
+      {"id":"ess01-003_723229","name":"Depresso - Midnight Overdrive","setCode":"G24908","number":"ESS01-003","rarity":"Rare","finish":"Normal","type":"Pal","color":"Purple","colors":["Purple"],"image":"https://tcgplayer-cdn.tcgplayer.com/product/723229_400w.jpg","externalLinks":{"tcgPlayerId":723229}},
+      {"id":"ebp01-020","name":"Pump-Action Shotgun","setCode":"BP01","number":"EBP01-020","rarity":"Rare","finish":"Normal","type":"Gear","color":"Red","colors":["Red"]}
+    ],
+    "sealed":[{"id":"bp01-713787","name":"Dawn of Palpagos Booster Pack","setCode":"BP01","releaseDate":"2026-07-30","image":"https://tcgplayer-cdn.tcgplayer.com/product/713787_400w.jpg","externalLinks":{"tcgPlayerId":713787}}]
+  }
+}

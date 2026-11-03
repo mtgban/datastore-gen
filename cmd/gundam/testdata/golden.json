@@ -1,0 +1,22 @@
+{
+  "meta":{"date":"0000-00-00","version":"1"},
+  "data":{
+    "game":"gundam",
+    "properties":{"color":["Blue","Green","Red","Purple","White"],"rarity":["P +","Promo","LR++","LR+","Legend Rare","R+","Rare","U+","Uncommon","C++","C+","Common"]},
+    "sets":{"G24372":{"name":"Promotional Resource Tokens","releaseDate":"2025-02-25","type":"promo"},"GCG-PR":{"name":"Gundam Promotional Cards","releaseDate":"2025-03-01","type":"promo"},"GD01":{"name":"Newtype Rising","releaseDate":"2025-07-25"},"GD01-B":{"name":"Edition Beta","releaseDate":"2025-02-06"}},
+    "cards":[
+      {"id":"gd01-008_616633","name":"Guntank","setCode":"GD01-B","number":"GD01-008","rarity":"Uncommon","finish":"Normal","type":"Unit","color":"Blue","colors":["Blue"],"image":"https://tcgplayer-cdn.tcgplayer.com/product/616633_400w.jpg","externalLinks":{"tcgPlayerId":616633}},
+      {"id":"rp-001_641564","name":"Resource","setCode":"G24372","number":"RP-001","rarity":"Promo","finish":"Normal","variant":"Edition Beta BANDAI TCG+ Store Trial Event","promoTypes":["storetrialevent"],"type":"Resource","image":"https://tcgplayer-cdn.tcgplayer.com/product/641564_400w.jpg","externalLinks":{"tcgPlayerId":641564}},
+      {"id":"rp-001_641564_holofoil","name":"Resource","setCode":"G24372","number":"RP-001","rarity":"Promo","finish":"Holofoil","variant":"Edition Beta BANDAI TCG+ Store Trial Event","promoTypes":["storetrialevent"],"type":"Resource","image":"https://tcgplayer-cdn.tcgplayer.com/product/641564_400w.jpg","externalLinks":{"tcgPlayerId":641564}},
+      {"id":"641565_holofoil","name":"Resource","setCode":"G24372","rarity":"Promo","finish":"Holofoil","variant":"RP-004 Anime Expo 2025","promoTypes":["animeexpo"],"type":"Resource","image":"https://tcgplayer-cdn.tcgplayer.com/product/641565_400w.jpg","externalLinks":{"tcgPlayerId":641565}},
+      {"id":"gd01-002_643151_holofoil","name":"Unicorn Gundam (Destroy Mode)","setCode":"GD01","number":"GD01-002","rarity":"Legend Rare","finish":"Holofoil","type":"Unit","color":"Blue","colors":["Blue"],"image":"https://tcgplayer-cdn.tcgplayer.com/product/643151_400w.jpg","externalLinks":{"tcgPlayerId":643151}},
+      {"id":"gd01-013_643162","name":"Gundam","setCode":"GD01","number":"GD01-013","rarity":"Common","finish":"Normal","type":"Unit","color":"Blue","colors":["Blue"],"image":"https://tcgplayer-cdn.tcgplayer.com/product/643162_400w.jpg","externalLinks":{"tcgPlayerId":643162}},
+      {"id":"gd01-073_643222","name":"Sword Strike Gundam","setCode":"GD01","number":"GD01-073","rarity":"Uncommon","finish":"Normal","type":"Unit","color":"White","colors":["White"],"image":"https://tcgplayer-cdn.tcgplayer.com/product/643222_400w.jpg","externalLinks":{"tcgPlayerId":643222}},
+      {"id":"st01-014_646528_holofoil","name":"Unforeseen Incident","setCode":"GCG-PR","number":"ST01-014","rarity":"Common","finish":"Holofoil","variant":"Store Tournament Participant Pack 01","promoTypes":["storetournament","participationpack"],"type":"Command","color":"White","colors":["White"],"image":"https://tcgplayer-cdn.tcgplayer.com/product/646528_400w.jpg","externalLinks":{"tcgPlayerId":646528}},
+      {"id":"st01-014_646529_holofoil","name":"Unforeseen Incident","setCode":"GCG-PR","number":"ST01-014","rarity":"C+","finish":"Holofoil","variant":"Store Tournament Winner Pack 01","promoTypes":["storetournament","winnerpack"],"type":"Command","color":"White","colors":["White"],"image":"https://tcgplayer-cdn.tcgplayer.com/product/646529_400w.jpg","externalLinks":{"tcgPlayerId":646529}},
+      {"id":"gd01-020","name":"Anksha","setCode":"GD01","number":"GD01-020","rarity":"Common","finish":"Normal","type":"UNIT","color":"Blue","colors":["Blue"]},
+      {"id":"gd01-073-premium-card-collection-02_holofoil","name":"Sword Strike Gundam","setCode":"GCG-PR","number":"GD01-073","rarity":"Uncommon","finish":"Holofoil","variant":"Premium Card Collection 02","promoTypes":["premiumcardcollection"],"type":"Unit","color":"White","colors":["White"]}
+    ],
+    "sealed":[{"id":"gd01-619067","name":"Newtype Rising Booster Pack","setCode":"GD01","releaseDate":"2025-07-25","image":"https://tcgplayer-cdn.tcgplayer.com/product/619067_400w.jpg","externalLinks":{"tcgPlayerId":619067}}]
+  }
+}

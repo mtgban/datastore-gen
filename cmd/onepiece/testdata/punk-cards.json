@@ -1,0 +1,7 @@
+{
+ "OP01-003": {"card_id":"OP01-003","colors":["Red","Green"],"img_url":"https://en.onepiece-cardgame.com/images/cardlist/card/OP01-003.png?261016","name":"Monkey.D.Luffy","pack_id":"569101","rarity":"Leader"},
+ "OP01-003_p1": {"card_id":"OP01-003_p1","colors":["Red","Green"],"img_url":"https://en.onepiece-cardgame.com/images/cardlist/card/OP01-003_p1.png?261016","name":"Monkey.D.Luffy","pack_id":"569101","rarity":"Leader"},
+ "OP01-007": {"card_id":"OP01-007","colors":["Red"],"img_url":"https://en.onepiece-cardgame.com/images/cardlist/card/OP01-007.png?261016","name":"Caribou","pack_id":"569101","rarity":"Common"},
+ "OP01-008": {"card_id":"OP01-008","colors":["Red"],"img_url":"https://en.onepiece-cardgame.com/images/cardlist/card/OP01-008.png?261016","name":"Cavendish","pack_id":"569101","rarity":"Common"},
+ "OP01-008_p1": {"card_id":"OP01-008_p1","colors":["Red"],"img_url":"https://en.onepiece-cardgame.com/images/cardlist/card/OP01-008_p1.png?261016","name":"Cavendish","pack_id":"569101","rarity":"Common"}
+}
