@@ -580,7 +580,7 @@ product to a line, with `meta.date` held still (`-update` rewrites it).
 ## 7. Workflows
 
 **`ci.yml`** (push to master, pull requests): gofmt `-s`, vet, revive
-1.13.0, staticcheck 2026.2.1, govulncheck, build, `go test -race`.
+1.13.0, staticcheck 2026.2.2, govulncheck, build, `go test -race`.
 
 **`hostile-review-wake.yml`** (a pull request opened, pushed, reopened or
 marked ready, unless it touches only Markdown or `docs/`): one curl, no
