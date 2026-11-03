@@ -1261,7 +1261,7 @@ func main() {
 	// Sealed products: everything the catalog files outside the singles
 	// type, from every group whether the gallery knows it or not - the
 	// gallery carries no product entity of any kind, so it has no say.
-	var sealedItems []any
+	var sealedItems []*emit.Sealed
 	knownSets := map[string]bool{}
 	for _, raw := range setItems {
 		if set, ok := raw.(map[string]any); ok {
@@ -1277,13 +1277,13 @@ func main() {
 			}
 			// Named as every other game names a sealed product; the gallery
 			// has none, so there is no vocabulary of its own to keep.
-			sealedItems = append(sealedItems, map[string]any{
-				"id":            fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
-				"name":          product.Name,
-				"releaseDate":   group.ReleaseDate(),
-				"setCode":       group.Abbreviation,
-				"image":         emit.ImageURL(product.ImageURL),
-				"externalLinks": map[string]any{"tcgPlayerId": product.ProductID},
+			sealedItems = append(sealedItems, &emit.Sealed{
+				ID:            fmt.Sprintf("%s-%d", strings.ToLower(group.Abbreviation), product.ProductID),
+				Name:          product.Name,
+				SetCode:       group.Abbreviation,
+				ReleaseDate:   group.ReleaseDate(),
+				Image:         emit.ImageURL(product.ImageURL),
+				ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
 			})
 			// A group sold only sealed - accessories, a set before its
 			// cards - gets a set of its own, as the other builders mint.
@@ -1335,9 +1335,9 @@ func main() {
 			}
 		}
 		if id, ok := item["tcgplayerProductId"].(float64); ok && id != 0 {
-			item["externalLinks"] = map[string]any{"tcgPlayerId": int(id)}
+			item["externalLinks"] = emit.Links{TCGPlayerID: int(id)}
 		} else if id, ok := item["tcgplayerProductId"].(int); ok && id != 0 {
-			item["externalLinks"] = map[string]any{"tcgPlayerId": id}
+			item["externalLinks"] = emit.Links{TCGPlayerID: id}
 		}
 		// The build keys a row on the bare id until here; the file carries
 		// only the wrapped one, as every other game's does.
@@ -1368,12 +1368,9 @@ func main() {
 		// It replaces the printingIds map and the finishes list both, which
 		// were the same set of printings said twice: one naming them, the
 		// other naming what each is called.
-		sequence := make([]any, 0, len(sold))
+		sequence := make([]emit.Printing, 0, len(sold))
 		for _, finish := range sold {
-			sequence = append(sequence, map[string]any{
-				"finish": finish,
-				"id":     printingUUID(fmt.Sprint(item["id"]), finish),
-			})
+			sequence = append(sequence, emit.Printing{Finish: finish, ID: printingUUID(fmt.Sprint(item["id"]), finish)})
 		}
 		item["printings"] = sequence
 		delete(item, "finishes")

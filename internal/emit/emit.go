@@ -556,27 +556,32 @@ func HasDate(g tcgplayer.Group) bool {
 	return strings.HasSuffix(g.PublishedOn, "T00:00:00")
 }
 
-// SetsInUse is the set codes the entries name as their setCode.
-func SetsInUse(entries ...[]any) map[string]bool {
+// SetsInUse is the set codes an upstream payload's cards name as their
+// setCode, and the sealed products beside them.
+func SetsInUse(cards []any, sealed []*Sealed) map[string]bool {
 	inUse := map[string]bool{}
-	for _, list := range entries {
-		for _, raw := range list {
-			entry, _ := raw.(map[string]any)
-			if code, _ := entry["setCode"].(string); code != "" {
-				inUse[code] = true
-			}
+	for _, raw := range cards {
+		entry, _ := raw.(map[string]any)
+		if code, _ := entry["setCode"].(string); code != "" {
+			inUse[code] = true
 		}
+	}
+	for _, product := range sealed {
+		inUse[product.SetCode] = true
 	}
 	return inUse
 }
 
-// DropEmptySets deletes from sets every code no entry names as its setCode,
-// and logs them. A set holding no card and no sealed product is one nothing
-// can be found in - an upstream announcing a set before its cards, or a
-// group every product of which went elsewhere - and it is carried from the
-// first build that has something in it.
-func DropEmptySets(sets map[string]any, entries ...[]any) {
-	inUse := SetsInUse(entries...)
+// DropEmptySets deletes from an upstream payload's sets every code inUse
+// does not name, and logs them. A set holding no card and no sealed product
+// is one nothing can be found in - an upstream announcing a set before its
+// cards, or a group every product of which went elsewhere - and it is
+// carried from the first build that has something in it.
+func DropEmptySets(sets map[string]any, inUse map[string]bool) {
+	dropEmptySets(sets, inUse)
+}
+
+func dropEmptySets[S any](sets map[string]S, inUse map[string]bool) {
 	var empty []string
 	for code := range sets {
 		if !inUse[code] {

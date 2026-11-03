@@ -3,7 +3,6 @@ package emit
 import (
 	"fmt"
 	"log"
-	"sort"
 	"strings"
 )
 
@@ -70,6 +69,16 @@ type Sealed struct {
 	ReleaseDate   string `json:"releaseDate"`
 	Image         string `json:"image"`
 	ExternalLinks Links  `json:"externalLinks"`
+}
+
+// Printing is one finish of a card in the two games that publish their
+// upstream's cards whole, Lorcana and Riftbound (SPECIFICATIONS §2.5): the
+// finish TCGplayer prices it under, the uuid it is quoted by, and the
+// treatments it is the printing of.
+type Printing struct {
+	Finish     string   `json:"finish"`
+	ID         string   `json:"id"`
+	PromoTypes []string `json:"promoTypes,omitempty"`
 }
 
 // Links is an entry's externalLinks: the TCGplayer product on every priced
@@ -142,8 +151,8 @@ func (d *Datastore) DropRepeatedFinishes() {
 }
 
 // DropEmptySets deletes every set no card and no sealed product names as
-// its setCode, and logs them, for the reason the payload walk of the same
-// name gives.
+// its setCode, and logs them: a set holding neither is one nothing can be
+// found in.
 func (d *Datastore) DropEmptySets() {
 	inUse := map[string]bool{}
 	for _, c := range d.Cards {
@@ -152,17 +161,5 @@ func (d *Datastore) DropEmptySets() {
 	for _, product := range d.Sealed {
 		inUse[product.SetCode] = true
 	}
-	var empty []string
-	for code := range d.Sets {
-		if !inUse[code] {
-			empty = append(empty, code)
-		}
-	}
-	sort.Strings(empty)
-	for _, code := range empty {
-		delete(d.Sets, code)
-	}
-	if len(empty) > 0 {
-		log.Printf("sets: %d hold no card and no sealed product, dropped: %s", len(empty), strings.Join(empty, " "))
-	}
+	dropEmptySets(d.Sets, inUse)
 }

@@ -1393,30 +1393,23 @@ func main() {
 		// structures this replaces - printingIds, finishAliases and
 		// upstream's foilTypes - said the same things about a card and left
 		// a reader to join them by finish name.
-		printings := make([]any, 0, len(sold))
+		printings := make([]emit.Printing, 0, len(sold))
 		for _, finish := range sold {
-			printing := map[string]any{
-				"finish": finish,
-				"id":     printingUUID(id, finish),
-			}
+			printing := emit.Printing{Finish: finish, ID: printingUUID(id, finish)}
 			// The treatment past the plain foil, which is a fact about this
 			// printing rather than about the card: a card sold plain and in
 			// Rainbow Pillars is not a Rainbow Pillars card. The plain
 			// printing is not a treatment and carries none.
-			var labels []any
 			for _, foilType := range emit.StringsOf(item["foilTypes"]) {
 				if finishOf(foilType, emit.StringsOf(item["foilTypes"]), sold) != finish {
 					continue
 				}
 				label := treatmentLabel(foilType)
-				if label == "" || slices.Contains(labels, any(label)) {
+				if label == "" || slices.Contains(printing.PromoTypes, label) {
 					continue
 				}
-				labels = append(labels, label)
+				printing.PromoTypes = append(printing.PromoTypes, label)
 				treatments++
-			}
-			if len(labels) > 0 {
-				printing["promoTypes"] = labels
 			}
 			printings = append(printings, printing)
 		}
@@ -1510,22 +1503,20 @@ func main() {
 		}
 	}
 	log.Printf("sets: %d given a baseSetSize beside upstream's cardCounts", sized)
-	var sealedItems []any
+	var sealedItems []*emit.Sealed
 	for _, group := range groups {
 		var count int
 		for _, product := range productsByGroup[group.GroupID] {
 			if slices.Contains(tcgSingles, product.ProductType) {
 				continue
 			}
-			sealedItems = append(sealedItems, map[string]any{
-				"id":          fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
-				"name":        product.Name,
-				"setCode":     codes[group.GroupID],
-				"releaseDate": group.ReleaseDate(),
-				"image":       emit.ImageURL(product.ImageURL),
-				"externalLinks": map[string]any{
-					"tcgPlayerId": product.ProductID,
-				},
+			sealedItems = append(sealedItems, &emit.Sealed{
+				ID:            fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
+				Name:          product.Name,
+				SetCode:       codes[group.GroupID],
+				ReleaseDate:   group.ReleaseDate(),
+				Image:         emit.ImageURL(product.ImageURL),
+				ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
 			})
 			count++
 		}
@@ -1559,7 +1550,7 @@ func main() {
 	log.Printf("sealed: %d products", len(sealedItems))
 	published, _ := doc["cards"].([]any)
 	emit.AsList(published, "color", "colors")
-	emit.DropEmptySets(sets, published, sealedItems)
+	emit.DropEmptySets(sets, emit.SetsInUse(published, sealedItems))
 	doc["properties"] = properties
 
 	handtable.Report()
