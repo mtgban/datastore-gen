@@ -1035,7 +1035,7 @@ func main() {
 
 	// Emit. Sets are the catalog groups under their repaired codes; ids
 	// embed the product id so they survive any upstream renumbering.
-	sets := map[string]any{}
+	sets := map[string]*emit.Set{}
 	promoted := promoGroups(catalog)
 	var promoSets int
 	// An empty group is skipped, its code left claimed so nothing renames
@@ -1051,14 +1051,11 @@ func main() {
 			skippedEmpty++
 			continue
 		}
-		set := map[string]any{
-			"name":        group.Name,
-			"releaseDate": group.ReleaseDate(),
-		}
+		set := &emit.Set{Name: group.Name, ReleaseDate: group.ReleaseDate()}
 		// The type is what tells the matcher a printing is promotional, so
 		// only the wholly promotional groups carry it.
 		if promoted[group.GroupID] {
-			set["type"] = "promo"
+			set.Type = "promo"
 			promoSets++
 		}
 		sets[codes[group.GroupID]] = set
@@ -1170,11 +1167,7 @@ func main() {
 			releaseDate = seriesDate
 			log.Printf("dataset set %s has no release date; dated %s as the promo series", setID, releaseDate)
 		}
-		set := map[string]any{
-			"name":        name,
-			"releaseDate": releaseDate,
-		}
-		sets[code] = set
+		sets[code] = &emit.Set{Name: name, ReleaseDate: releaseDate}
 		mintedSets++
 	}
 	if mintedSets > 0 {
@@ -1201,7 +1194,7 @@ func main() {
 
 	languageNames := emit.LanguageNames(&catalog)
 
-	var cards []any
+	var cards []*emit.Card
 	var nonEnglish int
 	for _, s := range singles {
 		productID := s.product.ProductID
@@ -1211,39 +1204,26 @@ func main() {
 		}
 		for _, finish := range printings[productID] {
 			suffix := emit.FinishSuffix(finish)
-			entry := map[string]any{
-				"id":      idBase(s.number, productID) + suffix,
-				"name":    s.baseName,
-				"setCode": codes[s.product.GroupID],
-				"rarity":  s.product.Extended("Rarity"),
-				"finish":  finish,
-				"image":   emit.ImageURL(s.product.ImageURL),
-				"externalLinks": map[string]any{
-					"tcgPlayerId": productID,
-				},
-			}
-			if s.number != "" {
-				entry["number"] = emit.QueryNumber(s.number)
-			}
-			if s.color != "" {
-				entry["pitch"] = s.color
-			}
-			if language != "" {
-				entry["language"] = language
+			entry := &emit.Card{
+				ID:            idBase(s.number, productID) + suffix,
+				Name:          s.baseName,
+				SetCode:       codes[s.product.GroupID],
+				Number:        emit.QueryNumber(s.number),
+				Rarity:        s.product.Extended("Rarity"),
+				Finish:        finish,
+				Language:      language,
+				Pitch:         s.color,
+				Artist:        strings.Join(artistsByProduct[productID], " & "),
+				Image:         emit.ImageURL(s.product.ImageURL),
+				ExternalLinks: emit.Links{TCGPlayerID: productID, FabID: fabIDs[productID]},
 			}
 			if len(s.quals) > 0 {
-				entry["variant"] = strings.Join(s.quals, " ")
+				entry.Variant = strings.Join(s.quals, " ")
 				// The same labels as a list, because joining them loses
 				// where one ends and the next begins: "Cold Foil Extended
 				// Art" cannot be read back into its two tags, and the
 				// matcher needs them whole to declare and to match on.
-				entry["promoTypes"] = emit.Lowered(s.quals)
-			}
-			if id, found := fabIDs[productID]; found {
-				entry["fabId"] = id
-			}
-			if artists := artistsByProduct[productID]; len(artists) > 0 {
-				entry["artist"] = strings.Join(artists, " & ")
+				entry.PromoTypes = emit.Lowered(s.quals)
 			}
 			cards = append(cards, entry)
 		}
@@ -1293,17 +1273,16 @@ func main() {
 		})
 
 		for _, finish := range finishes {
-			entry := map[string]any{
-				"id":      mintedIDBase(number) + emit.FinishSuffix(finish),
-				"name":    row.Name,
-				"number":  emit.QueryNumber(row.ID),
-				"setCode": code,
-				"rarity":  rarity,
-				"finish":  finish,
-				"image":   row.ImageURL,
-				"fabId":   row.ID,
-			}
-			cards = append(cards, entry)
+			cards = append(cards, &emit.Card{
+				ID:            mintedIDBase(number) + emit.FinishSuffix(finish),
+				Name:          row.Name,
+				SetCode:       code,
+				Number:        emit.QueryNumber(row.ID),
+				Rarity:        rarity,
+				Finish:        finish,
+				Image:         row.ImageURL,
+				ExternalLinks: emit.Links{FabID: row.ID},
+			})
 			mintedCards++
 		}
 	}
@@ -1315,18 +1294,16 @@ func main() {
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
-	var sealed []any
+	var sealed []*emit.Sealed
 	for _, product := range sealedProducts {
 		group := groupByID[product.GroupID]
-		sealed = append(sealed, map[string]any{
-			"id":          fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
-			"name":        product.Name,
-			"setCode":     codes[group.GroupID],
-			"releaseDate": group.ReleaseDate(),
-			"image":       emit.ImageURL(product.ImageURL),
-			"externalLinks": map[string]any{
-				"tcgPlayerId": product.ProductID,
-			},
+		sealed = append(sealed, &emit.Sealed{
+			ID:            fmt.Sprintf("%s-%d", strings.ToLower(codes[group.GroupID]), product.ProductID),
+			Name:          product.Name,
+			SetCode:       codes[group.GroupID],
+			ReleaseDate:   group.ReleaseDate(),
+			Image:         emit.ImageURL(product.ImageURL),
+			ExternalLinks: emit.Links{TCGPlayerID: product.ProductID},
 		})
 	}
 	dropped, tokens := foldPromoTypes(cards)
@@ -1336,48 +1313,33 @@ func main() {
 	log.Printf("coverage: %d of %d catalog card products carried, %d skipped",
 		len(singles), len(catalogFinishes), len(catalogFinishes)-len(singles))
 
-	// The id upstream knows this printing by moves off the entry into
-	// externalLinks, where every other identifier lives.
 	var linked int
 	for _, entry := range cards {
-		item, ok := entry.(map[string]any)
-		if !ok {
-			continue
+		if entry.ExternalLinks.FabID != "" {
+			linked++
 		}
-		id, _ := item["fabId"].(string)
-		if id == "" {
-			continue
-		}
-		links, ok := item["externalLinks"].(map[string]any)
-		if !ok {
-			links = map[string]any{}
-			item["externalLinks"] = links
-		}
-		links["fabId"] = id
-		delete(item, "fabId")
-		linked++
 	}
 	log.Printf("external links: %d cards carry their fabId under externalLinks", linked)
 
-	emit.AsList(cards, "pitch", "pitches")
-	cards = emit.DropRepeatedFinishes(cards)
-	if kept, twins := dropMintedTwins(cards); len(twins) > 0 {
+	doc := &emit.Datastore{
+		Game:       "fleshandblood",
+		Properties: properties,
+		Sets:       sets,
+		Cards:      cards,
+		Sealed:     sealed,
+	}
+	doc.Lists()
+	doc.DropRepeatedFinishes()
+	if kept, twins := dropMintedTwins(doc.Cards); len(twins) > 0 {
 		log.Printf("minted: %d entries are a priced card a second time, dropped: %s", len(twins), strings.Join(twins, "; "))
-		cards = kept
+		doc.Cards = kept
 	}
-	emit.DropEmptySets(sets, cards, sealed)
-	doc := map[string]any{
-		"game":   "fleshandblood",
-		"sets":   sets,
-		"cards":  cards,
-		"sealed": sealed,
-	}
-	doc["properties"] = properties
+	doc.DropEmptySets()
 	var buf bytes.Buffer
 	// Spell the quotes the way a query does before anything reads the
 	// document, so the check below sees what will be published.
 	handtable.Report()
-	emit.PlainQuotes(doc)
+	doc.PlainQuotes()
 
 	envelope := emit.Envelope(emit.Today(), doc)
 	if err := json.NewEncoder(&buf).Encode(envelope); err != nil {
@@ -1405,9 +1367,9 @@ func main() {
 		log.Fatalln("validation:", err)
 	}
 	log.Printf("validated: %d sets, %d cards, %d sealed", counted.Sets, counted.Cards, counted.Sealed)
-	if counted.Cards != len(cards) || counted.Sealed != len(sealed) {
+	if counted.Cards != len(doc.Cards) || counted.Sealed != len(doc.Sealed) {
 		log.Fatalf("emitted %d cards, %d sealed but read back %d, %d; refusing to publish",
-			len(cards), len(sealed), counted.Cards, counted.Sealed)
+			len(doc.Cards), len(doc.Sealed), counted.Cards, counted.Sealed)
 	}
 	// The coverage contract for the sealed side. Sealed is everything the
 	// catalog does not type as a single, so it is exhaustive by
@@ -1455,36 +1417,26 @@ func twinKey(setCode, number, name string) string {
 // by the fabId it was minted from or by twinKey, rather than publish the
 // card twice with every listing of it landing on either. It returns the
 // entries kept, in order, and what it dropped.
-func dropMintedTwins(cards []any) ([]any, []string) {
+func dropMintedTwins(cards []*emit.Card) ([]*emit.Card, []string) {
 	pricedFabIDs := map[string]bool{}
 	pricedCards := map[string]bool{}
-	fields := func(raw any) (entry map[string]any, product int, fabID, key string) {
-		entry, _ = raw.(map[string]any)
-		links, _ := entry["externalLinks"].(map[string]any)
-		product, _ = links["tcgPlayerId"].(int)
-		fabID, _ = links["fabId"].(string)
-		setCode, _ := entry["setCode"].(string)
-		number, _ := entry["number"].(string)
-		name, _ := entry["name"].(string)
-		return entry, product, fabID, twinKey(setCode, number, name)
-	}
-	for _, raw := range cards {
-		if _, product, fabID, key := fields(raw); product != 0 {
-			if fabID != "" {
-				pricedFabIDs[fabID] = true
+	for _, c := range cards {
+		if c.ExternalLinks.TCGPlayerID != 0 {
+			if c.ExternalLinks.FabID != "" {
+				pricedFabIDs[c.ExternalLinks.FabID] = true
 			}
-			pricedCards[key] = true
+			pricedCards[twinKey(c.SetCode, c.Number, c.Name)] = true
 		}
 	}
-	kept := make([]any, 0, len(cards))
+	kept := make([]*emit.Card, 0, len(cards))
 	var dropped []string
-	for _, raw := range cards {
-		entry, product, fabID, key := fields(raw)
-		if product == 0 && (pricedFabIDs[fabID] || pricedCards[key]) {
-			dropped = append(dropped, fmt.Sprintf("%v (%v %v)", entry["id"], entry["name"], entry["number"]))
+	for _, c := range cards {
+		if c.ExternalLinks.TCGPlayerID == 0 &&
+			(pricedFabIDs[c.ExternalLinks.FabID] || pricedCards[twinKey(c.SetCode, c.Number, c.Name)]) {
+			dropped = append(dropped, fmt.Sprintf("%s (%s %s)", c.ID, c.Name, c.Number))
 			continue
 		}
-		kept = append(kept, raw)
+		kept = append(kept, c)
 	}
 	return kept, dropped
 }
@@ -1711,27 +1663,23 @@ var subjects = handtable.New("subjects", map[string]bool{
 // name, and spells each as its slug. It runs once the cards are built because
 // the last of it - putting back a subject that is the only thing telling two
 // printings apart - is not something one card can see.
-func foldPromoTypes(cards []any) (int, int) {
+func foldPromoTypes(cards []*emit.Card) (int, int) {
 	type held struct {
-		item    map[string]any
+		item    *emit.Card
 		kept    []string
 		dropped []string
 		marks   []string
 	}
 	var rows []held
 	var dropped int
-	for _, raw := range cards {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
+	for _, item := range cards {
 		var row held
 		row.item = item
-		finish := emit.PromoSlug(fmt.Sprint(item["finish"]))
-		number := emit.PromoSlug(fmt.Sprint(item["number"]))
-		color := emit.PromoSlug(fmt.Sprint(item["pitch"]))
-		rarity := emit.PromoSlug(fmt.Sprint(item["rarity"]))
-		for _, tag := range emit.StringsOf(item["promoTypes"]) {
+		finish := emit.PromoSlug(item.Finish)
+		number := emit.PromoSlug(item.Number)
+		color := emit.PromoSlug(item.Pitch)
+		rarity := emit.PromoSlug(item.Rarity)
+		for _, tag := range item.PromoTypes {
 			if name, found := promoTypeNames.Get(tag); found {
 				tag = name
 			}
@@ -1781,8 +1729,8 @@ func foldPromoTypes(cards []any) (int, int) {
 	// A subject goes back where the printings it was dropped from are no
 	// longer told apart by anything else.
 	identity := func(r held) string {
-		return fmt.Sprint(r.item["name"], "|", r.item["number"], "|", r.item["setCode"],
-			"|", r.item["rarity"], "|", r.item["finish"], "|", r.kept)
+		return fmt.Sprint(r.item.Name, "|", r.item.Number, "|", r.item.SetCode,
+			"|", r.item.Rarity, "|", r.item.Finish, "|", r.kept)
 	}
 	shared := map[string]int{}
 	for _, r := range rows {
@@ -1797,19 +1745,13 @@ func foldPromoTypes(cards []any) (int, int) {
 			dropped += len(r.dropped)
 		}
 		if len(r.marks) > 0 {
-			r.item["watermark"] = strings.Join(r.marks, " ")
-		}
-		if len(kept) == 0 {
-			delete(r.item, "promoTypes")
-			continue
+			r.item.Watermark = strings.Join(r.marks, " ")
 		}
 		slices.Sort(kept)
-		out := make([]any, 0, len(kept))
 		for _, slug := range kept {
-			out = append(out, slug)
 			tokens[slug] = true
 		}
-		r.item["promoTypes"] = out
+		r.item.PromoTypes = kept
 	}
 	return dropped, len(tokens)
 }
