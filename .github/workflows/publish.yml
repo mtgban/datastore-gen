@@ -66,8 +66,40 @@ jobs:
           echo "Publishing: $selection"
           echo "matrix=$selection" >> "$GITHUB_OUTPUT"
 
+  # Every builder and the vocabulary check, compiled once for the run
+  # rather than once in each game's job.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install golang
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Build the builders and the vocabulary check
+        run: |
+          source .github/scripts/games.sh
+          # One package at a time, so a builder that does not compile fails
+          # only its own game's publish, which finds no binary to run.
+          for game in $GAMES; do
+            go build -o "bin/$game" "./cmd/$game" || echo "::error::$game did not compile"
+          done
+          # Every game's publish runs this check, so without it none can
+          # publish and stopping here loses nothing.
+          go test -c -o bin/vocabulary.test ./internal/vocabulary
+
+      - name: Keep the binaries for the publish jobs
+        uses: actions/upload-artifact@v7
+        with:
+          name: builders
+          path: bin/
+          retention-days: 1
+
   publish:
-    needs: select
+    needs: [select, build]
     runs-on: ubuntu-latest
     strategy:
       # The games run side by side: each job writes only its own
@@ -80,13 +112,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Install golang
-        uses: actions/setup-go@v7
+      - name: Fetch the builders
+        uses: actions/download-artifact@v8
         with:
-          go-version-file: go.mod
+          name: builders
+          path: bin
+
+      # The venv links the image's Python, so the key moves with the image,
+      # and b2 is reinstalled, at its latest, whenever the image changes.
+      - name: Name the b2 cache
+        id: b2
+        run: echo "key=b2-$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+
+      - name: Restore b2
+        uses: actions/cache@v6
+        with:
+          path: ~/b2
+          key: ${{ steps.b2.outputs.key }}
 
       - name: Install b2
-        run: pipx install b2
+        run: |
+          # Anything the restore left that does not run is installed over.
+          if ! "$HOME/b2/bin/b2" version > /dev/null 2>&1; then
+            PIPX_HOME="$HOME/b2/pipx" PIPX_BIN_DIR="$HOME/b2/bin" pipx install --force b2
+          fi
+          echo "$HOME/b2/bin" >> "$GITHUB_PATH"
 
       - name: Fetch the TCGplayer catalog
         env:
@@ -166,19 +216,24 @@ jobs:
           if [ -f previous.json ] && [ "${{ inputs.rebaseline }}" != "true" ]; then
             args="$args -against previous.json"
           fi
+          if [ ! -f "bin/$GAME" ]; then
+            echo "::error::no bin/$GAME; the build job could not compile it"
+            exit 1
+          fi
+          # An artifact does not keep the executable bit.
+          chmod +x bin/*
           # shellcheck disable=SC2086 # one flag per word
-          go run "./cmd/$GAME" -tcg-catalog tcgplayer-catalog.json \
+          "bin/$GAME" -tcg-catalog tcgplayer-catalog.json \
             $args -baseline-fit baseline.fit -o "$GAME.json"
 
           # The promo-type rules every builder follows, held against the
           # file about to be published rather than trusted. The README has
           # called this the check to run before publishing since it was
           # written; nothing ran it.
-          # An absolute path: go test runs the binary with the package's own
-          # directory as its working directory, so a relative STORE_DIR is
-          # read from internal/vocabulary rather than from here, and the
-          # check finds nothing to hold the build to.
-          STORE_DIR="$PWD" go test ./internal/vocabulary -run TestPublishedVocabulary -count=1
+          # An absolute path, so the check reads the same directory wherever
+          # it runs from; the flags after it are the ones go test passes.
+          STORE_DIR="$PWD" bin/vocabulary.test -test.run TestPublishedVocabulary \
+            -test.paniconexit0 -test.timeout=10m
           # Consumers decompress by suffix (simplecloud.InitReader), so the
           # published object keeps the .xz extension.
           xz -9 ${{ matrix.game }}.json
