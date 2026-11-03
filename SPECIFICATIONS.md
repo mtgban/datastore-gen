@@ -562,7 +562,9 @@ go-mtgban's. Secrets: `HOSTILE_REVIEW_WEBHOOK_URL`,
 `HOSTILE_REVIEW_WEBHOOK_KEY`.
 
 **`publish.yml`** (`37 12 * * *` UTC, and `workflow_dispatch` with `game`
-and `rebaseline`): per game, the games running side by side,
+and `rebaseline`): one job compiles every builder and the vocabulary check
+(`go test -c ./internal/vocabulary`) for the run; then per game, the games
+running side by side,
 
 1. `b2 file download b2://mtgban-datastore/<game>/tcgplayer-catalog.json.xz`;
 2. the baseline, `<game>/<game>.baseline.json.xz`, else the published
@@ -570,10 +572,10 @@ and `rebaseline`): per game, the games running side by side,
 3. the game's upstream caches (`<game>/<object>.json.xz` for each of its
    `cached_objects`, missing until its first publish); Lorcana, One Piece
    and Pokemon: the required `<game>/cardmarket_catalog.json.xz`;
-4. `go run ./cmd/<game> -tcg-catalog tcgplayer-catalog.json [-against
+4. `bin/<game> -tcg-catalog tcgplayer-catalog.json [-against
    previous.json] [-lorcana …] -upstream-cache . [-cardmarket-catalog …]
    -baseline-fit baseline.fit -o <game>.json`;
-5. `STORE_DIR="$PWD" go test ./internal/vocabulary -run TestPublishedVocabulary -count=1`;
+5. `STORE_DIR="$PWD" bin/vocabulary.test -test.run TestPublishedVocabulary`;
 6. `xz -9`, upload `<game>/<game>.json.xz`, and the same bytes as
    `<game>/<game>.baseline.json.xz` only when `baseline.fit` exists;
 7. optionally tell `https://<game>.mtgban.com/api/load/datastore` to
