@@ -44,9 +44,9 @@ func datePrintings(cards []*emit.Card, sets map[string]*emit.Set, stated map[str
 // printings read as duplicates of each other.
 func markPrintings(cards []*emit.Card, leftOut map[string][]string) (int, int) {
 	identity := func(item *emit.Card) string {
-		return fmt.Sprint(item.Name, "|", item.Number, "|", item.Total, "|", item.SetCode, "|",
-			item.Rarity, "|", item.Finish, "|", item.PromoTypes, "|", item.Watermark, "|",
-			item.OriginalReleaseDate, "|", item.Language)
+		return strings.Join([]string{item.Name, item.Number, item.Total, item.SetCode,
+			item.Rarity, item.Finish, fmt.Sprint(item.PromoTypes), item.Watermark,
+			item.OriginalReleaseDate, item.Language}, "|")
 	}
 	shared := map[string]int{}
 	for _, item := range cards {
