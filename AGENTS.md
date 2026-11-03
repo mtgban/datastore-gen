@@ -90,7 +90,8 @@ with the change, and the comment points at it.
 ## Build, test, format
 
 ```sh
-gofmt -s -l .                                   # must print nothing
+export GOTOOLCHAIN=$(go mod edit -json | jq -r .Toolchain)   # as CI
+"$(go env GOROOT)/bin/gofmt" -s -l .            # must print nothing
 go vet ./...
 go run github.com/mgechev/revive@v1.13.0 -set_exit_status -config .revive.toml ./...
 go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
@@ -99,8 +100,14 @@ go build ./...
 go test -race ./...
 ```
 
-That is what `ci.yml` runs on every push and pull request; run all of it
-before committing. Unit tests live in `internal/*` and in the builders that
+That is what `ci.yml` runs on every push and pull request, on the toolchain
+`go.mod` names; run all of it before committing. A newer Go on the machine
+lints differently: govulncheck reads its standard library, which on Go 1.27.1
+carried nine advisories the pinned go1.26.10 did not. `gofmt` is called by
+the toolchain's path because the one on `PATH` is the installed Go's, not
+`GOTOOLCHAIN`'s.
+
+Unit tests live in `internal/*` and in the builders that
 have them (`cmd/pokemon`, `cmd/fleshandblood`, `cmd/lorcana`,
 `cmd/riftbound`, `cmd/onepiece`, `cmd/yugioh`); most builder behaviour is
 verified by building, below.
