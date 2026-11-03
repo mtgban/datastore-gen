@@ -313,7 +313,7 @@ downloaded from the bucket. `.env` is gitignored.
 ## Publishing
 
 `publish.yml` runs daily (`37 12 * * *` UTC) and on demand for one game or
-all, one game at a time: it downloads the catalog and the game's upstream
+all, the games running side by side: each downloads the catalog and the game's upstream
 caches from `b2://mtgban-datastore/<game>/`, builds with `-against` the
 previous baseline and `-baseline-fit`, runs `TestPublishedVocabulary` on
 the built file, and uploads `<game>/<game>.json.xz`; the build becomes

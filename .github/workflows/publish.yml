@@ -70,8 +70,8 @@ jobs:
     needs: select
     runs-on: ubuntu-latest
     strategy:
-      # One game at a time to keep the object store writes tidy
-      max-parallel: 1
+      # The games run side by side: each job writes only its own
+      # <game>/ prefix in the bucket and reloads only its own host.
       fail-fast: false
       matrix:
         game: ${{ fromJSON(needs.select.outputs.matrix) }}
