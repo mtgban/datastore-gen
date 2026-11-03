@@ -393,27 +393,38 @@ func TestReadCatalogDropsRepeats(t *testing.T) {
 	}
 }
 
-// TestDropRepeatedFinishesKeepsTheFirst pins that a second entry pricing a
+// TestDropRepeatedFinishesKeepsTheFirst pins that a second card pricing a
 // product's finish is dropped, the first kept whatever else it carries, and
-// that entries no product prices, or pricing another finish, are kept.
+// that cards no product prices, or pricing another finish, are kept.
 func TestDropRepeatedFinishesKeepsTheFirst(t *testing.T) {
-	entry := func(id string, product int, finish string) map[string]any {
-		e := map[string]any{"id": id, "finish": finish}
-		if product != 0 {
-			e["externalLinks"] = map[string]any{"tcgPlayerId": product}
-		}
-		return e
+	card := func(id string, product int, finish string) *Card {
+		return &Card{ID: id, Finish: finish, ExternalLinks: Links{TCGPlayerID: product}}
 	}
-	kept := DropRepeatedFinishes([]any{
-		entry("a", 100, "Normal"), entry("a_foil", 100, "Foil"), entry("b", 100, "Normal"),
-		entry("m1", 0, "Normal"), entry("m2", 0, "Normal"), entry("c", 200, "Normal"),
-	})
+	doc := Datastore{Cards: []*Card{
+		card("a", 100, "Normal"), card("a_foil", 100, "Foil"), card("b", 100, "Normal"),
+		card("m1", 0, "Normal"), card("m2", 0, "Normal"), card("c", 200, "Normal"),
+	}}
+	doc.DropRepeatedFinishes()
 	var ids []string
-	for _, e := range kept {
-		ids = append(ids, e.(map[string]any)["id"].(string))
+	for _, c := range doc.Cards {
+		ids = append(ids, c.ID)
 	}
 	if !slices.Equal(ids, []string{"a", "a_foil", "m1", "m2", "c"}) {
 		t.Errorf("kept %v, want b alone dropped", ids)
+	}
+}
+
+// TestDatastoreDropsEmptySets pins the typed document's drop, which reads
+// the cards' and the sealed products' set codes alike.
+func TestDatastoreDropsEmptySets(t *testing.T) {
+	doc := Datastore{
+		Sets:   map[string]*Set{"AB": {}, "BOX": {}, "NEXT": {}},
+		Cards:  []*Card{{ID: "a", SetCode: "AB"}},
+		Sealed: []*Sealed{{ID: "b", SetCode: "BOX"}},
+	}
+	doc.DropEmptySets()
+	if _, kept := doc.Sets["NEXT"]; kept || len(doc.Sets) != 2 {
+		t.Errorf("sets %v, want AB and BOX alone", doc.Sets)
 	}
 }
 
@@ -643,6 +654,30 @@ func TestAsList(t *testing.T) {
 	}
 }
 
+// TestLists pins the list a card publishes beside its colour, pitch or
+// attribute, and that a list already held is kept.
+func TestLists(t *testing.T) {
+	doc := Datastore{Cards: []*Card{
+		{Color: "Green;Red"},
+		{Attribute: "DARK"},
+		{Pitch: "Red"},
+		{Color: "Amber-Steel", Colors: []string{"Amber", "Steel"}},
+		{},
+	}}
+	doc.Lists()
+	for i, want := range [][]string{{"Green", "Red"}, nil, nil, {"Amber", "Steel"}, nil} {
+		if got := doc.Cards[i].Colors; !slices.Equal(got, want) {
+			t.Errorf("card %d lists colors %v, want %v", i, got, want)
+		}
+	}
+	if got := doc.Cards[1].Attributes; !slices.Equal(got, []string{"DARK"}) {
+		t.Errorf("attributes %v, want [DARK]", got)
+	}
+	if got := doc.Cards[2].Pitches; !slices.Equal(got, []string{"Red"}) {
+		t.Errorf("pitches %v, want [Red]", got)
+	}
+}
+
 // TestSpellRarities pins the name a code publishes as, read off the
 // catalog's own table whichever way round it lists a rarity.
 func TestSpellRarities(t *testing.T) {
@@ -651,16 +686,27 @@ func TestSpellRarities(t *testing.T) {
 		{DisplayText: "SSS", DBValue: "Super Special Soul"},
 		{DisplayText: "DON!!", DBValue: "DON!!"},
 	})
-	entries := []any{
-		map[string]any{"rarity": "SR"},
-		map[string]any{"rarity": "Super Special Soul"},
-		map[string]any{"rarity": "DON!!"},
-		map[string]any{"name": "no rarity"},
-	}
-	SpellRarities(entries, names)
-	for i, want := range []any{"Super Rare", "Super Special Soul", "DON!!", nil} {
-		if got := entries[i].(map[string]any)["rarity"]; got != want {
-			t.Errorf("entry %d publishes rarity %v, want %v", i, got, want)
+	doc := Datastore{Cards: []*Card{
+		{Rarity: "SR"}, {Rarity: "Super Special Soul"}, {Rarity: "DON!!"}, {Name: "no rarity"},
+	}}
+	doc.SpellRarities(names)
+	for i, want := range []string{"Super Rare", "Super Special Soul", "DON!!", ""} {
+		if got := doc.Cards[i].Rarity; got != want {
+			t.Errorf("card %d publishes rarity %q, want %q", i, got, want)
 		}
+	}
+}
+
+// TestCardEncodesInDeclaredOrder pins what a card publishes when almost
+// nothing is set: the five fields every card carries, in SPECIFICATIONS §2.2's
+// order, and no externalLinks on a card that links nothing.
+func TestCardEncodesInDeclaredOrder(t *testing.T) {
+	got, err := json.Marshal(&Card{ID: "gd01-001", Name: "Gundam", SetCode: "GD01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"id":"gd01-001","name":"Gundam","setCode":"GD01","rarity":"","finish":""}`
+	if string(got) != want {
+		t.Errorf("encoded %s, want %s", got, want)
 	}
 }

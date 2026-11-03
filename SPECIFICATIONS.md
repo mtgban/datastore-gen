@@ -504,7 +504,13 @@ Per-game notes an agent needs:
 
 ## 6. Internal packages
 
-**`internal/emit`** — `FinishSlug`, `FinishSuffix`, `PlainPrinting`,
+**`internal/emit`** — `Datastore`, `Set`, `Card`, `Sealed`, `Printing` and
+`Links`, the entries of §2.1–§2.3 and §2.5 as typed structs: six builders
+build their whole document from them and Lorcana and Riftbound what they
+add to their upstream's, so a field name is the compiler's to check. A
+struct encodes its fields in the order it declares them, which is the order
+§2 lists them in; a document `vocabulary.Fit` re-encodes comes out with a
+map's sorted keys instead. `FinishSlug`, `FinishSuffix`, `PlainPrinting`,
 `OrderedFinishes`, `PromoSlug`, `PlainQuotes`, `ImageURL`, `Fetch`,
 `StringsOf`, `ReadCatalog`, `Coverage`. The helpers every builder used to
 carry; one spelling each. `ReadCatalog` reads the tcgdumper dump and
