@@ -718,9 +718,6 @@ func idBase(num string, productID int) string {
 	return s + "_" + strconv.Itoa(productID)
 }
 
-// componentEq compares one side of a collector number case-insensitively
-// and zero-padding-insensitively: the Number field says "004/102" where the
-// name says "4/102".
 // padRe matches the zeros a component pads its digits with, in front or
 // behind a letter prefix.
 var padRe = regexp.MustCompile(`^([A-Z]*)0+([0-9])`)
@@ -734,6 +731,9 @@ func unpad(s string) string {
 	return padRe.ReplaceAllString(strings.ToUpper(strings.TrimSpace(s)), "$1$2")
 }
 
+// componentEq compares one side of a collector number case-insensitively
+// and zero-padding-insensitively: the Number field says "004/102" where the
+// name says "4/102".
 func componentEq(a, b string) bool {
 	return unpad(a) == unpad(b)
 }
@@ -812,8 +812,6 @@ var bracketTailRe = regexp.MustCompile(`\s*\[([^\]]*)\]$`)
 // numbers.
 var numberLikeRe = regexp.MustCompile(`^(?:[A-Za-z]{1,6}\d{1,4}[a-z]?|\d{1,3}[a-z]?)(?:[/-](?:[A-Za-z]{1,6}\d{1,4}[a-z]?|\d{1,3}[a-z]?))?$`)
 
-// qual is one name qualifier with the delimiter style it wore, kept so an
-// elected name part is restored in its own brackets.
 // promoGroups reports which catalog groups hand out promotional printings.
 // Two things say so and they cover different ground: TCGplayer names most of
 // them, and the league, championship and blister groups hand out their cards
@@ -846,8 +844,6 @@ func promoGroups(catalog tcgplayer.CatalogDump) map[int]bool {
 	return out
 }
 
-// promoTypesOf folds a printing's surviving qualifiers to the spelling the
-// matcher declares tags in.
 // bareNumberingRe matches a qualifier that is a number and nothing else,
 // short enough not to be a year. The trainer kits are where they come
 // from: TCGplayer writes a card's place in the kit into its name and its
@@ -1328,6 +1324,8 @@ type published struct {
 	tails map[string]bool
 }
 
+// promoTypesOf folds a printing's surviving qualifiers to the spelling the
+// matcher declares tags in.
 func promoTypesOf(s *single, p published, onShelf bool, own map[string]bool, finish, mark string) (kept, left []string, year, found, spoken string) {
 	pokemon, setNames := p.pokemon, p.setNames
 	// A code card is a redemption slip, and its label names what the code
@@ -1642,6 +1640,8 @@ func pokemonNames(cards []tcgdexCard) map[string]bool {
 	return out
 }
 
+// qual is one name qualifier with the delimiter style it wore, kept so an
+// elected name part is restored in its own brackets.
 type qual struct {
 	text    string
 	bracket bool
@@ -1917,15 +1917,6 @@ func peelQuals(name string) (string, []qual) {
 	return strings.TrimSpace(name), quals
 }
 
-// decompose splits a product name into base name and qualifiers, strips the
-// dash-hung collector number, and applies the pre-election drops. The dash
-// number sits between the name and the trailing qualifiers, so the
-// qualifiers peel first and the tail check runs on what remains.
-// rawNames repair a product name the catalog wrote in a shape nothing can
-// read, keyed by the product id it never reuses. Only four names in 32,675
-// close a bracket they never opened and three of those are sealed, so this
-// is a repair rather than a rule: the peeler should not be taught to guess
-// where a missing parenthesis went.
 // droppedQuals name a label that survives the peel and says nothing worth
 // carrying. "English" is the language every card in this datastore is
 // printed in, so it distinguishes a Pikachu from nothing; the six other
@@ -1934,17 +1925,17 @@ var droppedQuals = handtable.New("droppedQuals", map[string]bool{
 	"english": true,
 })
 
+// setOfRe matches the count a multi-card product carries in its name,
+// written either way: "Zacian V-UNION [Set of 4]" and "Code Card - Mini
+// Portfolio [Giratina] (2-Pack)".
+var setOfRe = regexp.MustCompile(`(?i)^(?:set of \d+|\d+-pack)$`)
+
 // isBareLetter reports whether a qualifier is a single letter and nothing
 // else. Where the letter belongs to the card, upstream says so and it has
 // already been taken into the name - the Unown letters, Nidoran's gender.
 // What is left is a letter the catalog wrote and the number already says:
 // "M Charizard EX (X)" is numbered 69 where its Y is numbered 13, and a
 // promo type spelled "x" helps no one read that.
-// setOfRe matches the count a multi-card product carries in its name,
-// written either way: "Zacian V-UNION [Set of 4]" and "Code Card - Mini
-// Portfolio [Giratina] (2-Pack)".
-var setOfRe = regexp.MustCompile(`(?i)^(?:set of \d+|\d+-pack)$`)
-
 func isBareLetter(qualifier string) bool {
 	if len([]rune(qualifier)) != 1 {
 		return false
@@ -2112,6 +2103,11 @@ var qualSpellings = handtable.New("qualSpellings", map[string]string{
 	"jose cruz galindo-rosendiz": "Jose Cruz Galindo-Resendiz",
 })
 
+// rawNames repair a product name the catalog wrote in a shape nothing can
+// read, keyed by the product id it never reuses. Only four names in 32,675
+// close a bracket they never opened and three of those are sealed, so this
+// is a repair rather than a rule: the peeler should not be taught to guess
+// where a missing parenthesis went.
 var rawNames = handtable.New("rawNames", map[int]string{
 	// The catalog never closes the parenthesis: "Chesnaught - XY68
 	// (Prerelease [Staff]". Both qualifiers are real and neither is
@@ -2209,6 +2205,10 @@ var unnumberedRe = regexp.MustCompile(`(?i)\bunnumbered\b`)
 // card shares.
 var bracketInnerRe = regexp.MustCompile(`^(\S.*?)\s*\[([^\[\]]+)\]$`)
 
+// decompose splits a product name into base name and qualifiers, strips the
+// dash-hung collector number, and applies the pre-election drops. The dash
+// number sits between the name and the trailing qualifiers, so the
+// qualifiers peel first and the tail check runs on what remains.
 func decompose(p tcgplayer.Product, num, year string) (single, int) {
 	name := p.Name
 	if repaired, hand := rawNames.Get(p.ProductID); hand {
@@ -2527,8 +2527,6 @@ func loadPokemontcgSets(path, cacheDir string) ([]pokemontcgSet, error) {
 	return emit.DropRepeats("pokemontcg.io sets", payload.Data, func(s pokemontcgSet) string { return s.ID }), nil
 }
 
-// mtgmatcherNormalize reduces a set name to its letters and digits, so the
-// two sources' punctuation and casing do not part names that are the same.
 // latinAccents fold to the letter underneath. Only one of these is load
 // bearing: tcgdex writes "Pok\u00e9dex" where the catalog writes "Pokedex",
 // 175 names against 2, and a key that drops the accent rather than folding
@@ -2544,6 +2542,8 @@ var latinAccents = strings.NewReplacer(
 	"ñ", "n", "ç", "c",
 )
 
+// mtgmatcherNormalize reduces a set name to its letters and digits, so the
+// two sources' punctuation and casing do not part names that are the same.
 func mtgmatcherNormalize(name string) string {
 	// The word joining two halves of a name is dropped, whichever of the
 	// three ways it is written. Our own set names use all of them -
@@ -2864,11 +2864,11 @@ func mintFromCardmarket(path string, cards []any, sets map[string]any, ptcg []po
 		ids = append(ids, id)
 	}
 	sort.Ints(ids)
-	shelfNames := map[string]int{}
+	shelfCounts := map[string]int{}
 	for _, id := range ids {
 		product := catalog.Data.Products[id]
 		if code, wanted := shelves[product.ExpansionID]; wanted {
-			shelfNames[code+"|"+stampedName(product.Name)]++
+			shelfCounts[code+"|"+stampedName(product.Name)]++
 		}
 	}
 
@@ -2896,7 +2896,7 @@ func mintFromCardmarket(path string, cards []any, sets map[string]any, ptcg []po
 		// contradicts - "Professor Turo's Scenario - 171/182" numbered
 		// 177 - so where the shelf holds one product of the name on each
 		// side, that is the same card whatever the number says.
-		if heldNames[code+"|"+stampedName(name)] == 1 && shelfNames[code+"|"+stampedName(name)] == 1 {
+		if heldNames[code+"|"+stampedName(name)] == 1 && shelfCounts[code+"|"+stampedName(name)] == 1 {
 			heldByName++
 			continue
 		}
@@ -4525,11 +4525,11 @@ func main() {
 	}
 	doc["properties"] = properties
 	var buf bytes.Buffer
-	// Spell the quotes the way a query does before anything reads the
-	// document, so the check below sees what will be published.
 	log.Printf("types: %d printings typed by tcgdex, %d by the catalog's Card Type",
 		cardTypes.fromTcgdex, cardTypes.fromCatalog)
 	handtable.Report()
+	// Spell the quotes the way a query does before anything reads the
+	// document, so the check below sees what will be published.
 	emit.PlainQuotes(doc)
 
 	envelope := emit.Envelope(emit.Today(), doc)
