@@ -535,7 +535,7 @@ func main() {
 		log.Printf("number: %d unnumbered products took their number from upstream", numbered)
 	}
 
-	var cards []*emit.Card
+	cards := slices.Grow([]*emit.Card(nil), len(singles))
 	for _, s := range singles {
 		productID := s.product.ProductID
 		for _, finish := range emit.OrderedFinishes(printings[productID], displayOrder) {
@@ -627,7 +627,7 @@ func main() {
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
-	var sealed []*emit.Sealed
+	sealed := slices.Grow([]*emit.Sealed(nil), len(sealedProducts))
 	for _, product := range sealedProducts {
 		group := groupByID[product.GroupID]
 		sealed = append(sealed, &emit.Sealed{

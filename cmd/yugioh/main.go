@@ -1396,7 +1396,7 @@ func main() {
 		catalogFinishes[product.ProductID] = printings[product.ProductID]
 	}
 
-	var cards []*emit.Card
+	cards := slices.Grow([]*emit.Card(nil), len(singles))
 	var passcoded int
 	contradicted := map[string]bool{}
 	for _, s := range singles {
@@ -1465,7 +1465,7 @@ func main() {
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
-	var sealed []*emit.Sealed
+	sealed := slices.Grow([]*emit.Sealed(nil), len(sealedProducts))
 	for _, product := range sealedProducts {
 		code := setCodes[product.GroupID]
 		sealed = append(sealed, &emit.Sealed{

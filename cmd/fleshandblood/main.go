@@ -1194,7 +1194,7 @@ func main() {
 
 	languageNames := emit.LanguageNames(&catalog)
 
-	var cards []*emit.Card
+	cards := slices.Grow([]*emit.Card(nil), len(singles))
 	var nonEnglish int
 	for _, s := range singles {
 		productID := s.product.ProductID
@@ -1294,7 +1294,7 @@ func main() {
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
-	var sealed []*emit.Sealed
+	sealed := slices.Grow([]*emit.Sealed(nil), len(sealedProducts))
 	for _, product := range sealedProducts {
 		group := groupByID[product.GroupID]
 		sealed = append(sealed, &emit.Sealed{

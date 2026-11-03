@@ -1151,7 +1151,7 @@ func main() {
 		}
 	}
 
-	var cards []*emit.Card
+	cards := slices.Grow([]*emit.Card(nil), len(singles))
 	// What promoTypesOf left out of each entry, keyed by the entry's id,
 	// for markPrintings to put back where it turns out to be doing the
 	// distinguishing.
@@ -1472,7 +1472,7 @@ func main() {
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
-	var sealed []*emit.Sealed
+	sealed := slices.Grow([]*emit.Sealed(nil), len(sealedProducts))
 	for _, product := range sealedProducts {
 		code := setCodeFor(product)
 		sealed = append(sealed, &emit.Sealed{
