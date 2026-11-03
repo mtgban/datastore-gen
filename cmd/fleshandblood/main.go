@@ -571,6 +571,7 @@ func main() {
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 62 (required)")
 	fabCards := flag.String("fab-cards", fabCardsURL, "the-fab-cube card-flattened file, path or URL")
 	fabSets := flag.String("fab-sets", fabSetsURL, "the-fab-cube set file, path or URL")
+	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good upstream responses, refreshed on a live fetch and read back when an upstream is unreachable")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -584,11 +585,21 @@ func main() {
 		log.Fatalln("tcg catalog:", err)
 	}
 
-	fabData, err := emit.Fetch(*fabCards)
+	fabData, err := emit.Upstream{
+		Source:    "the-fab-cube cards",
+		Check:     emit.Reads(func(rows []fabRow) int { return len(rows) }),
+		CacheDir:  *upstreamCache,
+		CacheName: "fab-cards.json",
+	}.Fetch(*fabCards)
 	if err != nil {
 		log.Fatalln("fab dataset:", err)
 	}
-	setsData, err := emit.Fetch(*fabSets)
+	setsData, err := emit.Upstream{
+		Source:    "the-fab-cube sets",
+		Check:     emit.Reads(func(rows []fabSet) int { return len(rows) }),
+		CacheDir:  *upstreamCache,
+		CacheName: "fab-sets.json",
+	}.Fetch(*fabSets)
 	if err != nil {
 		log.Fatalln("fab sets:", err)
 	}

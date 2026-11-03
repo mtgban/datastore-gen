@@ -422,14 +422,21 @@ default), `-against <baseline.json>`, `-against-tolerance <fraction>`
 | lorcana | 71 | LorcanaJSON `allCards.json`, the Cardmarket catalog | `-lorcana` (required), `-cardmarket-catalog` (required) | is the datastore; catalog adds product ids and the finishes sold; the Cardmarket catalog names the product of each foil TCGplayer sells apart |
 | onepiece | 68 | punk-records `cards_by_id.json`, `packs.json`, the Cardmarket catalog | `-punk-cards`, `-punk-packs`, `-cardmarket-catalog` (required) | the witness for names; `bandaiId` where the pack agrees with the group; 58 pre-errata printings hand-carried from CardTrader blueprints, and the ones Cardmarket's pre-errata shelf sells beyond them minted from their product, read off the printing their number names |
 | palworld | 91 | palworldtcg.gg `api/v1/cards` | `-palworld-cards` | numbers the one numberless product; English (`EBP01-001`) and Japanese (`BP01-001`) numbering reconciled to the printed form |
-| pokemon | 3 | tcgdex GraphQL, pokemontcg.io sets, the Cardmarket catalog | `-tcgdex-sets`, `-tcgdex-cards`, `-pokemontcg-sets`, `-upstream-cache <dir>`, `-cardmarket-catalog` (required) | `tcgdexId`, symbols, set dates; mints tcgdex cards and sets the catalog lacks and the Cardmarket-only stamped promos (SEA, Professor Program) from the printing their number names |
+| pokemon | 3 | tcgdex GraphQL, pokemontcg.io sets, the Cardmarket catalog | `-tcgdex-sets`, `-tcgdex-cards`, `-pokemontcg-sets`, `-cardmarket-catalog` (required) | `tcgdexId`, symbols, set dates; mints tcgdex cards and sets the catalog lacks and the Cardmarket-only stamped promos (SEA, Professor Program) from the printing their number names |
 | riftbound | 89 | the official card gallery (Next.js data URL resolved from the page) | `-gallery` | is the datastore; catalog decides finishes and adds the products the gallery lacks |
 | yugioh | 2 | YGOPRODeck `cardsets.php`, `cardinfo.php` | `-ygoprodeck-sets`, `-ygoprodeck-cards` | release dates, passcodes (`konamiId`), the witness for names; mints the European first-print run of a set the catalog sells only the North American run of; no image (hotlinking forbidden) |
 
-Every upstream flag accepts a path or a URL (`emit.Fetch`: a local file, or
-an http(s) GET named `datastore-gen/1.0` and bounded at three minutes).
-Pokemon's `-upstream-cache` keeps the last good response of each live API
-and answers from it, dated in the log, when the API is unreachable.
+Every upstream flag accepts a path or a URL (`emit.Upstream`: a local file
+as it is, or an http(s) request named `datastore-gen/1.0`, bounded at three
+minutes and asked up to four times, 2, 4 and 8 seconds apart, on a network
+error, a 5xx or a 429). Every builder takes `-upstream-cache <dir>`, which
+keeps the last response of each live upstream that decoded into the struct
+the build reads and listed something, and answers from it, dated in the
+log, when the upstream will not answer. The objects are named for their
+flags in `.github/scripts/games.sh` (`cached_objects`): `gallery`,
+`lorcana-allcards`, `punk-cards`, `punk-packs`, `ygoprodeck-sets`,
+`ygoprodeck-cards`, `fab-cards`, `fab-sets`, `tcgdex-sets`, `tcgdex-cards`,
+`pokemontcg-sets`, `gcg-cards`, `palworld-cards`.
 
 Per-game notes an agent needs:
 
@@ -560,12 +567,12 @@ and `rebaseline`): per game, the games running side by side,
 1. `b2 file download b2://mtgban-datastore/<game>/tcgplayer-catalog.json.xz`;
 2. the baseline, `<game>/<game>.baseline.json.xz`, else the published
    `<game>/<game>.json.xz` to seed one, else nothing;
-3. Pokemon only: the upstream caches (`pokemon/tcgdex-sets.json.xz`,
-   `tcgdex-cards.json.xz`, `pokemontcg-sets.json.xz`), plus a DNS pin for
-   `api.tcgdex.net`; Lorcana, One Piece and Pokemon: the required
-   `<game>/cardmarket_catalog.json.xz`;
+3. the game's upstream caches (`<game>/<object>.json.xz` for each of its
+   `cached_objects`, missing until its first publish), for Pokemon a DNS pin
+   for `api.tcgdex.net` besides; Lorcana, One Piece and Pokemon: the
+   required `<game>/cardmarket_catalog.json.xz`;
 4. `go run ./cmd/<game> -tcg-catalog tcgplayer-catalog.json [-against
-   previous.json] [-lorcana …] [-upstream-cache .] [-cardmarket-catalog …]
+   previous.json] [-lorcana …] -upstream-cache . [-cardmarket-catalog …]
    -baseline-fit baseline.fit -o <game>.json`;
 5. `STORE_DIR="$PWD" go test ./internal/vocabulary -run TestPublishedVocabulary -count=1`;
 6. `xz -9`, upload `<game>/<game>.json.xz`, and the same bytes as

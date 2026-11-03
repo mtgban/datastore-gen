@@ -147,7 +147,7 @@ func main() {
 		log.Fatalln("tcg catalog:", err)
 	}
 
-	setsData, err := loadTcgdexCached(*tcgdexSets, *upstreamCache, "tcgdex-sets.json", tcgdexSetsQuery)
+	setsData, err := loadTcgdex(*tcgdexSets, *upstreamCache, "tcgdex-sets.json", tcgdexSetsQuery)
 	if err != nil {
 		log.Fatalln("tcgdex sets:", err)
 	}
@@ -177,7 +177,7 @@ func main() {
 				len(setsResponse.Sets))
 		}
 	}
-	cardsData, err := loadTcgdexCached(*tcgdexCards, *upstreamCache, "tcgdex-cards.json", tcgdexCardsQuery)
+	cardsData, err := loadTcgdex(*tcgdexCards, *upstreamCache, "tcgdex-cards.json", tcgdexCardsQuery)
 	if err != nil {
 		log.Fatalln("tcgdex cards:", err)
 	}

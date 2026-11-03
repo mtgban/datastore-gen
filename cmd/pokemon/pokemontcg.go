@@ -2,13 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/mtgban/datastore-gen/internal/emit"
 )
@@ -29,65 +23,23 @@ type pokemontcgSet struct {
 	} `json:"images"`
 }
 
-// pokemontcgClient bounds every pokemontcg.io call, the way tcgdexClient
-// bounds tcgdex's: without a deadline a host that has stopped answering
-// holds the build for the platform's dial timeout.
-var pokemontcgClient = &http.Client{Timeout: 30 * time.Second}
-
-// fetchPokemontcgSets asks the live API, retried the way tcgdex is. One
-// attempt was losing the symbols to blips that clear on their own: three
-// consecutive requests one afternoon answered 500, then 502, then 200. A
-// status the server will give again on a retry is not retried.
-func fetchPokemontcgSets() ([]byte, error) {
-	var lastErr error
-	for attempt, wait := 0, 2*time.Second; attempt < 4; attempt, wait = attempt+1, wait*2 {
-		if attempt > 0 {
-			log.Printf("pokemontcg.io: %v; retrying in %v", lastErr, wait)
-			time.Sleep(wait)
-		}
-		req, err := http.NewRequest(http.MethodGet, pokemontcgSetsURL, nil)
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("User-Agent", "datastore-gen/1.0 (+https://github.com/mtgban/datastore-gen)")
-		resp, err := pokemontcgClient.Do(req)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		data, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("%s: HTTP %d", pokemontcgSetsURL, resp.StatusCode)
-			// A client-side status will not change on a retry.
-			if resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
-				return nil, lastErr
-			}
-			continue
-		}
-		return data, nil
-	}
-	return nil, lastErr
-}
-
-// loadPokemontcgSets reads the set list from a path, or from the live API
-// behind the last-good cache. A failure is reported and not fatal: this
+// loadPokemontcgSets reads the set list from a path, or from the live API,
+// retried and behind the last-good cache: pokemontcg.io answers 5xx often
+// enough that a run can lose it outright. A failure is reported and not fatal: this
 // fills the symbol of 20 sets the other 255 do not need, and no build is
 // worth losing over it. What the cache buys is that those 20 keep the
 // symbol they had last time instead of silently going blank.
 func loadPokemontcgSets(path, cacheDir string) ([]pokemontcgSet, error) {
-	var data []byte
-	var err error
-	if path != "" {
-		data, err = os.ReadFile(path)
-	} else {
-		data, err = cachedFetch("pokemontcg.io", cacheDir, "pokemontcg-sets.json", fetchPokemontcgSets, readsAsSets)
+	location := path
+	if location == "" {
+		location = pokemontcgSetsURL
 	}
+	data, err := emit.Upstream{
+		Source:    "pokemontcg.io",
+		Check:     readsAsSets,
+		CacheDir:  cacheDir,
+		CacheName: "pokemontcg-sets.json",
+	}.Fetch(location)
 	if err != nil {
 		return nil, err
 	}

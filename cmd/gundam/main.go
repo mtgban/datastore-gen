@@ -542,6 +542,7 @@ func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 86 (required)")
 	gcgCards := flag.String("gcg-cards", gcgCardsURL, "gcg-api cards file, path or URL")
+	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good upstream responses, refreshed on a live fetch and read back when an upstream is unreachable")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -618,7 +619,12 @@ func main() {
 
 	// The list, read here for the names it gives the cards and again
 	// below for the cards the catalog does not sell.
-	upstreamData, err := emit.Fetch(*gcgCards)
+	upstreamData, err := emit.Upstream{
+		Source:    "gcg-api",
+		Check:     emit.Reads(func(rows []gcgCard) int { return len(rows) }),
+		CacheDir:  *upstreamCache,
+		CacheName: "gcg-cards.json",
+	}.Fetch(*gcgCards)
 	if err != nil {
 		log.Fatalln("gcg-api:", err)
 	}

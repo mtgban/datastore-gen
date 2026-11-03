@@ -31,13 +31,43 @@ required_objects() {
   esac
 }
 
-# The upstream responses a game's builder caches, each the name of its flag
-# and of its object beside the datastore. The builder asks the live API first
-# and falls back on the cached response, so the publish keeps the last one in
-# the bucket, and a measurement pins the build to it.
+# The upstream responses a game's builder caches, as flag[:object]: the flag
+# the builder reads a pinned file on, and the object beside the datastore the
+# response is kept as (the flag's name unless said otherwise), under
+# $BUCKET/<game>/<object>.json.xz. The builder asks the live source first and
+# falls back on the cached response, so the publish keeps the last one in the
+# bucket, and a measurement pins the build to one. Lorcana's is named apart
+# because lorcana/lorcana.json.xz is the datastore itself.
 cached_objects() {
   case "$1" in
-    pokemon) echo "tcgdex-sets tcgdex-cards pokemontcg-sets" ;;
+    riftbound)     echo "gallery" ;;
+    lorcana)       echo "lorcana:lorcana-allcards" ;;
+    onepiece)      echo "punk-cards punk-packs" ;;
+    yugioh)        echo "ygoprodeck-sets ygoprodeck-cards" ;;
+    fleshandblood) echo "fab-cards fab-sets" ;;
+    pokemon)       echo "tcgdex-sets tcgdex-cards pokemontcg-sets" ;;
+    gundam)        echo "gcg-cards" ;;
+    palworld)      echo "palworld-cards" ;;
+  esac
+}
+
+# The live source of one cached object, for a measurement to fetch it once
+# from: a URL, or a script that writes it. An object with none here (the
+# tcgdex GraphQL responses), or whose source will not answer, is read from
+# the bucket, where the last publish left it.
+live_source() {
+  case "$2" in
+    gallery)          echo "$GAMES_DIR/fetch-riftbound-gallery.sh" ;;
+    lorcana-allcards) echo "$LORCANA_SOURCE" ;;
+    punk-cards)       echo https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json ;;
+    punk-packs)       echo https://raw.githubusercontent.com/buhbbl/punk-records/main/english/packs.json ;;
+    ygoprodeck-sets)  echo https://db.ygoprodeck.com/api/v7/cardsets.php ;;
+    ygoprodeck-cards) echo https://db.ygoprodeck.com/api/v7/cardinfo.php ;;
+    fab-cards)        echo https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card-flattened.json ;;
+    fab-sets)         echo https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/set.json ;;
+    pokemontcg-sets)  echo "https://api.pokemontcg.io/v2/sets?pageSize=250" ;;
+    gcg-cards)        echo https://raw.githubusercontent.com/yzRobo/gcg-api/main/data/cards.json ;;
+    palworld-cards)   echo "$GAMES_DIR/fetch-palworld-cards.sh" ;;
   esac
 }
 
@@ -59,22 +89,13 @@ publish_flags() {
 # against the source at the commit being built, so one script spans the
 # whole history rather than only its tip.
 upstream_flags() {
-  local pair name
+  local pair
   for pair in $(required_objects "$1"); do
     echo "${pair%%:*}=$WORK/$1-${pair#*:}.json"
   done
-  for name in $(cached_objects "$1"); do
-    echo "$name=$WORK/$1-$name.json"
+  for pair in $(cached_objects "$1"); do
+    echo "${pair%%:*}=$WORK/$1-${pair#*:}.json"
   done
-  case "$1" in
-    riftbound)     echo "gallery=$WORK/riftbound-gallery.json" ;;
-    lorcana)       echo "lorcana=$WORK/lorcana-allcards.json" ;;
-    onepiece)      echo "punk-cards=$WORK/punk-cards.json punk-packs=$WORK/punk-packs.json" ;;
-    yugioh)        echo "ygoprodeck-sets=$WORK/ygo-sets.json ygoprodeck-cards=$WORK/ygo-cards.json" ;;
-    fleshandblood) echo "fab-cards=$WORK/fab-cards.json fab-sets=$WORK/fab-sets.json" ;;
-    gundam)        echo "gcg-cards=$WORK/gcg-cards.json" ;;
-    palworld)      echo "palworld-cards=$WORK/palworld-cards.json" ;;
-  esac
 }
 
 # Which games a list of changed files, one per line on stdin, could have
@@ -99,7 +120,7 @@ games_in() {
 # from pulling a quarter of a gigabyte it will not read. An HTTP error
 # fails the run, rather than leaving an error page both builds refuse alike.
 fetch_inputs() {
-  local g pair name
+  local g pair object source
   fetch() { curl -fsSL --retry 3 --retry-all-errors --max-time 180 -A "datastore-gen tagger" "$1" -o "$2"; }
   bucket() { b2 file download --no-progress "b2://$BUCKET/$1" "$2.xz" >/dev/null && xz -d "$2.xz"; }
   for g in "$@"; do
@@ -107,21 +128,18 @@ fetch_inputs() {
     for pair in $(required_objects "$g"); do
       bucket "$g/${pair#*:}.json.xz" "$WORK/$g-${pair#*:}.json"
     done
-    for name in $(cached_objects "$g"); do
-      bucket "$g/$name.json.xz" "$WORK/$g-$name.json"
+    for pair in $(cached_objects "$g"); do
+      object=${pair#*:}
+      source=$(live_source "$g" "$object")
+      if [ -n "$source" ]; then
+        case "$source" in
+          /*) "$source" "$WORK/$g-$object.json" ;;
+          *)  fetch "$source" "$WORK/$g-$object.json" ;;
+        esac && continue
+        echo "$g: $object did not answer; reading the last one a publish built on"
+      fi
+      bucket "$g/$object.json.xz" "$WORK/$g-$object.json"
     done
-    case $g in
-      riftbound)     "$GAMES_DIR/fetch-riftbound-gallery.sh" "$WORK/riftbound-gallery.json" ;;
-      lorcana)       fetch "$LORCANA_SOURCE" "$WORK/lorcana-allcards.json" ;;
-      onepiece)      fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/index/cards_by_id.json "$WORK/punk-cards.json"
-                     fetch https://raw.githubusercontent.com/buhbbl/punk-records/main/english/packs.json "$WORK/punk-packs.json" ;;
-      yugioh)        fetch https://db.ygoprodeck.com/api/v7/cardsets.php "$WORK/ygo-sets.json"
-                     fetch https://db.ygoprodeck.com/api/v7/cardinfo.php "$WORK/ygo-cards.json" ;;
-      fleshandblood) fetch https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/card-flattened.json "$WORK/fab-cards.json"
-                     fetch https://raw.githubusercontent.com/the-fab-cube/flesh-and-blood-cards/develop/json/english/set.json "$WORK/fab-sets.json" ;;
-      gundam)        fetch https://raw.githubusercontent.com/yzRobo/gcg-api/main/data/cards.json "$WORK/gcg-cards.json" ;;
-      palworld)      "$GAMES_DIR/fetch-palworld-cards.sh" "$WORK/palworld-cards.json" ;;
-    esac
   done
 }
 

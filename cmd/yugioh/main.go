@@ -102,6 +102,11 @@ type ygoSet struct {
 // with no priced sibling to take them from (see mintEuropeanPrints); every
 // other entry's type and attribute come from the catalog, as they always
 // have.
+// ygoCardsPayload is the cardinfo response: the cards under data.
+type ygoCardsPayload struct {
+	Data []ygoCard `json:"data"`
+}
+
 type ygoCard struct {
 	ID        int    `json:"id"`
 	Name      string `json:"name"`
@@ -765,6 +770,7 @@ func main() {
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 2 (required)")
 	ygoSets := flag.String("ygoprodeck-sets", ygoprodeckSetsURL, "YGOPRODeck cardsets file, path or URL")
 	ygoCards := flag.String("ygoprodeck-cards", ygoprodeckCardsURL, "YGOPRODeck cardinfo file, path or URL")
+	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good upstream responses, refreshed on a live fetch and read back when an upstream is unreachable")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -778,7 +784,12 @@ func main() {
 		log.Fatalln("tcg catalog:", err)
 	}
 
-	setsData, err := emit.Fetch(*ygoSets)
+	setsData, err := emit.Upstream{
+		Source:    "ygoprodeck sets",
+		Check:     emit.Reads(func(rows []ygoSet) int { return len(rows) }),
+		CacheDir:  *upstreamCache,
+		CacheName: "ygoprodeck-sets.json",
+	}.Fetch(*ygoSets)
 	if err != nil {
 		log.Fatalln("ygoprodeck sets:", err)
 	}
@@ -830,13 +841,16 @@ func main() {
 	// the datastore is the catalog's, and the passcode rides along on it.
 	var codes passcodes
 	var ygoCardList []ygoCard
-	cardsData, err := emit.Fetch(*ygoCards)
+	cardsData, err := emit.Upstream{
+		Source:    "ygoprodeck cards",
+		Check:     emit.Reads(func(p ygoCardsPayload) int { return len(p.Data) }),
+		CacheDir:  *upstreamCache,
+		CacheName: "ygoprodeck-cards.json",
+	}.Fetch(*ygoCards)
 	if err != nil {
 		log.Printf("ygoprodeck cards: %v (passcodes not annotated, no european first prints minted)", err)
 	} else {
-		var payload struct {
-			Data []ygoCard `json:"data"`
-		}
+		var payload ygoCardsPayload
 		if err := json.Unmarshal(cardsData, &payload); err != nil {
 			log.Printf("ygoprodeck cards: %v (passcodes not annotated, no european first prints minted)", err)
 		} else {

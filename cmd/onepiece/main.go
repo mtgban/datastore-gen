@@ -1567,6 +1567,7 @@ func main() {
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 68 (required)")
 	punkCards := flag.String("punk-cards", punkCardsURL, "punk-records cards_by_id file, path or URL")
 	punkPacks := flag.String("punk-packs", punkPacksURL, "punk-records packs file, path or URL")
+	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good upstream responses, refreshed on a live fetch and read back when an upstream is unreachable")
 	cardmarketCatalogPath := flag.String("cardmarket-catalog", "", "published Cardmarket catalog, read for the pre-errata printings no other source lists (required)")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
@@ -1584,7 +1585,12 @@ func main() {
 		log.Fatalln("tcg catalog:", err)
 	}
 
-	punkData, err := emit.Fetch(*punkCards)
+	punkData, err := emit.Upstream{
+		Source:    "punk-records cards",
+		Check:     emit.Reads(func(rows map[string]punkCard) int { return len(rows) }),
+		CacheDir:  *upstreamCache,
+		CacheName: "punk-cards.json",
+	}.Fetch(*punkCards)
 	if err != nil {
 		log.Fatalln("punk-records:", err)
 	}
@@ -1600,7 +1606,12 @@ func main() {
 	// the annotation for all of its printings. A One Piece collector number
 	// holds no underscore of its own, so the first one always starts the
 	// suffix.
-	packsData, err := emit.Fetch(*punkPacks)
+	packsData, err := emit.Upstream{
+		Source:    "punk-records packs",
+		Check:     emit.Reads(func(rows map[string]punkPack) int { return len(rows) }),
+		CacheDir:  *upstreamCache,
+		CacheName: "punk-packs.json",
+	}.Fetch(*punkPacks)
 	if err != nil {
 		log.Fatalln("punk-records packs:", err)
 	}
