@@ -483,8 +483,8 @@ func generalPromotion(tag string) string {
 			tag = re.ReplaceAllString(tag, spelled)
 		}
 	}
+	tag = setCodePair.ReplaceAllString(tag, "$1")
 	tag = setCodeHead.ReplaceAllString(tag, "")
-	tag = setCodePair.ReplaceAllString(tag, "")
 	// The set a promotion names in words rather than by code, which the
 	// card's own set says just the same: "Edition Beta Early Trial Event"
 	// is an early trial event, and folding it to its first two words made
@@ -526,7 +526,9 @@ var setNameHeads []string
 var (
 	// The set a release event released, which the card's own set says.
 	setCodeHead = regexp.MustCompile(`^(?:gd|st|evx|eb)\d+[a-z]?\s+`)
-	setCodePair = regexp.MustCompile(`\s*/\s*(?:gd|st|evx|eb)\d+[a-z]?\b`)
+	// The second of two leading sets, by slash or as a range: "ST10 / EB01"
+	// and "ST11-ST14" (4 products), so the head has one code to take off.
+	setCodePair = regexp.MustCompile(`^((?:gd|st|evx|eb)\d+[a-z]?)\s*[/-]\s*(?:gd|st|evx|eb)\d+[a-z]?\b`)
 	// Which instalment: a run code, a volume, a mission, a season, a number.
 	runNumbering = regexp.MustCompile(`\s*-\s*pc\d+[a-z]?$|\s+(?:vol\.?|no\.?)\s*\d+$|\s+(?:mission|season)\s+\d+$|\s+\d+$`)
 	// Which year, written either way the catalog writes one.
