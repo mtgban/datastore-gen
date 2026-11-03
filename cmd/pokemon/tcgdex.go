@@ -1,20 +1,15 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"log"
-	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
+	"github.com/mtgban/datastore-gen/internal/emit"
 	"github.com/mtgban/datastore-gen/internal/handtable"
 )
 
@@ -119,18 +114,11 @@ func (c *printedTypes) of(dex *tcgdexCard, cardType string) []string {
 	return types
 }
 
-// tcgdexClient bounds every tcgdex call: without a deadline a dead server
-// holds the build for the platform's dial timeout, and the nightly runner
-// spent three nights doing exactly that against a stale DNS record.
-var tcgdexClient = &http.Client{Timeout: 30 * time.Second}
-
 // loadTcgdex reads a raw GraphQL response envelope from a file when a path
-// is given, or POSTs the query to the live endpoint. The request identifies
-// this builder the way tcgdex's own SDKs identify themselves - their one
-// header is the user agent - and a network error or server-side failure is
-// retried with backoff, because the API sits behind a single host whose
-// blips would otherwise cost the whole nightly.
-func loadTcgdex(path, query string) ([]byte, error) {
+// is given, or POSTs the query to the live endpoint, retried and behind the
+// last-good cache. The API sits behind a single host, where a stale DNS
+// record once kept the nightly dialing a dead server for three days.
+func loadTcgdex(path, cacheDir, cacheName, query string) ([]byte, error) {
 	if path != "" {
 		return os.ReadFile(path)
 	}
@@ -138,96 +126,12 @@ func loadTcgdex(path, query string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var lastErr error
-	for attempt, wait := 0, 2*time.Second; attempt < 4; attempt, wait = attempt+1, wait*2 {
-		if attempt > 0 {
-			log.Printf("tcgdex: %v; retrying in %v", lastErr, wait)
-			time.Sleep(wait)
-		}
-		req, err := http.NewRequest(http.MethodPost, tcgdexGraphQLURL, bytes.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("User-Agent", "datastore-gen/1.0 (+https://github.com/mtgban/datastore-gen)")
-		resp, err := tcgdexClient.Do(req)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		data, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		if resp.StatusCode != http.StatusOK {
-			lastErr = fmt.Errorf("%s: HTTP %d", tcgdexGraphQLURL, resp.StatusCode)
-			// A client-side status will not change on a retry.
-			if resp.StatusCode < 500 && resp.StatusCode != http.StatusTooManyRequests {
-				return nil, lastErr
-			}
-			continue
-		}
-		return data, nil
-	}
-	return nil, lastErr
-}
-
-// cachedFetch puts a last-good cache in front of a live fetch. The fetcher
-// is asked first and its answer refreshes the cache, so the cache is always
-// the newest response that ever arrived; when the fetch fails the cached
-// response stands in, dated out loud, rather than the annotation being
-// lost. Annotation a day old is strictly better than none, and the
-// baseline the build is compared against does not move on a cached run
-// unless the build still grew.
-//
-// Both upstreams this build annotates from need it, for the same reason
-// from opposite directions: tcgdex sits on one host, where a stale DNS
-// record once kept the nightly dialing a dead server for three days, and
-// pokemontcg.io answers 5xx often enough that a run can lose it outright.
-//
-// The cache only spans runs if the directory does. On a fresh CI workspace
-// it is empty every time, so the file has to be carried in and out for this
-// to be worth anything there; locally the directory simply persists.
-func cachedFetch(source, cacheDir, cacheName string, fetch func() ([]byte, error), check func([]byte) error) ([]byte, error) {
-	data, err := fetch()
-	// A 200 is not an answer. GraphQL reports a failed query as a 200
-	// carrying errors, and a proxy can serve an HTML page as one; written
-	// to the cache unread, either poisons the fallback for every run until
-	// a live fetch succeeds. The answer is decoded before it is kept.
-	if err == nil {
-		if cerr := check(data); cerr != nil {
-			err = fmt.Errorf("%s answered, but not with a response this build can read: %w", source, cerr)
-		}
-	}
-	if err == nil {
-		if cacheDir != "" {
-			if werr := os.WriteFile(filepath.Join(cacheDir, cacheName), data, 0o644); werr != nil {
-				log.Printf("%s cache: %v (the build continues on the live answer)", source, werr)
-			}
-		}
-		return data, nil
-	}
-	if cacheDir == "" {
-		return nil, err
-	}
-	cached := filepath.Join(cacheDir, cacheName)
-	info, serr := os.Stat(cached)
-	if serr != nil {
-		return nil, err
-	}
-	blob, rerr := os.ReadFile(cached)
-	if rerr != nil {
-		return nil, err
-	}
-	if cerr := check(blob); cerr != nil {
-		return nil, fmt.Errorf("%v; and the cached response does not read either: %w", err, cerr)
-	}
-	log.Printf("%s unreachable (%v); using the cached response from %s",
-		source, err, info.ModTime().UTC().Format("2006-01-02 15:04"))
-	return blob, nil
+	return emit.Upstream{
+		Source:    "tcgdex",
+		Check:     readsAsEnvelope,
+		CacheDir:  cacheDir,
+		CacheName: cacheName,
+	}.Post(tcgdexGraphQLURL, body)
 }
 
 // readsAsEnvelope says whether a tcgdex response decodes as a GraphQL
@@ -251,17 +155,6 @@ func readsAsSets(data []byte) error {
 		return errors.New("the response lists no sets")
 	}
 	return nil
-}
-
-// loadTcgdexCached is loadTcgdex behind that cache. An explicit response
-// file bypasses everything, as it always has.
-func loadTcgdexCached(path, cacheDir, cacheName, query string) ([]byte, error) {
-	if path != "" {
-		return os.ReadFile(path)
-	}
-	return cachedFetch("tcgdex", cacheDir, cacheName, func() ([]byte, error) {
-		return loadTcgdex("", query)
-	}, readsAsEnvelope)
 }
 
 // decodeEnvelope unwraps a GraphQL response: any errors key is a hard

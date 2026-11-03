@@ -52,7 +52,8 @@ cmd/datastorediff      reads two built datastores, prints what the second did
                        to the first (used by the tagging workflow)
 internal/emit          what every builder spells the same way: finish suffix,
                        plain printing, finish order, promo slug, quote
-                       normalisation, image link, Fetch, StringsOf, the
+                       normalisation, image link, the retrying fetch and its
+                       last-good cache (Upstream), StringsOf, the
                        catalog read and the coverage check, set codes
 internal/baseline      the guard that refuses a build which lost too much
 internal/naming        the qualifier reading Gundam and Palworld share: a
@@ -133,10 +134,12 @@ held still. Per game: fleshandblood `-fab-cards`, `-fab-sets`; gundam
 `-gcg-cards`; lorcana `-lorcana` and `-cardmarket-catalog` (both required);
 onepiece `-punk-cards`, `-punk-packs`, `-cardmarket-catalog` (required);
 palworld `-palworld-cards`; pokemon `-tcgdex-sets`, `-tcgdex-cards`,
-`-pokemontcg-sets`, `-upstream-cache`, `-cardmarket-catalog` (required);
-riftbound `-gallery`; yugioh `-ygoprodeck-sets`, `-ygoprodeck-cards`. The
-rest default to a public URL or the live API. Full list in
-`SPECIFICATIONS.md`.
+`-pokemontcg-sets`, `-cardmarket-catalog` (required); riftbound `-gallery`;
+yugioh `-ygoprodeck-sets`, `-ygoprodeck-cards`. The rest default to a
+public URL or the live API, asked through `emit.Upstream`, which retries a
+blip and, given `-upstream-cache <dir>`, falls back on the last response
+that read; the publish carries those caches in the bucket, one per object
+in `games.sh`'s `cached_objects`. Full list in `SPECIFICATIONS.md`.
 
 **Never measure on a stale catalog.** The catalog changes nightly, and a
 finding measured against last week's dump is confidently wrong ("34 Palworld

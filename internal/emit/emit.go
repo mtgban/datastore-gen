@@ -22,9 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"regexp"
 	"slices"
@@ -252,39 +250,6 @@ func PlainQuotes(v any) any {
 // dump links the smallest one there is.
 func ImageURL(url string) string {
 	return strings.Replace(url, "_200w.", "_400w.", 1)
-}
-
-// upstreamClient bounds a fetch from an upstream list: a hung upstream hangs
-// the publish otherwise, since http.Get waits forever.
-var upstreamClient = &http.Client{Timeout: 3 * time.Minute}
-
-// userAgent names this build in an upstream's logs, so the mirror can tell
-// it from a browser.
-const userAgent = "datastore-gen/1.0 (+https://github.com/mtgban/datastore-gen)"
-
-// Fetch reads a local path, or an http(s) location when one is given, so a
-// build can be pinned to a file and the default can be the live URL. Six
-// builders carried this in three spellings: four read the location with
-// http.Get, one named itself and bounded the wait, one pretended to be a
-// browser for a page that serves the same bytes either way.
-func Fetch(location string) ([]byte, error) {
-	if !strings.HasPrefix(location, "http://") && !strings.HasPrefix(location, "https://") {
-		return os.ReadFile(location)
-	}
-	req, err := http.NewRequest(http.MethodGet, location, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	resp, err := upstreamClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", location, resp.StatusCode)
-	}
-	return io.ReadAll(resp.Body)
 }
 
 // SchemaVersion is the datastore schema version every published envelope's

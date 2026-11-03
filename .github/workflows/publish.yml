@@ -158,7 +158,8 @@ jobs:
           # instead of publishing without. A runner's workspace is new every
           # time, so this round trip is the whole of what makes the builder's
           # cache mean anything here.
-          for name in $(cached_objects "$GAME"); do
+          for pair in $(cached_objects "$GAME"); do
+            name=${pair#*:}
             if b2 file download --no-progress \
               "b2://$BUCKET/$GAME/$name.json.xz" "$name.json.xz"; then
               xz -d "$name.json.xz"
@@ -244,7 +245,8 @@ jobs:
           # next run reads identical to the one this run built from, so a
           # long outage degrades by standing still rather than by the
           # fallback quietly aging out from under the runs using it.
-          for name in $(cached_objects "$GAME"); do
+          for pair in $(cached_objects "$GAME"); do
+            name=${pair#*:}
             if [ -f "$name.json" ]; then
               xz -9 -f "$name.json"
               b2 file upload --no-progress "$BUCKET" \

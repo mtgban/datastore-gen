@@ -255,14 +255,18 @@ foil TCGplayer sells apart, and a build without it would publish a datastore
 quietly missing them; the other upstreams default to their public
 URLs. `cmd/pokemon` additionally takes `-tcgdex-sets`, `-tcgdex-cards` and
 `-pokemontcg-sets` to read saved responses instead of querying the live
-APIs, and `-upstream-cache <dir>` to keep the last good responses: each
-live API is asked first and refreshes the cache whenever it answers, and
-when one is unreachable the cached response stands in, dated in the log,
-rather than the publish being lost — the workflow keeps that cache in the
-bucket beside the datastore. `cmd/fleshandblood` takes `-fab-cards` and
-`-fab-sets`, `cmd/riftbound` takes `-gallery` to read a saved card-gallery
-payload, `cmd/gundam` takes `-gcg-cards` and `cmd/palworld`
-`-palworld-cards`. Every builder takes `-against`, `-against-tolerance` and
+APIs. `cmd/fleshandblood` takes `-fab-cards` and `-fab-sets`,
+`cmd/riftbound` takes `-gallery` to read a saved card-gallery payload,
+`cmd/gundam` takes `-gcg-cards` and `cmd/palworld` `-palworld-cards`.
+
+Every builder takes `-upstream-cache <dir>` to keep the last good response
+of each live upstream: the upstream is asked first, retried on a network
+error, a 5xx or a 429, and its answer refreshes the cache once it has been
+read; when it will not answer the cached response stands in, dated in the
+log, rather than the publish being lost. The workflow keeps that cache in
+the bucket beside the datastore, one object per upstream, listed in
+`.github/scripts/games.sh`. A path given on an upstream flag bypasses the
+cache. Every builder takes `-against`, `-against-tolerance` and
 `-baseline-fit`.
 
 The dump itself is written by tcgdumper

@@ -904,11 +904,18 @@ func foilCardmarketIDs(catalog *cardmarket.Catalog, cards []card) (map[int]int, 
 	return found, reports
 }
 
+// lorcanaDocument is the slice of LorcanaJSON's allCards the fetch check
+// reads: whether it lists a card at all.
+type lorcanaDocument struct {
+	Cards []json.RawMessage `json:"cards"`
+}
+
 func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 71 (required)")
 	source := flag.String("lorcana", "", "LorcanaJSON allCards file, path or URL (required)")
 	cardmarketCatalogPath := flag.String("cardmarket-catalog", "", "published Cardmarket catalog, read for the product selling each foil TCGplayer sells apart (required)")
+	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good upstream responses, refreshed on a live fetch and read back when an upstream is unreachable")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -960,7 +967,12 @@ func main() {
 	log.Printf("catalog: %d groups, %d products (%d singles)",
 		len(catalog.Groups), len(catalog.Products), singles)
 
-	payload, err := emit.Fetch(*source)
+	payload, err := emit.Upstream{
+		Source:    "lorcana source",
+		Check:     emit.Reads(func(doc lorcanaDocument) int { return len(doc.Cards) }),
+		CacheDir:  *upstreamCache,
+		CacheName: "lorcana-allcards.json",
+	}.Fetch(*source)
 	if err != nil {
 		log.Fatalln("lorcana source:", err)
 	}

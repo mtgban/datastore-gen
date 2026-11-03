@@ -79,8 +79,9 @@ var buildIDRe = regexp.MustCompile(`"buildId":"([^"]+)"`)
 
 // galleryPayload reads the card-gallery payload: a local file when one is
 // named, the live site otherwise, resolving the build id the data URL is
-// keyed by. A payload listing a card row twice is refused either way.
-func galleryPayload(location string) ([]byte, error) {
+// keyed by, with the last clean render standing in when the site will not
+// answer. A payload listing a card row twice is refused either way.
+func galleryPayload(location, cacheDir string) ([]byte, error) {
 	if location != "" {
 		payload, err := os.ReadFile(location)
 		if err != nil {
@@ -92,15 +93,42 @@ func galleryPayload(location string) ([]byte, error) {
 		}
 		return payload, nil
 	}
-	page, err := emit.Fetch(galleryPageURL)
-	if err != nil {
-		return nil, err
+	return emit.Upstream{
+		Source:    "gallery",
+		Check:     readsAsGallery,
+		CacheDir:  cacheDir,
+		CacheName: "gallery.json",
+	}.Cached(func() ([]byte, error) {
+		page, err := emit.Fetch(galleryPageURL)
+		if err != nil {
+			return nil, err
+		}
+		m := buildIDRe.FindSubmatch(page)
+		if m == nil {
+			return nil, fmt.Errorf("%s: no buildId in the page", galleryPageURL)
+		}
+		return cleanGallery(fmt.Sprintf(galleryDataURL, m[1]), galleryAttempts, galleryPause)
+	})
+}
+
+// readsAsGallery says whether a payload is a gallery render worth keeping:
+// it lists at least one card row, and none twice.
+func readsAsGallery(payload []byte) error {
+	var doc galleryDocument
+	if err := json.Unmarshal(payload, &doc); err != nil {
+		return err
 	}
-	m := buildIDRe.FindSubmatch(page)
-	if m == nil {
-		return nil, fmt.Errorf("%s: no buildId in the page", galleryPageURL)
+	var rows int
+	for _, blade := range doc.PageProps.Page.Blades {
+		rows += len(blade.Cards.Items)
 	}
-	return cleanGallery(fmt.Sprintf(galleryDataURL, m[1]), galleryAttempts, galleryPause)
+	if rows == 0 {
+		return errors.New("the payload lists no card row")
+	}
+	if repeated := repeatedRows(payload); len(repeated) > 0 {
+		return fmt.Errorf("the payload lists %s twice", strings.Join(repeated, ", "))
+	}
+	return nil
 }
 
 // cleanGallery fetches the gallery data until a render lists every card row
@@ -127,22 +155,25 @@ func cleanGallery(url string, attempts int, pause time.Duration) ([]byte, error)
 	}
 }
 
+// galleryDocument is the slice of the gallery payload the row checks read.
+type galleryDocument struct {
+	PageProps struct {
+		Page struct {
+			Blades []struct {
+				Type  string `json:"type"`
+				Cards struct {
+					Items []any `json:"items"`
+				} `json:"cards"`
+			} `json:"blades"`
+		} `json:"page"`
+	} `json:"pageProps"`
+}
+
 // repeatedRows lists the ids of the card rows a gallery payload serves more
 // than once, identical in every field. A different row under an id already
 // taken is a printing of its own, which respellSharedIDs carries.
 func repeatedRows(payload []byte) []string {
-	var doc struct {
-		PageProps struct {
-			Page struct {
-				Blades []struct {
-					Type  string `json:"type"`
-					Cards struct {
-						Items []any `json:"items"`
-					} `json:"cards"`
-				} `json:"blades"`
-			} `json:"page"`
-		} `json:"pageProps"`
-	}
+	var doc galleryDocument
 	// A payload of another shape is main's to refuse, saying what is missing
 	err := json.Unmarshal(payload, &doc)
 	if err != nil {
@@ -902,6 +933,7 @@ func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 89 (required)")
 	galleryPath := flag.String("gallery", "", "card-gallery payload file (default: fetch the live gallery)")
+	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good upstream responses, refreshed on a live fetch and read back when an upstream is unreachable")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -942,7 +974,7 @@ func main() {
 	log.Printf("catalog: %d groups, %d products (%d singles), %d with a known finish",
 		len(catalog.Groups), len(catalog.Products), singles, len(finishes))
 
-	payload, err := galleryPayload(*galleryPath)
+	payload, err := galleryPayload(*galleryPath, *upstreamCache)
 	if err != nil {
 		log.Fatalln("gallery payload:", err)
 	}

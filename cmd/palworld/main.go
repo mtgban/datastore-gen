@@ -50,6 +50,7 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -136,23 +137,30 @@ func japaneseNumber(number string) string {
 // fetchCards reads the whole card list, following the API's paging. A local
 // path is read instead when one is given, so a build can be pinned to a
 // file; such a file may hold either one page's object or a bare array.
-func fetchCards(location string) ([]palworldCard, error) {
-	if !strings.HasPrefix(location, "http://") && !strings.HasPrefix(location, "https://") {
-		data, err := os.ReadFile(location)
-		if err != nil {
-			return nil, err
-		}
-		var page palworldPage
-		if err := json.Unmarshal(data, &page); err == nil && len(page.Data) > 0 {
-			return page.Data, nil
-		}
-		var bare []palworldCard
-		if err := json.Unmarshal(data, &bare); err != nil {
-			return nil, err
-		}
-		return bare, nil
+func fetchCards(location, cacheDir string) ([]palworldCard, error) {
+	var data []byte
+	var err error
+	if emit.IsURL(location) {
+		data, err = emit.Upstream{
+			Source:    "palworldtcg.gg",
+			Check:     func(data []byte) error { _, err := parseCards(data); return err },
+			CacheDir:  cacheDir,
+			CacheName: "palworld-cards.json",
+		}.Cached(func() ([]byte, error) { return pagedCards(location) })
+	} else {
+		data, err = os.ReadFile(location)
 	}
-	var all []palworldCard
+	if err != nil {
+		return nil, err
+	}
+	return parseCards(data)
+}
+
+// pagedCards walks the API's pages from the first and splices the rows into
+// one bare array, as the tagging workflow's fetch script writes them, so the
+// cache reads back like a pinned file.
+func pagedCards(location string) ([]byte, error) {
+	var all []json.RawMessage
 	// A page count nothing sane reaches, so a server answering with a
 	// cycle of next links stops the build rather than running forever.
 	for i := 0; location != "" && i < 200; i++ {
@@ -160,14 +168,36 @@ func fetchCards(location string) ([]palworldCard, error) {
 		if err != nil {
 			return nil, err
 		}
-		var page palworldPage
+		var page struct {
+			Data []json.RawMessage `json:"data"`
+			Meta struct {
+				Next string `json:"next"`
+			} `json:"meta"`
+		}
 		if err := json.Unmarshal(data, &page); err != nil {
 			return nil, err
 		}
 		all = append(all, page.Data...)
 		location = page.Meta.Next
 	}
-	return all, nil
+	return json.Marshal(all)
+}
+
+// parseCards reads a card list as one page's object or a bare array, and
+// refuses one that lists nothing.
+func parseCards(data []byte) ([]palworldCard, error) {
+	var page palworldPage
+	if err := json.Unmarshal(data, &page); err == nil && len(page.Data) > 0 {
+		return page.Data, nil
+	}
+	var bare []palworldCard
+	if err := json.Unmarshal(data, &bare); err != nil {
+		return nil, err
+	}
+	if len(bare) == 0 {
+		return nil, errors.New("the list names no card")
+	}
+	return bare, nil
 }
 
 // tcgSingles are the product types single cards are filed under, as the
@@ -256,6 +286,7 @@ func main() {
 	output := flag.String("o", "", "output file (default stdout)")
 	catalogPath := flag.String("tcg-catalog", "", "tcgdumper catalog dump for category 91 (required)")
 	palworldCards := flag.String("palworld-cards", palworldCardsURL, "palworldtcg.gg cards API or a file holding its answer")
+	upstreamCache := flag.String("upstream-cache", "", "directory holding the last good upstream responses, refreshed on a live fetch and read back when an upstream is unreachable")
 	against := flag.String("against", "", "baseline datastore to compare against; refuses a build that lost a large share of it")
 	againstTolerance := flag.Float64("against-tolerance", 0.01, "the share of its cards or sealed products a build may lose")
 	baselineFit := flag.String("baseline-fit", "", "write this file when the build is fit to become the baseline the next build compares against")
@@ -448,7 +479,7 @@ func main() {
 
 	pals := palNames(singles)
 
-	upstream, err := fetchCards(*palworldCards)
+	upstream, err := fetchCards(*palworldCards, *upstreamCache)
 	if err != nil {
 		log.Fatalln("palworldtcg:", err)
 	}
