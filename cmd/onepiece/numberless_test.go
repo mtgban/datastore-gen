@@ -51,7 +51,7 @@ func TestNumberlessProductHasNoNumber(t *testing.T) {
 			if s.baseName != tt.wantBase {
 				t.Errorf("baseName = %q, want %q", s.baseName, tt.wantBase)
 			}
-			if id := idBase(s.number, tt.product.ProductID) + emit.FinishSuffix(tt.finish); id != tt.wantID {
+			if id := emit.IDBase(s.number, tt.product.ProductID) + emit.FinishSuffix(tt.finish); id != tt.wantID {
 				t.Errorf("id = %q, want %q", id, tt.wantID)
 			}
 		})

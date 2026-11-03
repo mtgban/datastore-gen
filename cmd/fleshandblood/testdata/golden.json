@@ -3,13 +3,13 @@
   "data":{
     "game":"fleshandblood",
     "properties":{"pitch":["Red","Yellow","Blue"],"rarity":["Promo","Pirate Booty","Gold","Marvel","Fabled","Legendary","Majestic","Super Rare","Rare","Common","Basic","Token","None"]},
-    "sets":{"ADK":{"name":"Armory Deck: Kayo","releaseDate":"2024-05-03"},"OXO":{"name":"OXO"},"ROS":{"name":"Rosetta","releaseDate":"2024-09-20"},"WTR":{"name":"Welcome to Rathe","releaseDate":"2019-10-11"}},
+    "sets":{"G23506":{"name":"Armory Deck: Kayo","releaseDate":"2024-05-03"},"OXO":{"name":"OXO"},"ROS":{"name":"Rosetta","releaseDate":"2024-09-20"},"WTR":{"name":"Welcome to Rathe","releaseDate":"2019-10-11"}},
     "cards":[
       {"id":"wtr005_225015_1steditionnormal","name":"Barkbone Strapping","setCode":"WTR","number":"WTR005","rarity":"Common","finish":"1st Edition Normal","artist":"Ksenia Belova","image":"https://tcgplayer-cdn.tcgplayer.com/product/225015_400w.jpg","externalLinks":{"tcgPlayerId":225015,"fabId":"WTR005"}},
       {"id":"wtr005_225015_1steditioncoldfoil","name":"Barkbone Strapping","setCode":"WTR","number":"WTR005","rarity":"Common","finish":"1st Edition Cold Foil","artist":"Ksenia Belova","image":"https://tcgplayer-cdn.tcgplayer.com/product/225015_400w.jpg","externalLinks":{"tcgPlayerId":225015,"fabId":"WTR005"}},
       {"id":"wtr005_225015_unlimitededitionnormal","name":"Barkbone Strapping","setCode":"WTR","number":"WTR005","rarity":"Common","finish":"Unlimited Edition Normal","artist":"Ksenia Belova","image":"https://tcgplayer-cdn.tcgplayer.com/product/225015_400w.jpg","externalLinks":{"tcgPlayerId":225015,"fabId":"WTR005"}},
       {"id":"wtr005_225015_unlimitededitionrainbowfoil","name":"Barkbone Strapping","setCode":"WTR","number":"WTR005","rarity":"Common","finish":"Unlimited Edition Rainbow Foil","artist":"Ksenia Belova","image":"https://tcgplayer-cdn.tcgplayer.com/product/225015_400w.jpg","externalLinks":{"tcgPlayerId":225015,"fabId":"WTR005"}},
-      {"id":"ako001_549250","name":"Kayo, Armed and Dangerous","setCode":"ADK","number":"AKO001","rarity":"Majestic","finish":"Normal","artist":"Jessada Sutthi","image":"https://tcgplayer-cdn.tcgplayer.com/product/549250_400w.jpg","externalLinks":{"tcgPlayerId":549250,"fabId":"AKO001"}},
+      {"id":"ako001_549250","name":"Kayo, Armed and Dangerous","setCode":"G23506","number":"AKO001","rarity":"Majestic","finish":"Normal","artist":"Jessada Sutthi","image":"https://tcgplayer-cdn.tcgplayer.com/product/549250_400w.jpg","externalLinks":{"tcgPlayerId":549250,"fabId":"AKO001"}},
       {"id":"ros007_561264","name":"Aurora, Shooting Star","setCode":"ROS","number":"ROS007","rarity":"Majestic","finish":"Normal","artist":"Asur Misoa","image":"https://tcgplayer-cdn.tcgplayer.com/product/561264_400w.jpg","externalLinks":{"tcgPlayerId":561264,"fabId":"ROS007"}},
       {"id":"ros036_561283","name":"Earth Form","setCode":"ROS","number":"ROS036","rarity":"Rare","finish":"Normal","variant":"Red","pitch":"Red","pitches":["Red"],"artist":"Saad Irfan","image":"https://tcgplayer-cdn.tcgplayer.com/product/561283_400w.jpg","externalLinks":{"tcgPlayerId":561283,"fabId":"ROS036"}},
       {"id":"ros036_561283_rainbowfoil","name":"Earth Form","setCode":"ROS","number":"ROS036","rarity":"Rare","finish":"Rainbow Foil","variant":"Red","pitch":"Red","pitches":["Red"],"artist":"Saad Irfan","image":"https://tcgplayer-cdn.tcgplayer.com/product/561283_400w.jpg","externalLinks":{"tcgPlayerId":561283,"fabId":"ROS036"}},
@@ -20,6 +20,6 @@
       {"id":"ros257","name":"Embodiment of Earth","setCode":"ROS","number":"ROS257","rarity":"Token","finish":"Normal","image":"https://storage.googleapis.com/fabmaster/cardfaces/2024-ROS/EN/ROS257_V2.png","externalLinks":{"fabId":"ROS257"}},
       {"id":"wtr006_unlimitededitionnormal","name":"Alpha Rampage","setCode":"WTR","number":"WTR006","rarity":"Majestic","finish":"Unlimited Edition Normal","image":"https://legendstory-production-s3-public.s3.amazonaws.com/media/cards/large/WTR006.webp","externalLinks":{"fabId":"WTR006"}}
     ],
-    "sealed":[{"id":"adk-547761","name":"Armory Deck: Kayo","setCode":"ADK","releaseDate":"2024-05-03","image":"https://tcgplayer-cdn.tcgplayer.com/product/547761_400w.jpg","externalLinks":{"tcgPlayerId":547761}}]
+    "sealed":[{"id":"g23506-547761","name":"Armory Deck: Kayo","setCode":"G23506","releaseDate":"2024-05-03","image":"https://tcgplayer-cdn.tcgplayer.com/product/547761_400w.jpg","externalLinks":{"tcgPlayerId":547761}}]
   }
 }
