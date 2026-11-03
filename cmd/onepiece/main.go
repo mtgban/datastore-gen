@@ -2139,7 +2139,7 @@ func main() {
 		cardNames[epithetKey(singles[i].baseName)] = true
 	}
 
-	var cards []*emit.Card
+	cards := slices.Grow([]*emit.Card(nil), len(singles))
 	statedOn := map[*emit.Card]stated{}
 	var nonEnglish int
 	for _, s := range singles {
@@ -2291,7 +2291,7 @@ func main() {
 	sort.Slice(sealedProducts, func(i, j int) bool {
 		return sealedProducts[i].ProductID < sealedProducts[j].ProductID
 	})
-	var sealed []*emit.Sealed
+	sealed := slices.Grow([]*emit.Sealed(nil), len(sealedProducts))
 	for _, product := range sealedProducts {
 		group := groupByID[product.GroupID]
 		sealed = append(sealed, &emit.Sealed{
