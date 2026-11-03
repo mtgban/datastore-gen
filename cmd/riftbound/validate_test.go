@@ -25,6 +25,7 @@ func TestSharedChecksReadRiftbound(t *testing.T) {
 		desc, data, refused string
 	}{
 		{"a clean gallery", string(file("riftboundCardGallery", jinx, box)), ""},
+		{"a printing filed with no number", string(file("riftboundCardGallery", strings.Replace(jinx, `"publicCode":"OGN-001/298","number":"1",`, ``, 1), box)), ""},
 		{"no card gallery", string(file("somethingElse", jinx, box)), "no card gallery blade"},
 		{"a card in a set the file lacks", string(file("riftboundCardGallery", strings.Replace(jinx, `"setCode":"OGN"`, `"setCode":"SFD"`, 1), box)), "unknown set SFD"},
 		{"a finish the skus do not sell", string(file("riftboundCardGallery", strings.Replace(jinx, `,{"finish":"Foil","id":"ogn-001-298_foil"}`, ``, 1), box)), "skus carry [Foil Normal]"},

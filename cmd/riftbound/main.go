@@ -16,8 +16,8 @@
 // carry: the gallery files one row per face and the catalog sells the card
 // once under both names, so the composite number is the printing's own and
 // the single-face rows keep theirs. A product the catalog gives no number
-// is filed under its product id, which is already the id such a printing
-// carries and is no shape a Riftbound collector number takes.
+// publishes none, and its id is spelled from the product as every adopted
+// printing's is.
 //
 // The output is the gallery payload itself with the extra data merged into
 // the gallery blade, so mtgmatcher/riftbound loads it unchanged — and it is
@@ -329,13 +329,13 @@ func isPromoGroup(g tcgplayer.Group) bool {
 	return strings.Contains(g.Name, "Promotional") || strings.Contains(g.Name, "Bundle")
 }
 
-// numberFor is the collector number a printing is filed under: the
-// catalog's own Number, or the product id where the catalog gives none.
-// The id is already what such a printing's own id is built from, and six
-// digits is no shape a Riftbound collector number takes, so nothing a
-// storefront writes can be mistaken for it.
+// numberFor is the collector number a printing is keyed under while it is
+// matched to the gallery and its siblings: the catalog's own Number, or the
+// product id where the catalog gives none. Six digits is no shape a
+// Riftbound collector number takes, so such a key matches nothing; it is
+// never published (withPublicCode).
 func numberFor(product tcgplayer.Product) string {
-	number := product.Extended("Number")
+	number := catalogNumber(product)
 	if number != "" {
 		return number
 	}
@@ -349,6 +349,31 @@ func numberFor(product tcgplayer.Product) string {
 // storefront's own against.
 func publicCode(setCode, number string) string {
 	return setCode + "-" + strings.Join(strings.Fields(number), "")
+}
+
+// catalogNumber is the catalog's own Number, or "" where it gives none or
+// only blanks, read by numberFor and withPublicCode alike so the two cannot
+// disagree on which products are numbered.
+func catalogNumber(product tcgplayer.Product) string {
+	return strings.TrimSpace(product.Extended("Number"))
+}
+
+// withPublicCode gives a printing the gallery's code, which its number is
+// published from, where the catalog files the product under one. One filed
+// with none publishes neither (SPECIFICATIONS §2.2): 2 products on 2026-11-03.
+func withPublicCode(item map[string]any, setCode string, product tcgplayer.Product) {
+	if number := catalogNumber(product); number != "" {
+		item["publicCode"] = publicCode(setCode, number)
+	}
+}
+
+// stampNumber publishes the number a printing's code carries, as written.
+func stampNumber(item map[string]any) {
+	if code, ok := item["publicCode"].(string); ok {
+		if number := numberWritten(code); number != "" {
+			item["number"] = number
+		}
+	}
 }
 
 // numberWritten is the collector number as a storefront writes it: what
@@ -413,7 +438,6 @@ func adoptedCard(group tcgplayer.Group, setCode string, product tcgplayer.Produc
 	item := map[string]any{
 		"id":                 fmt.Sprintf("%s-%d", strings.ToLower(setCode), product.ProductID),
 		"name":               name,
-		"publicCode":         publicCode(setCode, number),
 		"orientation":        "portrait",
 		"tcgplayerProductId": product.ProductID,
 		"finishes":           printings,
@@ -432,6 +456,7 @@ func adoptedCard(group tcgplayer.Group, setCode string, product tcgplayer.Produc
 			"url": emit.ImageURL(product.ImageURL),
 		},
 	}
+	withPublicCode(item, setCode, product)
 	if len(promoTypes) > 0 {
 		item["promoTypes"] = promoTypes
 		item["variant"] = strings.Join(kept, " ")
@@ -825,7 +850,9 @@ func readDocument(data []byte) (out validate.Document, sets, cards, sealed, iden
 		for _, item := range blade.Cards.Items {
 			id, _ := item["id"].(string)
 			name, _ := item["name"].(string)
-			if code, _ := item["publicCode"].(string); id == "" || name == "" || code == "" {
+			// No code is demanded: a printing the catalog files with no
+			// number has none.
+			if id == "" || name == "" {
 				return out, 0, 0, 0, 0, fmt.Errorf("printing %q (%s) missing identity", name, id)
 			}
 			links, _ := item["externalLinks"].(map[string]any)
@@ -1232,7 +1259,6 @@ func main() {
 				"id":                 fmt.Sprintf("%s-%d", strings.ToLower(code), product.ProductID),
 				"collectorNumber":    collector,
 				"name":               name,
-				"publicCode":         publicCode(code, number),
 				"orientation":        "portrait",
 				"tcgplayerProductId": product.ProductID,
 				"finishes":           finishes[product.ProductID],
@@ -1251,6 +1277,7 @@ func main() {
 					"url": emit.ImageURL(product.ImageURL),
 				},
 			}
+			withPublicCode(item, code, product)
 			if len(promoTypes) > 0 {
 				item["promoTypes"] = promoTypes
 				item["variant"] = strings.Join(kept, " ")
@@ -1354,11 +1381,7 @@ func main() {
 				}
 			}
 		}
-		if code, ok := item["publicCode"].(string); ok {
-			if number := numberWritten(code); number != "" {
-				item["number"] = number
-			}
-		}
+		stampNumber(item)
 		if image, ok := item["cardImage"].(map[string]any); ok {
 			if url, ok := image["url"].(string); ok && url != "" {
 				item["image"] = url
