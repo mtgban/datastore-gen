@@ -157,11 +157,12 @@ func mintFromCardmarket(path string, cards []*emit.Card, sets map[string]*emit.S
 	sources := map[string][]*emit.Card{}
 	for _, row := range cards {
 		name, number, code := row.Name, row.Number, row.SetCode
-		if !held[stampedKey(code, name, number)] {
+		key := stampedKey(code, name, number)
+		if !held[key] {
 			heldNames[code+"|"+stampedName(name)]++
 		}
-		held[stampedKey(code, name, number)] = true
-		sources[stampedKey(code, name, number)] = append(sources[stampedKey(code, name, number)], row)
+		held[key] = true
+		sources[key] = append(sources[key], row)
 	}
 
 	ids := make([]int, 0, len(catalog.Data.Products))
