@@ -422,8 +422,8 @@ func TestDropRepeatedFinishesKeepsTheFirst(t *testing.T) {
 func TestDropEmptySetsKeepsWhatHoldsSomething(t *testing.T) {
 	sets := map[string]any{"AB": map[string]any{}, "BOX": map[string]any{}, "NEXT": map[string]any{}}
 	cards := []any{map[string]any{"id": "a", "setCode": "AB"}}
-	sealed := []any{map[string]any{"id": "b", "setCode": "BOX"}}
-	DropEmptySets(sets, cards, sealed)
+	sealed := []*Sealed{{ID: "b", SetCode: "BOX"}}
+	DropEmptySets(sets, SetsInUse(cards, sealed))
 	if _, kept := sets["NEXT"]; kept || len(sets) != 2 {
 		t.Errorf("sets %v, want AB and BOX alone", sets)
 	}
