@@ -244,7 +244,8 @@ the catalog sells none or prices the one it has in nothing yet, carries no
 gallery has no row for is adopted as a printing with the same shape, named
 as the gallery names its card where the gallery carries another printing of
 it, its `domain` taken from a gallery printing of the same name or else from
-the catalog's `Domain`. The
+the catalog's `Domain`. One the catalog files with no number carries
+neither `publicCode` nor `number`. The
 sealed products at `blades[].sealed.items[]` are ours alone and carry only
 the shared names: `id`, `name`, `setCode`, `releaseDate`, `image` and
 `externalLinks.tcgPlayerId`. There is no `cards` key at any level;
