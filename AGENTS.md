@@ -191,7 +191,7 @@ still yours.
 
    ```sh
    # every package that reads the game, the loader word table included
-   <GAME>_PATH=/abs/new.json go test ./mtgmatcher/... ./internal/... -count=1
+   <GAME>_PATH=/abs/new.json go test ./matcher/... ./internal/... -count=1
    # the catalog replay: every product name, before and after
    REPLAY_CATALOG=/abs/catalog.json <GAME>_PATH=/abs/old.json REPLAY_OUT=/abs/before.txt \
      go test ./internal/vocabulary/ -run TestReplayCatalogNames -count=1
@@ -289,7 +289,7 @@ semantics a datastore change must respect. The ones that have bitten:
   printing: a listing that says nothing means the product sold under the
   bare name.
 - **A multi-word token wants a row in the loader's word table**
-  (`promoTypeLabels`, in `mtgmatcher/<game>/promolabels.go`,
+  (`promoTypeLabels`, in `matcher/<game>/promolabels.go`,
   `promolabels_table.go` for One Piece, or the game's main file for Lorcana
   and Palworld), or a reader sees it run together.
   A token published before its row is reported by go-mtgban's
