@@ -50,7 +50,8 @@ cmd/<game>/            one builder per game (main.go, and files beside it
                        onepiece, palworld, pokemon, riftbound, yugioh
 cmd/datastorediff      reads two built datastores, prints what the second did
                        to the first (used by the tagging workflow)
-internal/emit          what every builder spells the same way: finish suffix,
+internal/emit          what every builder spells the same way: the entry types
+                       (Datastore, Set, Card, Sealed, Printing, Links), finish suffix,
                        plain printing, finish order, promo slug, quote
                        normalisation, image link, the retrying fetch and its
                        last-good cache (Upstream), StringsOf, the

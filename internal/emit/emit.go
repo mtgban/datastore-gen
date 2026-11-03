@@ -612,19 +612,6 @@ func RarityNames(rarities []tcgplayer.Rarity) map[string]string {
 	return names
 }
 
-// SpellRarities publishes every entry's rarity by its name where it holds a
-// code names spells out. A builder runs it last, so whatever compared the
-// codes on the way still read them.
-func SpellRarities(entries []any, names map[string]string) {
-	for _, raw := range entries {
-		entry, _ := raw.(map[string]any)
-		rarity, _ := entry["rarity"].(string)
-		if name, found := names[rarity]; found {
-			entry["rarity"] = name
-		}
-	}
-}
-
 // AsList gives every entry carrying a value in field the same values as a
 // list under list, which is what a reader takes: the string split where it
 // joins two with a semicolon ("Green;Red"). An entry already holding the
@@ -640,46 +627,6 @@ func AsList(entries []any, field, list string) {
 			entry[list] = strings.Split(value, ";")
 		}
 	}
-}
-
-// DropRepeatedFinishes keeps the first entry pricing each product's finish,
-// logs the rest, and returns the entries kept in order. A product sells a
-// finish once, so a second entry for it is a printing nothing tells apart
-// from the first and splits its price; it is dropped rather than refusing
-// every card of the game over one product. An entry no product prices is
-// kept as it is.
-func DropRepeatedFinishes(entries []any) []any {
-	type printing struct {
-		product int
-		finish  string
-	}
-	seen := map[printing]bool{}
-	kept := make([]any, 0, len(entries))
-	var dropped []string
-	for _, raw := range entries {
-		entry, _ := raw.(map[string]any)
-		links, _ := entry["externalLinks"].(map[string]any)
-		var product int
-		switch id := links["tcgPlayerId"].(type) {
-		case int:
-			product = id
-		case float64:
-			product = int(id)
-		}
-		finish, _ := entry["finish"].(string)
-		key := printing{product, finish}
-		if product != 0 && finish != "" && seen[key] {
-			dropped = append(dropped, fmt.Sprintf("%v (product %d %s)", entry["id"], product, finish))
-			continue
-		}
-		seen[key] = true
-		kept = append(kept, raw)
-	}
-	if len(dropped) > 0 {
-		log.Printf("finishes: %d entries price a product's finish another entry already prices, dropped: %s",
-			len(dropped), strings.Join(dropped, ", "))
-	}
-	return kept
 }
 
 // DropRepeats keeps the first row under each key, logs the rest under
