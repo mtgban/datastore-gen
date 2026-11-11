@@ -114,7 +114,7 @@ go test -race ./...
 That is what `ci.yml` runs on every push and pull request, on the toolchain
 `go.mod` names; run all of it before committing. A newer Go on the machine
 lints differently: govulncheck reads its standard library, which on Go 1.27.1
-carried nine advisories the pinned go1.26.10 did not. `gofmt` is called by
+carried nine advisories the pinned go1.26.11 did not. `gofmt` is called by
 the toolchain's path because the one on `PATH` is the installed Go's, not
 `GOTOOLCHAIN`'s.
 
