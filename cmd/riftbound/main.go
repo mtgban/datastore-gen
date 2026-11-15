@@ -282,9 +282,26 @@ func pricedSingles(products []tcgplayer.Product, finishes map[int][]string) (map
 
 // isPromoGroup reports whether a TCGplayer group holds promotional printings
 // rather than a main set the gallery already covers (or will cover once
-// published, like preview-season sets).
-func isPromoGroup(g tcgplayer.Group) bool {
-	return strings.Contains(g.Name, "Promotional") || strings.Contains(g.Name, "Bundle")
+// published, like preview-season sets). The name says so for most; a group
+// named for its collection says it through what it sells, "Riftbound x K/DA:
+// Couture Collection (Sealed Promotional Bundle)". Every sealed product has to
+// be such a bundle, since a main set selling one beside its boosters is still
+// a main set.
+func isPromoGroup(g tcgplayer.Group, products []tcgplayer.Product) bool {
+	if strings.Contains(g.Name, "Promotional") || strings.Contains(g.Name, "Bundle") {
+		return true
+	}
+	bundles := 0
+	for _, product := range products {
+		if slices.Contains(tcgSingles, product.ProductType) {
+			continue
+		}
+		if !strings.Contains(product.Name, "Promotional Bundle") {
+			return false
+		}
+		bundles++
+	}
+	return bundles > 0
 }
 
 // numberFor is the collector number a printing is keyed under while it is
@@ -1259,7 +1276,7 @@ func main() {
 		// The promo type gates how a printing matches, so only the groups
 		// that hold promotional printings carry it: a set the gallery has
 		// merely not published yet is a main set, whatever it is missing.
-		if isPromoGroup(group) {
+		if isPromoGroup(group, products) {
 			set["type"] = "promo"
 		}
 		setItems = append(setItems, set)
