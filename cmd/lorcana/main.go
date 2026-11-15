@@ -762,6 +762,46 @@ func oneCardPerID(items []any) ([]any, []string) {
 	return kept, repeats
 }
 
+// spellAsBase gives a reprint its base card's spelling where upstream wrote
+// the two apart by case alone ("Let it Go", reprinting "Let It Go"), so one
+// card has one name. Four reprints did on 2026-11-03. It returns what it
+// respelled.
+func spellAsBase(items []any) []string {
+	byID := map[int]map[string]any{}
+	for _, item := range items {
+		raw, _ := item.(map[string]any)
+		if id, ok := cardID(raw["id"]); ok {
+			if _, taken := byID[id]; !taken {
+				byID[id] = raw
+			}
+		}
+	}
+	var respelled []string
+	for _, item := range items {
+		raw, _ := item.(map[string]any)
+		baseID, ok := cardID(raw["baseId"])
+		if !ok {
+			continue
+		}
+		base := byID[baseID]
+		name, _ := raw["fullName"].(string)
+		baseName, _ := base["fullName"].(string)
+		if base == nil || name == baseName || !strings.EqualFold(name, baseName) {
+			continue
+		}
+		for _, field := range []string{"name", "version", "fullName"} {
+			if v, ok := base[field]; ok {
+				raw[field] = v
+			} else {
+				delete(raw, field)
+			}
+		}
+		id, _ := cardID(raw["id"])
+		respelled = append(respelled, fmt.Sprintf("%q (%d) as %q (%d)", name, id, baseName, baseID))
+	}
+	return respelled
+}
+
 func decodeCard(item any) (card, bool) {
 	raw, ok := item.(map[string]any)
 	if !ok {
@@ -996,6 +1036,10 @@ func main() {
 	if len(renamed) > 0 {
 		log.Printf("lorcana: %d cards are a printing another card already is, skipped: %s",
 			len(renamed), strings.Join(renamed, ", "))
+	}
+	if respelled := spellAsBase(items); len(respelled) > 0 {
+		log.Printf("lorcana: %d reprints spelled their base card's way: %s",
+			len(respelled), strings.Join(respelled, ", "))
 	}
 
 	var cards []card
