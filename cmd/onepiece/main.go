@@ -1032,6 +1032,7 @@ var handCarriedPrintings = []handCarried{
 	{"OP01-028", "", "", "Pre-Errata", "", 768147, 409168},
 	{"OP01-030", "", "", "Pre-Errata", "", 768149, 409169},
 	{"OP01-040", "Parallel", "", "Pre-Errata", "", 768200, 319051},
+	{"OP01-041", "", "PRB-01", "Reprint", "", 799198, 310610},
 	{"OP01-047", "", "", "Alpha Pre-Errata", "", 755417, 277454},
 	{"OP01-047", "", "", "Beta Pre-Errata", "", 0, 277455},
 	{"OP01-047", "Parallel", "", "Alpha Pre-Errata", "", 755418, 277403},
