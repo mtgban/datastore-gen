@@ -1366,6 +1366,7 @@ var catalogFixes = handtable.New("catalogFixes", map[int]productFix{
 	614302: {name: "Arakni, 5L!p3d 7hRu 7h3 cR4X (Marvel)"},
 	615757: {name: "Arakni, 5L!p3d 7hRu 7h3 cR4X (Extended Art)"},
 	617199: {name: "Arakni, 5L!p3d 7hRu 7h3 cR4X - HER131"},
+	618317: {number: "LGS391"},
 	633284: {name: "Saltwater Swell (Yellow)", number: "SEA142"},
 	633285: {name: "Saltwater Swell (Blue)", number: "SEA143"},
 	646832: {number: "BDD005"},
@@ -1381,6 +1382,7 @@ var catalogFixes = handtable.New("catalogFixes", map[int]productFix{
 	695227: {name: "Heaven's Claws (Yellow)", number: "OMN173"},
 	695228: {name: "Heaven's Claws (Blue)", number: "OMN174"},
 	700890: {number: "JDG082"},
+	701474: {number: "JDG070"},
 })
 
 // fixProduct applies a product's catalogFixes row, if it still changes
