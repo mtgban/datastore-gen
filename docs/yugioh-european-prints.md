@@ -20,8 +20,9 @@ American sibling's plain rows sell; an unjoined candidate, or one whose
 sibling sells none of the three, mints one entry at the set's default run,
 the first of those the set's own priced entries carry - unless: a priced
 TCGplayer product already carries that exact number (MRL-E104 through
-E130 are TCGplayer products today, and stand down the same as any other
-already-priced code); its joined North American sibling is not itself a
+E130 are TCGplayer products today), when it mints nothing and each plain
+row of that product wears the European label instead; its joined North
+American sibling is not itself a
 plain row (see "Why labelled, not plain" below); the set prices no card
 at all, so there is no default run to read; an unjoined candidate's own
 rarity is not one this build's own cards carry; or an unjoined name is
@@ -62,7 +63,11 @@ minting beside either would leave every candidate a variant and no plain
 row for an unlabelled listing to land on, so both stand down instead.
 SDD and WC4 (`Stairway to the Destined Duel`, `World Championship 2004:
 GBA Promo`) are video-game promo sets whose three E-numbered cards apiece
-are already TCGplayer products; nothing mints for either.
+are already TCGplayer products; nothing mints for either, and their rows
+wear the label like MRL's: 60 priced rows in all (27 MRL products in two
+runs, 3 SDD and 3 WC4 in one). On MRL-E130 the label is what tells
+Serpent Night Dragon's European print from its North American MRL-103,
+which a listing without the label aliased between.
 
 **TP1 and PCY mint in full (35 rows) but reach no vendor today**: no
 product in either set appears among the Cardmarket rows this change
@@ -171,6 +176,10 @@ American row to a European one.
   names no run, so a European run the North American sibling never sold
   has no printing, and one it sold is minted whether or not Europe
   printed it.
+- **TSC-E001..E003 stay unlabelled.** Exchange, Graceful Dice and Skull
+  Dice (TCGplayer 236749, 236754, 236745) are priced European codes, but
+  TCGplayer files them under VDP and no published set is coded TSC, so
+  they are not candidates. No vendor landing depends on them today.
 
 ## The identity guard
 

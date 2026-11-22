@@ -523,17 +523,19 @@ type europeanSibling struct {
 // checked against the names this build already publishes.
 //
 // A code stands down, unminted, rather than mints, when: a priced
-// product already carries that exact number; the joined sibling is not
-// itself a plain row (a labelled sibling would leave every candidate a
-// variant and no plain row left for an unlabelled listing to land on);
+// product already carries that exact number (its plain rows wear the
+// label instead); the joined sibling is not itself a plain row (a
+// labelled sibling would leave every candidate a variant and no plain row
+// left for an unlabelled listing to land on);
 // the set has no priced entry to read a default run from; an unjoined
 // candidate's own rarity is not one this build's own cards carry; or an
 // unjoined name is not itself a published one. Each case is logged and
 // skipped, not fatal - one bad upstream row must not take Yu-Gi-Oh off
 // the build.
 //
-// Every minted row carries the "European" variant and "european" promo
-// type, appended after foldPromoTypes runs so the fold cannot rewrite it.
+// Every minted or labelled row carries the "European" variant and
+// "european" promo type, set after foldPromoTypes runs so the fold cannot
+// rewrite it.
 // See docs/yugioh-european-prints.md for the label's purpose and the
 // replay evidence.
 func mintEuropeanPrints(cards []*emit.Card, sets map[string]*emit.Set, ygoCards []ygoCard) []*emit.Card {
@@ -542,7 +544,7 @@ func mintEuropeanPrints(cards []*emit.Card, sets map[string]*emit.Set, ygoCards 
 		return cards
 	}
 
-	numbered := map[string]bool{}
+	priced := map[string][]*emit.Card{}
 	finishesOf := map[string]map[string]bool{}
 	bySetKonami := map[string]europeanSibling{}
 	bySetName := map[string]europeanSibling{}
@@ -566,7 +568,7 @@ func mintEuropeanPrints(cards []*emit.Card, sets map[string]*emit.Set, ygoCards 
 	cardRarities := map[string]string{}
 	for _, e := range cards {
 		if e.Number != "" {
-			numbered[strings.ToUpper(e.Number)] = true
+			priced[strings.ToUpper(e.Number)] = append(priced[strings.ToUpper(e.Number)], e)
 		}
 		if finishesOf[e.SetCode] == nil {
 			finishesOf[e.SetCode] = map[string]bool{}
@@ -629,8 +631,8 @@ func mintEuropeanPrints(cards []*emit.Card, sets map[string]*emit.Set, ygoCards 
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].code < candidates[j].code })
 
 	type tally struct {
-		minted, rows, stood, byID, byName, unjoined, rarityFolds int
-		notPlain, noFinish, badRarity, unverifiable              int
+		minted, rows, stood, labelled, byID, byName, unjoined, rarityFolds int
+		notPlain, noFinish, badRarity, unverifiable                        int
 	}
 	stats := map[string]*tally{}
 	statOf := func(prefix string) *tally {
@@ -642,7 +644,16 @@ func mintEuropeanPrints(cards []*emit.Card, sets map[string]*emit.Set, ygoCards 
 	var minted []*emit.Card
 	for _, c := range candidates {
 		st := statOf(c.prefix)
-		if numbered[c.code] {
+		// A product the catalog already sells is the European print
+		// itself: it mints nothing, but wears the label a minted one does.
+		if rows := priced[c.code]; len(rows) > 0 {
+			for _, e := range rows {
+				if e.Variant == "" {
+					e.Variant = "European"
+					e.PromoTypes = append(e.PromoTypes, "european")
+					st.labelled++
+				}
+			}
 			st.stood++
 			continue
 		}
@@ -742,15 +753,16 @@ func mintEuropeanPrints(cards []*emit.Card, sets map[string]*emit.Set, ygoCards 
 		prefixes = append(prefixes, prefix)
 	}
 	sort.Strings(prefixes)
-	var totalMinted, totalRows, totalStood, totalByID, totalByName, totalUnjoined, totalFolds int
+	var totalMinted, totalRows, totalStood, totalLabelled, totalByID, totalByName, totalUnjoined, totalFolds int
 	var totalNotPlain, totalNoFinish, totalBadRarity, totalUnverifiable int
 	for _, prefix := range prefixes {
 		st := stats[prefix]
-		log.Printf("european first prints: %s: %d minted in %d rows (%d by passcode, %d by name, %d unjoined, %d rarities folded), %d already priced, %d not a plain sibling, %d no default finish, %d bad rarity, %d unverifiable",
-			prefix, st.minted, st.rows, st.byID, st.byName, st.unjoined, st.rarityFolds, st.stood, st.notPlain, st.noFinish, st.badRarity, st.unverifiable)
+		log.Printf("european first prints: %s: %d minted in %d rows (%d by passcode, %d by name, %d unjoined, %d rarities folded), %d already priced (%d rows labelled), %d not a plain sibling, %d no default finish, %d bad rarity, %d unverifiable",
+			prefix, st.minted, st.rows, st.byID, st.byName, st.unjoined, st.rarityFolds, st.stood, st.labelled, st.notPlain, st.noFinish, st.badRarity, st.unverifiable)
 		totalMinted += st.minted
 		totalRows += st.rows
 		totalStood += st.stood
+		totalLabelled += st.labelled
 		totalByID += st.byID
 		totalByName += st.byName
 		totalUnjoined += st.unjoined
@@ -760,8 +772,8 @@ func mintEuropeanPrints(cards []*emit.Card, sets map[string]*emit.Set, ygoCards 
 		totalBadRarity += st.badRarity
 		totalUnverifiable += st.unverifiable
 	}
-	log.Printf("european first prints: %d minted in %d rows (%d by passcode, %d by name, %d unjoined, %d rarities folded), stood down: %d already priced, %d not a plain sibling, %d no default finish, %d bad rarity, %d unverifiable",
-		totalMinted, totalRows, totalByID, totalByName, totalUnjoined, totalFolds, totalStood, totalNotPlain, totalNoFinish, totalBadRarity, totalUnverifiable)
+	log.Printf("european first prints: %d minted in %d rows (%d by passcode, %d by name, %d unjoined, %d rarities folded), stood down: %d already priced (%d rows labelled), %d not a plain sibling, %d no default finish, %d bad rarity, %d unverifiable",
+		totalMinted, totalRows, totalByID, totalByName, totalUnjoined, totalFolds, totalStood, totalLabelled, totalNotPlain, totalNoFinish, totalBadRarity, totalUnverifiable)
 
 	return append(cards, minted...)
 }
