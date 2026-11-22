@@ -41,10 +41,10 @@ that a plain listing still lands on the North American card.
 
 A **minted** entry names no TCGplayer product, because none exists; nothing
 prices it, and the loader groups its printings by the upstream id it was
-minted from (`fabId`, `tcgdexId`, `cardmarketId`, the gallery id) - except
-Yu-Gi-Oh's, where a minted entry is a product of one printing and stands
-for itself; Konami's passcode travels in `Identifiers` for the matcher's
-own use, never as a join key. What is minted: lorcana the catalog products
+minted from (`fabId`, `tcgdexId`, `cardmarketId`, the gallery id), and
+Yu-Gi-Oh's by its collector number, one entry per run of a European first
+print; Konami's passcode travels in `Identifiers` for the matcher's own
+use, never as a join key. What is minted: lorcana the catalog products
 upstream has no card for, fleshandblood the dataset's numbers, pokemon
 tcgdex's cards and the Cardmarket-only stamped promos, onepiece pre-errata
 printings hand-carried from CardTrader or minted from Cardmarket's
@@ -490,11 +490,13 @@ Per-game notes an agent needs:
   sibling is itself a plain row - a labelled sibling (a qualifier like
   Dark Hole's "Magic") would leave every candidate a variant and no plain
   listing able to choose between them, so that code stands down instead:
-  one entry, the set's own default run (`europeanFinishOrder` searched in
-  order - Unlimited, 1st Edition, Limited - for the first the set actually
-  prices, which is a search order, not a claim about which run is
-  historically earliest), carrying the "European" variant and `european`
-  promo type and the North American sibling's name, type, attribute and
+  one entry per run the sibling's plain rows sell, in `europeanFinishOrder`
+  (Unlimited, 1st Edition, Limited), or, with no sibling or none of those
+  runs, one entry at the set's own default run (the first in that order the
+  set actually prices, which is a search order, not a claim about which run
+  is historically earliest), each carrying the "European" variant and
+  `european` promo type and the North American sibling's name, type,
+  attribute and
   rarity - never YGOPRODeck's own name or `set_rarity`, so the label
   stays the only difference between the two rows (a sibling's modern
   Konami rename, or YGOPRODeck's own rarity reading where it differs from
