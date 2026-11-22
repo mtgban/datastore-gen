@@ -111,7 +111,7 @@ hold. Counts on the 2026-10-21 catalog (each build logs its own):
 | pokemon | 283 entries over 893 tcgdex cards, and 75 Cardmarket-only stamped promos | 18 |
 | onepiece | 58 pre-errata printings hand-carried, 39 minted from Cardmarket's pre-errata shelf | 0 |
 | gundam | 9 printings TCGplayer sells no single of, and 8 hand-carried promotional reprints | 0 |
-| yugioh | 691 European first prints, 688 joined to their North American sibling | 0 |
+| yugioh | 1,341 entries over 691 European first prints, 688 joined to their North American sibling | 0 |
 
 One Piece mints from neither source: the catalog carries every number
 Bandai publishes, and Bandai files an errata as a correction to a card

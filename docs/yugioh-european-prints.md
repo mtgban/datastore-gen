@@ -6,16 +6,19 @@ PSV, LON, SDY, SDK, DOR, PCY, TP1 and DL1 - plus three cards with no
 North American printing to join to at all. YGOPRODeck's `cardsets.php`
 names each run by a `<PREFIX>-E###` code; this build joins it to the
 catalog's North American printing of the same card, labels it "European"
-and adds it. Cardmarket prices 656 of the resulting rows as listings the
-datastore previously had no printing to land on.
+and adds it, once per print run its North American sibling sells.
+Cardmarket sells these prints as products of their own, which would
+otherwise have no printing to land on.
 
 ## What is minted, and what is not
 
 A candidate is a `card_sets` code YGOPRODeck spells `<PREFIX>-E###`
 (`europeanNumberRe`, `^([A-Z0-9]+)-E(\d{3})$`) whose prefix is a set this
-build already publishes. It mints - one entry, at the set's own default
-run (`europeanFinishOrder`: Unlimited, then 1st Edition, then Limited,
-whichever the set's own priced entries carry first) - unless: a priced
+build already publishes. It mints one entry per run (Unlimited, 1st
+Edition, Limited, in `europeanFinishOrder`) that its joined North
+American sibling's plain rows sell; an unjoined candidate, or one whose
+sibling sells none of the three, mints one entry at the set's default run,
+the first of those the set's own priced entries carry - unless: a priced
 TCGplayer product already carries that exact number (MRL-E104 through
 E130 are TCGplayer products today, and stand down the same as any other
 already-priced code); its joined North American sibling is not itself a
@@ -28,22 +31,28 @@ build.
 
 Every prefix in one fetch of YGOPRODeck's `cardsets.php`/`cardinfo.php`:
 
-| prefix | candidates | minted | already priced | not a plain sibling |
-|---|---|---|---|---|
-| LOB | 103 | 102 | 0 | 1 |
-| MRD | 144 | 143 | 0 | 1 |
-| MRL | 131 | 104 | 27 | 0 |
-| PSV | 105 | 105 | 0 | 0 |
-| LON | 105 | 105 | 0 | 0 |
-| SDY | 46 | 46 | 0 | 0 |
-| SDK | 46 | 46 | 0 | 0 |
-| TP1 | 30 | 30 | 0 | 0 |
-| DOR | 3 | 3 | 0 | 0 |
-| PCY | 5 | 5 | 0 | 0 |
-| DL1 | 2 | 2 | 0 | 0 |
-| SDD | 3 | 0 | 3 | 0 |
-| WC4 | 3 | 0 | 3 | 0 |
-| **total** | **726** | **691** | **33** | **2** |
+| prefix | candidates | minted | rows | already priced | not a plain sibling |
+|---|---|---|---|---|---|
+| LOB | 103 | 102 | 204 | 0 | 1 |
+| MRD | 144 | 143 | 286 | 0 | 1 |
+| MRL | 131 | 104 | 207 | 27 | 0 |
+| PSV | 105 | 105 | 210 | 0 | 0 |
+| LON | 105 | 105 | 210 | 0 | 0 |
+| SDY | 46 | 46 | 92 | 0 | 0 |
+| SDK | 46 | 46 | 92 | 0 | 0 |
+| TP1 | 30 | 30 | 30 | 0 | 0 |
+| DOR | 3 | 3 | 3 | 0 | 0 |
+| PCY | 5 | 5 | 5 | 0 | 0 |
+| DL1 | 2 | 2 | 2 | 0 | 0 |
+| SDD | 3 | 0 | 0 | 3 | 0 |
+| WC4 | 3 | 0 | 0 | 3 | 0 |
+| **total** | **726** | **691** | **1341** | **33** | **2** |
+
+A rows count twice the minted one is a set whose North American cards
+sell in 1st Edition and Unlimited alike, so its European prints mint both
+runs; TP1, DOR and PCY siblings sell Unlimited alone, and DL1's two
+unjoined cards take the set's default run, Limited. MRL mints 207, not
+208: Beaver Warrior (MRL-E103) is unjoined and mints Unlimited only.
 
 Two stand down as not-a-plain-sibling: LOB-E041 (Dark Hole, whose North
 American LOB-052 carries the qualifier "Magic") and MRD-E008 (Harpie
@@ -98,11 +107,9 @@ from the North American row to the European one for those six - their
 only landing-changing difference, and exactly what the label exists to
 prevent. Reading the sibling's own rarity removes it.
 
-Coverage is unaffected: 46513 of 46513 catalog products still carried, 0
-skipped, 670 sets unchanged - a minted row carries no `tcgPlayerId`, so
-it never enters the catalog-coverage count. `datastorediff` against the
-same build without the mint: `ids +691/-0`, 0 sets changed, 0 sealed
-changed. Two builds of the branch from identical inputs are
+Coverage is unaffected: a minted row carries no `tcgPlayerId`, so it
+never enters the catalog-coverage count (47032 of 47032 catalog card
+products carried, 0 skipped). Two builds from identical inputs are
 byte-identical.
 
 ## Why labelled, not plain
@@ -156,19 +163,14 @@ American row to a European one.
 
 ## Known limitations
 
-- **One run per set, not per card.** `europeanFinishOrder` picks a
-  single default run from whichever the *set's* priced entries carry,
-  not from the specific card's own North American sibling. PCY prices
-  four Limited entries (001, 003, 004, 005) and one Unlimited (002);
-  because `europeanFinishOrder` takes Unlimited as soon as any priced
-  entry in the set carries it, all five PCY-E mints come out Unlimited,
-  and four of them (PCY-E001, E003, E004, E005) differ from their own
-  Limited sibling. Reading each sibling's own run would be more
-  faithful; today one entry decides the run for the whole set.
-- **One finish minted per code.** Where Cardmarket sells a card in more
-  than one European run - a European 1st Edition alongside a European
-  Unlimited - only the run `europeanFinishOrder` picked has a printing
-  of its own; the other pools into that one row's price in Market.
+- **An unjoined print mints one run.** Time Wizard, Barrel Dragon and
+  Beaver Warrior have no sibling to read runs from, so each mints only
+  the set's default run; a European copy in any other run has no
+  printing of its own.
+- **The sibling's runs are taken as the European print's.** card_sets
+  names no run, so a European run the North American sibling never sold
+  has no printing, and one it sold is minted whether or not Europe
+  printed it.
 
 ## The identity guard
 
@@ -178,89 +180,56 @@ shaped `<PREFIX>-E###` and it carries a `konamiId` - the exact shape
 re-running `validate` on it: a minted row with `externalLinks` stripped
 (no `konamiId`) is refused, `missing identity`; so is a priced row with
 `tcgPlayerId` zeroed. The shared-identity check keys a minted row on its
-own id, not product 0, so two European first prints of one set are never
-folded into "the same card twice".
+number, not product 0: the runs of one European first print pass as one
+product's, the way a priced product's runs do, and two European first
+prints of one set are never folded into "the same card twice".
 
-## A paired go-mtgban PR is required before this publishes
+## What go-mtgban needs before this publishes
 
-`mtgmatcher/yugioh`'s loader reads `id`/`name`/`finish` and falls back to
-the id for its product key; it does not require `tcgPlayerId`, and a
-minted Yu-Gi-Oh entry is a product of one printing standing for itself.
-The Cardmarket resolver already asks `<set>-E<tail>` for a V.1 product
-(`yugiohPrintNumber`, `otherPrintRun`) and lands it the moment that row
-exists. Neither needs to change, and both are verified by the replays
-below - but **publishing this datastore is not read-only for
-go-mtgban**.
+`matcher/yugioh`'s loader groups entries into products by `productKey`:
+a priced entry by its `tcgPlayerId`, a minted one by its number, so the
+runs of one European first print load as one card with a uuid per run,
+the way a priced product's runs do. A loader that keys a minted entry on
+its own id reads the two runs as two cards of one identity: against
+this build it moves 153 Card Game Corner listings onto the North
+American row and refuses 8 as aliasing. So the go-mtgban change that
+keys a minted entry on its number lands before this datastore publishes.
+It changes nothing on a datastore minting one run per print.
 
-`cardmarket/yugiohprint_test.go`'s `TestYugiohIndexPrints`, on
-go-mtgban's own `master`, pins the case "the European print gives the
-bridged North American row up": `resolveProduct("Mystical Space Typhoon
-(V.1 - Ultra Rare)" #047)` expects `errForeign`, because the unminted
-datastore has no European row for Cardmarket's resolver to bridge the
-V.1 product onto. Against this build it resolves to `mrl-e047_unlimited`
-instead - a real card now, the change working as intended - and the
-pinned test fails. CI's `test-yugioh` job runs
-`./mtgmatcher/yugioh/... ./coolstuffinc/... ./cardmarket/...
-./internal/vocabulary/...` against the *published*
-`b2://mtgban-datastore/yugioh/yugioh.json.xz`, so publishing before that
-case is updated turns both go-mtgban `master` and every open PR red.
+`cardmarket`'s `TestYugiohIndexPrints` reads MRL-E047's default run and
+1st Edition off the backend, so it holds on either shape. CI's
+`test-yugioh` job runs go-mtgban against the *published*
+`b2://mtgban-datastore/yugioh/yugioh.json.xz`, so a publish ahead of
+those changes turns go-mtgban `master` red.
 
-The fix is mtgban/go-mtgban#873, which makes the case
-hold on either datastore: it reads the European MRL-E047 row from the
-backend and expects `errForeign` only where that row is absent. **That
-PR merges before this datastore-gen PR publishes** - nothing else in
-go-mtgban needs to change first: `go test ./mtgmatcher/yugioh/...
-./coolstuffinc/... ./internal/vocabulary/...` already passes unmodified
-against this build, `TestLoadersReadWhatIsPublished` included (`european`
-is one word, needs no `promolabels` row).
+The Cardmarket resolver asks `<set>-E<tail>` for a V.1 product
+(`yugiohPrintNumber`, `otherPrintRun`): it lands the default run and
+names the minted 1st Edition as the product's first-edition column.
 
-Four production replays, before/after this build, with external market
-data held constant:
+Production replays, before and after this build, on go-mtgban `master`
+with the loader change, every input held still:
 
-- **Cardmarket** (`cardmarket` package, go-mtgban master `393cfc940`):
-  `{foreign:23737 landed:45549 noprinting:71 twin:399}` before,
-  `{foreign:23081 landed:46205 noprinting:70 twin:400}` after (the
-  committed census walk, `docs/agents/cardmarket-census`, counts product
-  842833 as landed rather than twin: 45550/46206 landed, 398/399 twin). Per
-  product: 656 move `foreign` (a catalog we do not carry) to `landed`,
-  each on the European-labelled row whose number matches the product's;
-  1 moves `noprinting` to `twin` - Cardmarket's "Spell Ruler" prices
-  Beaver Warrior and Serpent Night Dragon at the same plain number, a
-  pre-existing same-number ambiguity the resolver already refuses
-  rather than guess, refused both before and after. Nothing that landed
-  before moves anywhere else after. Without the CardTrader bridge
-  (`ZZ_NOBRIDGE=1`): the same 656 `foreign`->`landed`, plus 9
-  `noprinting`->`twin` instead of 1 - still nothing that landed before
-  moves.
-- **CardTrader** (`cardtrader` package, 47,510 blueprints): 4 move, all
-  refused to landed, all on the unjoined mints - Time Wizard (DL1-E001)
-  and Barrel Dragon (DL1-E002) on the "Duelist League Promos Upperdeck"
-  shelf, Beaver Warrior (MRL-E103) on the Magic Ruler and Spell Ruler
-  shelves. None came from a North American row.
-- **Cool Stuff Inc** (`coolstuffinc` package, 34,600 retail and 9,668
-  buylist listings): 0 move.
-- **TCGplayer catalog** (`internal/vocabulary`'s replay, 46,513
-  products): 0 move.
+- **Cardmarket** (the census walk, `docs/agents/cardmarket-census`,
+  70,223 products): 650 change, each landed to landed on the same
+  European row, its first-edition column now the minted 1st Edition.
+- **Card Game Corner** (13,747 Yu-Gi-Oh copies): 85 European 1st
+  Edition copies, refused before so as not to price them as Unlimited,
+  land on the minted 1st Edition rows; 0 lost, 0 moved.
+- **CardTrader** (1,193,254 listings), **Cool Stuff Inc** buylist
+  (9,543) and the **TCGplayer catalog** (61,090 product runs): 0 move.
 
 Minting the sibling's own rarity rather than YGOPRODeck's `set_rarity`
 keeps 6 rows (DOR-E001/002/003, PCY-E002/003/004) equal to their
-sibling's TCGplayer wording (above). Of those, DOR-E001/002/003 are 3 of
-the 656 Cardmarket landings (products 101864/102142/103517, Alpha/Beta/
-Gamma The Magnet Warrior V.1 Secret Rare) - they land the same under
-either rarity, since the Cardmarket resolver keys on set and number, not
-the rarity string. The PCY three reach no vendor: all five Cardmarket PCY
-products land on the plain North American row (PCY-001..005), not the
-European one. All four replays are measured directly against go-mtgban
-`master` `393cfc940` and this build.
+sibling's TCGplayer wording (above); the Cardmarket resolver keys on set
+and number, not the rarity string, so the choice moves no landing there.
 
 Star City Games is not applicable: its `register.go` never carries
 Yu-Gi-Oh.
 
 ## New dependency
 
-`cardinfo.php` becomes load-bearing. Today, an outage costs only
-passcodes; after this it costs these 691 rows too - 1.1% of the
-catalog's ~61,000 card entries, past the baseline guard's 1% tolerance,
-so a build run against a failing YGOPRODeck refuses to publish rather
-than ship a file quietly missing them. That is the intended failure
-mode.
+`cardinfo.php` is load-bearing. An outage costs passcodes and these
+1,341 rows - 2.1% of the catalog's ~62,400 card entries, past the
+baseline guard's 1% tolerance, so a build run against a failing
+YGOPRODeck refuses to publish rather than ship a file quietly missing
+them. That is the intended failure mode.
