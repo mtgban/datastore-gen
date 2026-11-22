@@ -1,3 +1,4 @@
 {
- "data": [{"id":46986414,"name":"Dark Magician","type":"Normal Monster","attribute":"DARK","card_sets":[{"set_name":"Legend of Blue Eyes White Dragon","set_code":"LOB-E003","set_rarity":"Ultra Rare"}]}]
+ "data": [{"id":46986414,"name":"Dark Magician","type":"Normal Monster","attribute":"DARK","card_sets":[{"set_name":"Legend of Blue Eyes White Dragon","set_code":"LOB-E003","set_rarity":"Ultra Rare"}]},
+  {"id":66516792,"name":"Serpent Night Dragon","type":"Normal Monster","attribute":"DARK","card_sets":[{"set_name":"Magic Ruler","set_code":"MRL-103","set_rarity":"Secret Rare"},{"set_name":"Magic Ruler","set_code":"MRL-E130","set_rarity":"Secret Rare"}]}]
 }

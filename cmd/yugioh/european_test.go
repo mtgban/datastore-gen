@@ -8,8 +8,8 @@ import (
 	"github.com/mtgban/datastore-gen/internal/emit"
 )
 
-// TestMintEuropeanPrints pins which runs a European first print mints on the
-// branches the golden does not reach.
+// TestMintEuropeanPrints pins which runs a European first print mints, and
+// which priced rows wear the label, on the branches the golden does not reach.
 func TestMintEuropeanPrints(t *testing.T) {
 	row := func(number, name, finish, variant string, passcode int) *emit.Card {
 		setCode, _, _ := strings.Cut(number, "-")
@@ -47,6 +47,10 @@ func TestMintEuropeanPrints(t *testing.T) {
 			row("XYZ-002", "Mystical Elf", "1st Edition", "", 0),
 			row("ABC-001", "Time Wizard", "Unlimited", "", 0),
 		}, upstream(71625222, "Time Wizard", "XYZ-E005"), []string{"xyz-e005_1stedition"}},
+		{"priced print labels only its plain rows", []*emit.Card{
+			row("XYZ-E003", "Dark Magician", "Unlimited", "", 46986414),
+			row("XYZ-E003", "Dark Magician", "1st Edition", "Alternate Art", 46986414),
+		}, upstream(46986414, "Dark Magician", "XYZ-E003"), []string{"xyz-e003_unlimited"}},
 	} {
 		sets := map[string]*emit.Set{"XYZ": {}, "ABC": {}}
 		var got []string

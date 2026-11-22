@@ -486,7 +486,8 @@ Per-game notes an agent needs:
   withheld on contradiction. `mintEuropeanPrints` runs after `foldPromoTypes`
   (so the fold cannot rewrite its own label) and mints a `card_sets` code
   shaped `<PREFIX>-E###` for a set this build publishes, when no priced
-  product already carries that exact number and the joined North American
+  product already carries that exact number (that product's plain rows wear
+  the label instead) and the joined North American
   sibling is itself a plain row - a labelled sibling (a qualifier like
   Dark Hole's "Magic") would leave every candidate a variant and no plain
   listing able to choose between them, so that code stands down instead:
