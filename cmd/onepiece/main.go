@@ -794,10 +794,29 @@ func nameLanguage(quals []string) string {
 // numberFor is the collector number a product is filed under: the catalog's
 // own Number, and none where it files none (SPECIFICATIONS §2.2), so the
 // 244 DON!! cards and 5 promo Leaders are carried on their product id alone
-// (docs/onepiece-numberless-ids.md).
+// (docs/onepiece-numberless-ids.md), or its numberFixes row while the
+// catalog still disagrees with it.
 func numberFor(product tcgplayer.Product) string {
-	return product.Extended("Number")
+	number := product.Extended("Number")
+	fixed, found := numberFixes.Rows()[product.ProductID]
+	if !found || fixed == number {
+		return number
+	}
+	numberFixes.Use(product.ProductID)
+	return fixed
 }
+
+// numberFixes correct a product the catalog files under another card's
+// number, keyed by product id. A row counts as used only while the catalog
+// still disagrees, so the hand table report names the ones TCGplayer fixed.
+var numberFixes = handtable.New("numberFixes", map[int]string{
+	// The CS 26-27 Sanji prize cards are EB02-054, cost 5 with Blocker, on
+	// their own image and description and at Cardmarket and CardTrader;
+	// the catalog files them at EB04-052, a cost 4 Sanji.
+	710248: "EB02-054",
+	710268: "EB02-054",
+	710269: "EB02-054",
+})
 
 // single is one card product, its name split into the base name, the
 // parenthetical qualifiers, and the collector number.
