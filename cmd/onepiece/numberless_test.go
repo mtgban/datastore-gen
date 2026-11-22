@@ -7,10 +7,10 @@ import (
 	tcgplayer "github.com/mtgban/go-tcgplayer"
 )
 
-// TestNumberlessProductHasNoNumber pins SPECIFICATIONS §2.2 and §2.4: a
-// product the catalog files with no Number publishes none, whatever its card
-// type, and its id stem is the bare product id.
-func TestNumberlessProductHasNoNumber(t *testing.T) {
+// TestProductNumber pins SPECIFICATIONS §2.2 and §2.4: a product the catalog
+// files with no Number publishes none, whatever its card type, and its id stem
+// is the bare product id; a numberFixes product publishes its fixed number.
+func TestProductNumber(t *testing.T) {
 	tests := []struct {
 		name     string
 		product  tcgplayer.Product
@@ -40,6 +40,22 @@ func TestNumberlessProductHasNoNumber(t *testing.T) {
 				{Name: "CardType", Value: "Leader"},
 			}},
 			"Normal", "OP01-001", "Roronoa Zoro", "op01-001_453522",
+		},
+		{
+			"number the catalog files wrong",
+			tcgplayer.Product{ProductID: 710248, Name: "Sanji (CS 26-27 Top Player Pack Vol. 1)", ExtendedData: []tcgplayer.ExtendedField{
+				{Name: "Number", Value: "EB04-052"},
+				{Name: "CardType", Value: "Character"},
+			}},
+			"Foil", "EB02-054", "Sanji", "eb02-054_710248_foil",
+		},
+		{
+			"number the catalog files right",
+			tcgplayer.Product{ProductID: 710248, Name: "Sanji (CS 26-27 Top Player Pack Vol. 1)", ExtendedData: []tcgplayer.ExtendedField{
+				{Name: "Number", Value: "EB02-054"},
+				{Name: "CardType", Value: "Character"},
+			}},
+			"Foil", "EB02-054", "Sanji", "eb02-054_710248_foil",
 		},
 	}
 	for _, tt := range tests {
