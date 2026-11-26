@@ -194,7 +194,15 @@ func TestSealedEntries(t *testing.T) {
 		{ID: "ab-900", Name: "Alpha Booster Box", SetCode: "AB", ReleaseDate: "2026-01-02",
 			Image: emit.ImageURL("https://tcgplayer-cdn.tcgplayer.com/product/900_200w.jpg"), ExternalLinks: emit.Links{TCGPlayerID: 900}},
 	}
-	if !slices.EqualFunc(sealed, want, func(got *emit.Sealed, want emit.Sealed) bool { return *got == want }) {
+	gotJSON, err := json.Marshal(sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantJSON, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotJSON, wantJSON) {
 		t.Errorf("SealedEntries = %v, want them in product id order: %v", sealed, want)
 	}
 }
