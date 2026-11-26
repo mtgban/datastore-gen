@@ -1397,6 +1397,9 @@ func main() {
 			mintedSets, emptied)
 	}
 
+	live := liveProducts(&catalog)
+	cards = mintDeleted(groups, setCodes, live, sets, cards, cardTypes)
+
 	sealed := build.SealedEntries(split.Sealed, func(product tcgplayer.Product) (string, string) {
 		return setCodeFor(product), releaseDates[product.GroupID]
 	}, emit.IDStem)
@@ -1443,6 +1446,8 @@ func main() {
 	marked, alike := markPrintings(cards, leftOut)
 
 	log.Printf("watermarks: %d printings marked by which copy of the number they are, %d still alike", marked, alike)
+
+	linkMerged(live, cards)
 
 	doc := &emit.Datastore{
 		Game:       "pokemon",

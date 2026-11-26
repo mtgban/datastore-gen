@@ -46,7 +46,8 @@ Yu-Gi-Oh's by its collector number, one entry per run of a European first
 print; Konami's passcode travels in `Identifiers` for the matcher's own
 use, never as a join key. What is minted: lorcana the catalog products
 upstream has no card for, fleshandblood the dataset's numbers, pokemon
-tcgdex's cards and the Cardmarket-only stamped promos, onepiece pre-errata
+tcgdex's cards, the Cardmarket-only stamped promos and the Japanese
+products TCGplayer deleted from the category, onepiece pre-errata
 printings hand-carried from CardTrader or minted from Cardmarket's
 pre-errata shelf, gundam tokens and hand-carried promotional reprints,
 yugioh European first prints (joined to their North American sibling by
@@ -185,15 +186,16 @@ Common to every game:
 | `language` | the printing's language where it is not the game's default (`"Japanese"`, `"German"`) |
 | `originalReleaseDate` | a date a label stated that the set's date does not cover (§3.3) |
 | `image` | the catalog image at the 400-wide rendition; Pokemon and Lorcana also carry `images.{full,thumbnail}` |
-| `externalLinks` | `tcgPlayerId` on every priced entry; the upstream id beside it or instead of it: `fabId`, `tcgdexId`, `cardmarketId`, `bandaiId`, `konamiId`, `cardTraderId` |
+| `externalLinks` | `tcgPlayerId` on every priced entry; the upstream id beside it or instead of it: `fabId`, `tcgdexId`, `cardmarketId`, `bandaiId`, `konamiId`, `cardTraderId`; `formerTcgPlayerIds`, the products TCGplayer deleted that sold the card |
 | `color`, `pitch`, `type`, `attribute`, `artist` | game facts where the source carries them: Flesh and Blood `pitch` ("Red", "Yellow" or "Blue") in place of a colour, Gundam and Palworld colour and card type, Yu-Gi-Oh attribute, One Piece colour and type |
 | `colors`, `pitches`, `attributes`, `types` | the same facts as lists, each under the game's own name, which is what a reader takes: One Piece's, Lorcana's, Gundam's and Palworld's `colors`, Flesh and Blood's `pitches`, Yu-Gi-Oh's `attributes`, and the `types` a Pokemon prints (tcgdex's, else the catalog's Card Type; none on a Trainer or Energy). Riftbound's `domain.values` is a list already |
 
 Per game, on top of the common keys: under `externalLinks`, `fabId`
 (fleshandblood), `tcgdexId` (pokemon), `bandaiId` (onepiece), `konamiId`
 (yugioh, only where the passcode join is unambiguous and not contradicted
-by the name), `cardmarketId` (lorcana, onepiece, pokemon) and
-`cardTraderId` (lorcana, onepiece); `printings[]` (lorcana, §2.5).
+by the name), `cardmarketId` (lorcana, onepiece, pokemon),
+`cardTraderId` (lorcana, onepiece) and `formerTcgPlayerIds` (pokemon);
+`printings[]` (lorcana, §2.5).
 
 ### 2.3 Sealed
 
@@ -218,7 +220,7 @@ the printing name (`""` for the plain printing, else `_` plus the slug:
 | gundam | `<number>_<productId><suffix>` (`gd03-057_673481`) | `<number>` alone; hand-carried reprints `<number>-<label><suffix>` (`gd01-073-premium-card-collection-02_holofoil`) |
 | onepiece | `<number>_<productId><suffix>` | hand-carried: `<number>_ct<blueprint><suffix>`; Cardmarket: `<number>_mkm<cardmarketId><suffix>` |
 | palworld | `<number>_<productId><suffix>` | `<number>` alone |
-| pokemon | `<number>-<total>_<productId><suffix>` (`226-164_268081`, `sm04_147224`) | tcgdex: `<tcgdexId><suffix>`; Cardmarket: `<number>-<total>_mkm<cardmarketId><suffix>` |
+| pokemon | `<number>-<total>_<productId><suffix>` (`226-164_268081`, `sm04_147224`) | tcgdex: `<tcgdexId><suffix>`; Cardmarket: `<number>-<total>_mkm<cardmarketId><suffix>`; a product TCGplayer deleted keeps its priced spelling, of the deleted id |
 | yugioh | `<number>_<productId><suffix>` (`blgg-en116_695673_1stedition`) | `<number><suffix>`, lower-cased (`lob-e003_unlimited`, `dl1-e001_limited`) |
 | riftbound | the gallery's own id (`unl-131-219`); uuids per printing `unl-131-219`, `unl-131-219_foil` | adopted and sealed: `<set code>-<productId>`, lower-cased |
 | lorcana | integer: LorcanaJSON's card id; uuids per printing `1951`, `1951_coldfoil`, `1951_holofoil` | `-<productId>`, uuids `m-714954`, `m-714954_holofoil` |
@@ -227,7 +229,8 @@ A product with no collector number takes the bare product id as its stem.
 The number in an id is lower-cased and its separators folded to dashes;
 Yu-Gi-Oh only lower-cases it. The two namespaces of a game (with
 and without `_<productId>`) can never collide, which is what lets a minted
-entry stand beside a priced one without a check.
+entry stand beside a priced one without a check; TCGplayer never reuses a
+product id, so a deleted one cannot meet a live one either.
 
 ### 2.5 The two other shapes
 

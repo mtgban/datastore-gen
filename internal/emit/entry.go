@@ -84,9 +84,14 @@ type Printing struct {
 
 // Links is an entry's externalLinks: the TCGplayer product on every priced
 // entry, and the upstream's id beside it or in its place. A minted entry
-// links nothing and publishes no externalLinks at all.
+// links nothing and publishes no externalLinks at all, unless it names the
+// product TCGplayer sold it as before deleting it.
 type Links struct {
-	TCGPlayerID  int    `json:"tcgPlayerId,omitempty"`
+	TCGPlayerID int `json:"tcgPlayerId,omitempty"`
+	// FormerTCGPlayerIDs are products TCGplayer deleted that sold this card,
+	// which other sources still file it under.
+	FormerTCGPlayerIDs []int `json:"formerTcgPlayerIds,omitempty"`
+
 	FabID        string `json:"fabId,omitempty"`
 	TcgdexID     string `json:"tcgdexId,omitempty"`
 	CardmarketID int    `json:"cardmarketId,omitempty"`

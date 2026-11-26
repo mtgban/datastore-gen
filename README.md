@@ -108,7 +108,7 @@ hold. Counts on the 2026-10-21 catalog (each build logs its own):
 |---|---|---|
 | lorcana | 215 catalog products upstream has no card for | 3 |
 | fleshandblood | 196 entries over 196 collector numbers | 5 |
-| pokemon | 283 entries over 893 tcgdex cards, and 75 Cardmarket-only stamped promos | 18 |
+| pokemon | 283 entries over 893 tcgdex cards, and 75 Cardmarket-only stamped promos; on the 2026-11-26 catalog also 56 Japanese products TCGplayer deleted | 18; on 2026-11-26 also 1 for an emptied group |
 | onepiece | 58 pre-errata printings hand-carried, 39 minted from Cardmarket's pre-errata shelf | 0 |
 | gundam | 9 printings TCGplayer sells no single of, and 8 hand-carried promotional reprints | 0 |
 | yugioh | 1,341 entries over 691 European first prints, 688 joined to their North American sibling | 0 |
