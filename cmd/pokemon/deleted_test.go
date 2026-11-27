@@ -44,6 +44,9 @@ func TestMintDeleted(t *testing.T) {
 		if card.SetCode == "AVTR" {
 			deck++
 		}
+		if card.Language != "Japanese" {
+			t.Errorf("%s %s/%s is in %q, want Japanese", card.Name, card.Number, card.Total, card.Language)
+		}
 	}
 	if deck != 21 {
 		t.Errorf("%d Deck Kit cards minted, want 21", deck)
